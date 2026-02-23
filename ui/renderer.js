@@ -355,11 +355,11 @@ micBtn.addEventListener("click", () => {
 
 clearBtn.addEventListener("click", handleClear);
 
-// Copy corrected text to clipboard
-copyBtn.addEventListener("click", () => {
+// Copy corrected text to clipboard (use Electron clipboard via IPC — navigator.clipboard fails in Electron)
+copyBtn.addEventListener("click", async () => {
   const text = commandBox.textContent;
   if (!text || text === "—") return;
-  navigator.clipboard.writeText(text);
+  await window.voiceEverywhere.copyToClipboard(text);
   copyBtn.classList.add("success");
   setTimeout(() => {
     copyBtn.classList.remove("success");

@@ -4,6 +4,12 @@ Global voice input for macOS. Speak anywhere, insert text at your cursor — in 
 
 ![Voice Everywhere](assets/screenshot.jpg)
 
+## Install
+
+```bash
+git clone https://github.com/hungson175/voice-everywhere.git && cd voice-everywhere && bash install.sh
+```
+
 ## What It Does
 
 1. **Speak** — Click the mic button or press `Ctrl+Option+Cmd+V`
@@ -12,6 +18,14 @@ Global voice input for macOS. Speak anywhere, insert text at your cursor — in 
 4. **Insert** — Text is automatically pasted at your cursor position in the frontmost app
 
 Works with VS Code, Terminal, browsers, Notes, Slack, and any app that accepts text input.
+
+## Requirements
+
+- macOS (Apple Silicon or Intel)
+- Node.js
+- [Soniox API key](https://soniox.com/) — for speech-to-text
+- [xAI API key](https://console.x.ai/) — for LLM correction (optional)
+- macOS Accessibility permission — for text insertion
 
 ## Features
 
@@ -24,34 +38,15 @@ Works with VS Code, Terminal, browsers, Notes, Slack, and any app that accepts t
 - **Menubar tray icon** — White circle (idle) / red circle (recording)
 - **Configurable vocabulary** — Custom terms and phonetic corrections for technical jargon
 
-## Requirements
+## Setup
 
-- macOS (Apple Silicon or Intel)
-- [Soniox API key](https://soniox.com/) — for speech-to-text
-- [xAI API key](https://console.x.ai/) — for LLM correction (optional)
-- macOS Accessibility permission — for text insertion
+On first launch, enter your API keys. They are stored securely in macOS Keychain.
 
-## Install
-
-### Build & Install
-
-```bash
-git clone https://github.com/hungson175/voice-everywhere.git
-cd voice-everywhere
-npm install
-CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --dir
-cp -R dist/mac-arm64/Voice\ Everywhere.app /Applications/
-```
-
-### Dev Mode
+## Dev Mode
 
 ```bash
 npm start
 ```
-
-## Setup
-
-On first launch, enter your API keys. They are stored securely in macOS Keychain.
 
 ## Tech Stack
 

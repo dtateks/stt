@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld("voiceEverywhere", {
   // Listen for toggle-mic from global shortcut
   onToggleMic: (callback) => ipcRenderer.on("toggle-mic", callback),
 
+  // Copy to clipboard (navigator.clipboard fails in Electron)
+  copyToClipboard: (text) => ipcRenderer.invoke("copy-to-clipboard", text),
+
   // Quit the app
   quitApp: () => ipcRenderer.send("quit-app"),
 });

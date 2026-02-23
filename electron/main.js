@@ -190,6 +190,12 @@ ipcMain.handle("reset-credentials", async () => {
   );
 });
 
+// --- IPC: Copy to clipboard ---
+ipcMain.handle("copy-to-clipboard", async (_event, text) => {
+  const { clipboard } = require("electron");
+  clipboard.writeText(text);
+});
+
 // --- IPC: Quit app ---
 ipcMain.on("quit-app", () => {
   app.quit();
