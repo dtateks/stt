@@ -206,20 +206,8 @@ async function startListening() {
     const context = buildSonioxContext();
     await stt.start(sonioxKey, context);
 
-    // Gentle beep every 60s while listening
-    reminderTimer = setInterval(() => {
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 880;
-      gain.gain.value = 0.08;
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.15);
-      osc.onended = () => ctx.close();
-    }, 60000);
+    // Gentle beep every 60s while listening (reminder)
+    reminderTimer = setInterval(() => beep(660, 0.15, 0.2), 60000);
   } catch (err) {
     console.error("Failed to start:", err);
     setStatus("Mic error: " + err.message, "idle");
@@ -310,6 +298,7 @@ async function doInsertText(text) {
   try {
     const result = await window.voiceEverywhere.insertText(text, { enterMode: enterModeToggle.checked });
     if (result.success) {
+      beep(1200, 0.2, 0.15);  // confirmation beep
       setStatus("Inserted! Listening...", "listening");
     } else {
       setStatus("Insert failed, listening...", "listening");
@@ -333,6 +322,20 @@ function handleClear() {
 }
 
 // --- Helpers ---
+function beep(freq, volume, duration) {
+  const ctx = new AudioContext();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.frequency.value = freq;
+  gain.gain.value = volume;
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+  osc.start();
+  osc.stop(ctx.currentTime + duration);
+  osc.onended = () => ctx.close();
+}
+
 function setStatus(text, className) {
   statusText.textContent = text;
   statusText.className = "status " + className;
