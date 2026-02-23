@@ -127,7 +127,7 @@ app.on("ready", () => {
   // --- Normal persistent window ---
   win = new BrowserWindow({
     width: 360,
-    height: 480,
+    height: 560,
     resizable: true,
     title: "Voice Everywhere",
     webPreferences: {
