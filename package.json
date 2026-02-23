@@ -1,0 +1,44 @@
+{
+  "name": "voice-everywhere",
+  "version": "1.0.0",
+  "description": "Global voice input menubar app for macOS",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder --mac",
+    "build:dir": "electron-builder --mac --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {},
+  "build": {
+    "appId": "com.voiceeverywhere.app",
+    "productName": "Voice Everywhere",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.png",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Voice Everywhere needs microphone access for speech-to-text.",
+        "NSAppleEventsUsageDescription": "Voice Everywhere needs accessibility to paste text into other apps."
+      }
+    },
+    "files": [
+      "electron/**/*",
+      "ui/**/*",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "config.json",
+        "to": "config.json"
+      }
+    ]
+  }
+}
