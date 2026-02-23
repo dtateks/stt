@@ -73,7 +73,6 @@ const transcriptBox = document.getElementById("transcript");
 const commandBox = document.getElementById("command-box");
 const clearBtn = document.getElementById("clear-btn");
 const editBtn = document.getElementById("edit-btn");
-const resendBtn = document.getElementById("resend-btn");
 const copyBtn = document.getElementById("copy-btn");
 const enterModeToggle = document.getElementById("enter-mode-toggle");
 
@@ -282,8 +281,7 @@ async function handleCommandDetected(rawCommand) {
 
   commandBox.innerHTML = escapeHtml(text);
 
-  // Enable resend/copy buttons
-  resendBtn.disabled = !text;
+  // Enable copy button
   copyBtn.disabled = !text;
 
   // Insert text at cursor in frontmost app
@@ -316,7 +314,6 @@ function handleClear() {
   transcriptBox.innerHTML =
     '<span class="placeholder">Transcript will appear here...</span>';
   commandBox.innerHTML = '<span class="placeholder">—</span>';
-  resendBtn.disabled = true;
   copyBtn.disabled = true;
   setStatus("Idle", "idle");
 }
@@ -357,19 +354,6 @@ micBtn.addEventListener("click", () => {
 });
 
 clearBtn.addEventListener("click", handleClear);
-
-// Resend: insert the corrected text again (user picks the right window first)
-resendBtn.addEventListener("click", async () => {
-  const text = commandBox.textContent;
-  if (!text || text === "—") return;
-  await doInsertText(text);
-  resendBtn.classList.add("success");
-  resendBtn.textContent = "Sent!";
-  setTimeout(() => {
-    resendBtn.classList.remove("success");
-    resendBtn.textContent = "Resend";
-  }, 1500);
-});
 
 // Copy corrected text to clipboard
 copyBtn.addEventListener("click", () => {
