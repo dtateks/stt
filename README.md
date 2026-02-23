@@ -33,20 +33,20 @@ Works with VS Code, Terminal, browsers, Notes, Slack, and any app that accepts t
 
 ## Install
 
-### From Source
+### Build & Install
 
 ```bash
 git clone https://github.com/hungson175/voice-everywhere.git
 cd voice-everywhere
 npm install
-npm start
-```
-
-### Build & Install
-
-```bash
 CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --dir
 cp -R dist/mac-arm64/Voice\ Everywhere.app /Applications/
+```
+
+### Dev Mode
+
+```bash
+npm start
 ```
 
 ## Setup

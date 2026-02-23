@@ -10,11 +10,13 @@ Global voice input app for macOS. Speech-to-text → insert text at cursor posit
 ## Commands
 
 ```bash
+# Build & install
+CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --dir
+cp -R dist/mac-arm64/Voice\ Everywhere.app /Applications/
+
+# Dev
 npm install                       # Install dependencies
-npm run compile                   # TypeScript → out/
-npm run watch                     # TypeScript watch mode
-npm start                         # Launch Electron app
-npx electron .                    # Alternative launch
+npm start                         # Launch Electron app (dev mode, opens DevTools)
 ```
 
 ## Architecture
@@ -23,8 +25,8 @@ npx electron .                    # Alternative launch
 Mic (SoX) → Soniox STT (WebSocket) → Stop Word ("thank you") → LLM Correction (xAI Grok) → Insert at cursor
 ```
 
-- **Runtime**: Electron + menubar npm package
-- **Audio**: SoX child process (`rec` command), 16-bit PCM 16kHz mono
+- **Runtime**: Electron (Tray + BrowserWindow, NOT `menubar` package)
+- **Audio**: Web Audio API in renderer (MediaDevices.getUserMedia), NOT SoX
 - **STT**: Soniox WebSocket (`wss://stt-rt.soniox.com/transcribe-websocket`, model `stt-rt-v4`)
 - **LLM**: xAI Grok (`grok-4-fast-non-reasoning`) — fixes STT errors, translates Vietnamese→English
 - **Text insertion**: System-level (clipboard paste / AppleScript) — the main engineering challenge
@@ -35,15 +37,16 @@ Read [lt-memory/architecture.md](lt-memory/architecture.md) for full details, si
 ## Key Conventions
 
 - Pipeline modules (recorder, soniox, stopword, correction) are based on voice-vs-extension — reference and adapt, don't blindly copy. Discard anything VS Code-specific.
-- UI mimics voice-terminal's Apple system design (see lt-memory/ui-ux.md for design tokens)
+- UI: DM Sans + JetBrains Mono typography, glass morphism cards, CSS custom properties (see lt-memory/ui-ux.md)
 - No terminal context or terminal selector — unlike voice-terminal, this app has no knowledge of what's in the terminal
 - Config stored in `config.json`, not hardcoded
 
 ## Pitfalls
 
 - Soniox: First WebSocket message = JSON config, then ONLY binary. Sending JSON after config crashes silently.
-- SoX: Always kill `rec` process on stop — orphaned processes keep mic open.
 - Soniox translation terms: `[{source, target}]` array, NOT `{key: value}` map.
+- Build: Must use `CSC_IDENTITY_AUTO_DISCOVERY=false` — without it, electron-builder hangs on code signing.
+- Resend button was removed — clicking UI buttons steals focus from the target app, defeating the purpose of text insertion. Only non-focus-stealing actions (copy to clipboard) belong in the UI.
 
 Read [lt-memory/pitfalls.md](lt-memory/pitfalls.md) before modifying tricky areas.
 
@@ -57,5 +60,5 @@ Read [lt-memory/pitfalls.md](lt-memory/pitfalls.md) before modifying tricky area
 
 ## Status
 
-- **Phase**: Initial setup — project structure not yet created
-- **Next step**: Scaffold Electron menubar app, reference voice-vs-extension pipeline and voice-terminal UI
+- **Phase**: Complete — app built, installed, and running
+- **GitHub**: `hungson175/voice-everywhere` (main branch)
