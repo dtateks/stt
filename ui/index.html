@@ -122,13 +122,17 @@
         <div class="dialog-icon">&#9889;</div>
         <div class="dialog-title">xAI Key Error</div>
         <div id="skip-llm-msg" class="dialog-msg"></div>
+        <div class="skip-llm-key-section">
+          <input type="password" id="skip-llm-key-input" class="settings-input" placeholder="Enter new xAI key (xai-...)" autocomplete="off" spellcheck="false" />
+          <div id="skip-llm-key-error" class="dialog-msg" style="color:#ff453a; display:none; margin-top:4px; font-size:12px;"></div>
+        </div>
         <div class="dialog-actions">
-          <button id="skip-llm-yes" class="dialog-btn-primary">Skip LLM Correction</button>
-          <button id="skip-llm-update" class="dialog-btn-secondary">Update API Key</button>
+          <button id="skip-llm-save" class="dialog-btn-primary">Save Key & Retry</button>
+          <button id="skip-llm-yes" class="dialog-btn-secondary">Skip LLM</button>
         </div>
         <label class="dialog-checkbox">
           <input type="checkbox" id="skip-llm-remember" />
-          <span>Don't ask again</span>
+          <span>Always skip LLM correction</span>
         </label>
       </div>
     </div>

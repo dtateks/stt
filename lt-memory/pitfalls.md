@@ -9,14 +9,10 @@ Known gotchas and hard-earned lessons. Read before modifying tricky areas.
 - Translation terms format: `[{source, target}]` array, NOT `{key: value}` map
 - Max stream duration: 300 minutes per connection; reconnect for longer sessions
 
-## SoX Audio
-
-- macOS: `brew install sox` required
-- Command: `rec -q -t raw -b 16 -e signed -c 1 -r 16000 -`
-- PCM format must be exactly 16-bit signed LE, 16kHz, mono — wrong format = garbage transcription
-- Always kill `rec` process on stop/quit — orphaned processes keep mic open
-
 ## Electron
 
-- Use `ws` npm package for WebSocket (NOT browser WebSocket) in the main process
-- If using WebSocket in renderer, browser WebSocket works but `ws` does not (no Node.js in renderer with contextIsolation)
+- Audio uses Web Audio API in renderer (MediaDevices.getUserMedia), NOT SoX — no native dependencies needed
+- WebSocket for Soniox STT runs in renderer (browser WebSocket) — `ws` npm package does not work in renderer with contextIsolation
+- Build: Must use `CSC_IDENTITY_AUTO_DISCOVERY=false` or electron-builder hangs on code signing
+- `app.on("window-all-closed", () => {})` is required — without it, macOS quits when window closes
+- UI buttons that trigger IPC calls (like resend/insert) steal focus from the target app — avoid action buttons that need the target app focused

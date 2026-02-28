@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld("voiceEverywhere", {
   saveCredentials: (xaiKey, sonioxKey) =>
     ipcRenderer.invoke("save-credentials", { xaiKey, sonioxKey }),
 
+  // Update just the xAI key (preserves Soniox key)
+  updateXaiKey: (xaiKey) => ipcRenderer.invoke("update-xai-key", { xaiKey }),
+
   // Reset API keys (back to setup)
   resetCredentials: () => ipcRenderer.invoke("reset-credentials"),
 

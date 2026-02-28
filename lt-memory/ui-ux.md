@@ -4,21 +4,21 @@ Mimic voice-terminal (`/Users/sonph36/tools/voice-terminal`) exactly, with adapt
 
 ## App Type
 
-macOS menubar popup using `menubar` npm package. NOT a floating window or overlay.
+macOS Electron app using Tray + BrowserWindow (NOT `menubar` package). Normal persistent window that hides on close (stays in tray).
 
 ## Tray Icon
 
-- Small microphone icon in system menu bar (top-right)
-- **Inactive**: Gray mic (`mic-iconTemplate.png`)
-- **Listening**: Red mic (`mic-activeTemplate.png`)
-- Click to toggle popup visibility
+- Circle icon in system menu bar (top-right)
+- **Inactive**: White circle (`circleTemplate.png`)
+- **Listening**: Red circle (`circle-active.png`)
+- Click to show/focus window
 - Swap icon via IPC on mic state change
 
-## Popup Window
+## Window
 
-- **Size**: 360px wide x 560px tall, resizable
-- **Behavior**: `skipTaskbar: true` (not in Cmd+Tab), hides on click outside
-- **Style**: Apple system design (`-apple-system` font, light gray `#f5f5f7` background)
+- **Size**: 360px wide x 480px tall, resizable
+- **Behavior**: Close hides (not quit), app stays in tray. NOT a popup — normal window.
+- **Global shortcut**: Ctrl+Option+Cmd+V toggles mic
 
 ## UI Layout (top to bottom)
 
@@ -35,8 +35,9 @@ macOS menubar popup using `menubar` npm package. NOT a floating window or overla
    - Editable after recording stops (edit button toggles contentEditable)
    - Clear button to reset
    - Min 80px, max 120px height with auto-scroll
-5. **Corrected command** — dark terminal-style box (`#1d1d1f` bg, green `#30d158` monospace text)
-   - Informational only (no "Send to Terminal" button — text auto-inserts at cursor)
+5. **Corrected text** — dark terminal-style box (`#1c1c1e` bg, green `#30d158` JetBrains Mono text)
+   - Copy button only (no resend — it steals focus from target app)
+   - Text auto-inserts at cursor
 6. **Footer** — "Reset API Keys" / "Settings" / "Quit"
 
 ## Visual Feedback States
@@ -59,25 +60,28 @@ macOS menubar popup using `menubar` npm package. NOT a floating window or overla
 ## Design Tokens
 
 ```css
-/* Apple system font */
-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+/* Typography: DM Sans (display) + JetBrains Mono (code) — loaded from Google Fonts */
+--font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+--font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
 
 /* Colors */
-Background: #f5f5f7
-Text: #1d1d1f
-Accent (blue): #0071e3
-Success (green): #34c759 / #30d158
-Error (red): #ff3b30
-Secondary: #86868b
-Border: #d2d2d7
+--bg: #f0f0f0;
+--surface: rgba(255, 255, 255, 0.72);    /* glass morphism */
+--text-primary: #1a1a1a;
+--text-secondary: #6e6e73;
+--text-tertiary: #aeaeb2;
+--accent: #007aff;
+--green: #30d158;
+--red: #ff3b30;
+--orange: #ff9f0a;
 
-/* Command box monospace */
-font-family: "SF Mono", "Menlo", "Monaco", monospace;
+/* Cards use backdrop-filter: blur(20px) for frosted glass effect */
 ```
 
 ## Audio Feedback
 
-- Gentle 880Hz beep every 60 seconds while listening (reminder that recording is active)
+- 660Hz beep every 60 seconds while listening (reminder that recording is active)
+- 1200Hz beep on successful text insertion (confirmation)
 
 ## Adaptations from voice-terminal
 

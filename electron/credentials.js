@@ -1,11 +1,14 @@
 /**
- * Encrypted credential storage using Electron safeStorage (macOS Keychain).
+ * Credential storage — plain JSON file.
  *
- * Stores encrypted API keys as base64 in:
+ * Stores API keys in:
  *   ~/Library/Application Support/voice-everywhere/credentials.json
+ *
+ * Previously used Electron safeStorage (macOS Keychain), but that breaks
+ * across unsigned rebuilds (different code-signing identity = can't decrypt).
  */
 
-const { app, safeStorage } = require("electron");
+const { app } = require("electron");
 const fs = require("fs");
 const path = require("path");
 
@@ -39,37 +42,19 @@ function hasCredentials() {
 
 function getCredentials() {
   const store = readStore();
-  const result = {};
-  try {
-    if (store.xaiKey && safeStorage.isEncryptionAvailable()) {
-      result.xaiKey = safeStorage.decryptString(
-        Buffer.from(store.xaiKey, "base64")
-      );
-    }
-    if (store.sonioxKey && safeStorage.isEncryptionAvailable()) {
-      result.sonioxKey = safeStorage.decryptString(
-        Buffer.from(store.sonioxKey, "base64")
-      );
-    }
-  } catch {
-    // Decryption failed (e.g. different app identity) — treat as no credentials
-    console.warn("Failed to decrypt credentials, will use .env fallback");
-    return {};
-  }
-  return result;
+  return {
+    xaiKey: store.xaiKey || "",
+    sonioxKey: store.sonioxKey || "",
+  };
 }
 
 function saveCredentials(xaiKey, sonioxKey) {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error("Encryption not available on this system");
-  }
-  const store = {};
-  store.xaiKey = safeStorage
-    .encryptString(xaiKey)
-    .toString("base64");
-  store.sonioxKey = safeStorage
-    .encryptString(sonioxKey)
-    .toString("base64");
+  writeStore({ xaiKey, sonioxKey });
+}
+
+function saveXaiKey(xaiKey) {
+  const store = readStore();
+  store.xaiKey = xaiKey;
   writeStore(store);
 }
 
@@ -78,4 +63,4 @@ function clearCredentials() {
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 }
 
-module.exports = { hasCredentials, getCredentials, saveCredentials, clearCredentials };
+module.exports = { hasCredentials, getCredentials, saveCredentials, saveXaiKey, clearCredentials };

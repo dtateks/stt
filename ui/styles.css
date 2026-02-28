@@ -566,6 +566,27 @@ body {
   line-height: 1.5;
 }
 
+.skip-llm-key-section {
+  margin-bottom: 14px;
+}
+
+.skip-llm-key-section input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.skip-llm-key-section input:focus {
+  border-color: var(--border-focus);
+}
+
 .dialog-actions {
   display: flex;
   flex-direction: column;

@@ -180,6 +180,12 @@ ipcMain.handle("save-credentials", async (_event, { xaiKey, sonioxKey }) => {
   );
 });
 
+// --- IPC: Update just the xAI key (without touching Soniox) ---
+ipcMain.handle("update-xai-key", async (_event, { xaiKey }) => {
+  credentials.saveXaiKey(xaiKey);
+  process.env.XAI_API_KEY = xaiKey;
+});
+
 // --- IPC: Reset credentials, go back to setup ---
 ipcMain.handle("reset-credentials", async () => {
   credentials.clearCredentials();

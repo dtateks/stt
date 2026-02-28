@@ -110,6 +110,8 @@ function showKeyError(service, errMsg) {
 const skipLlmOverlay = document.getElementById("skip-llm-overlay");
 const skipLlmMsg = document.getElementById("skip-llm-msg");
 const skipLlmRemember = document.getElementById("skip-llm-remember");
+const skipLlmKeyInput = document.getElementById("skip-llm-key-input");
+const skipLlmKeyError = document.getElementById("skip-llm-key-error");
 let skipLlmResolve = null;
 
 document.getElementById("skip-llm-yes").addEventListener("click", () => {
@@ -120,15 +122,34 @@ document.getElementById("skip-llm-yes").addEventListener("click", () => {
   skipLlmOverlay.style.display = "none";
   if (skipLlmResolve) skipLlmResolve("skip");
 });
-document.getElementById("skip-llm-update").addEventListener("click", () => {
-  skipLlmOverlay.style.display = "none";
-  window.voiceEverywhere.resetCredentials();
+
+document.getElementById("skip-llm-save").addEventListener("click", async () => {
+  const newKey = skipLlmKeyInput.value.trim();
+  if (!newKey) {
+    skipLlmKeyError.textContent = "Please enter an xAI API key.";
+    skipLlmKeyError.style.display = "block";
+    return;
+  }
+  skipLlmKeyError.style.display = "none";
+  try {
+    await window.voiceEverywhere.updateXaiKey(newKey);
+    hasXaiKey = true;
+    skipLlmKeyInput.value = "";
+    skipLlmOverlay.style.display = "none";
+    if (skipLlmResolve) skipLlmResolve("retry");
+  } catch (err) {
+    skipLlmKeyError.textContent = "Failed to save: " + err.message;
+    skipLlmKeyError.style.display = "block";
+  }
 });
 
 function showSkipLlmDialog(errMsg) {
-  skipLlmMsg.textContent = `xAI correction failed: ${errMsg}. Continue without LLM correction?`;
+  skipLlmMsg.textContent = `xAI correction failed: ${errMsg}`;
   skipLlmRemember.checked = false;
+  skipLlmKeyInput.value = "";
+  skipLlmKeyError.style.display = "none";
   skipLlmOverlay.style.display = "flex";
+  skipLlmKeyInput.focus();
   return new Promise((resolve) => { skipLlmResolve = resolve; });
 }
 
@@ -272,8 +293,16 @@ async function handleCommandDetected(rawCommand) {
       console.error("LLM correction failed:", err);
       if (isAuthError(err.message || "")) {
         const choice = await showSkipLlmDialog(err.message);
-        // "skip" → continue with raw text; "update" → already redirected to setup
-        if (choice !== "skip") return;
+        if (choice === "retry") {
+          // User saved a new key — retry correction
+          try {
+            text = await window.voiceEverywhere.correctTranscript(text);
+          } catch (retryErr) {
+            console.error("LLM retry also failed:", retryErr);
+            // Fall through with raw text
+          }
+        }
+        // "skip" or failed retry → continue with raw text
       }
       // Non-auth error: just use raw text
     }
