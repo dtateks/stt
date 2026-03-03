@@ -11,7 +11,7 @@
   },
   "llm": {
     "provider": "xai",
-    "model": "grok-4-fast-non-reasoning",
+    "model": "grok-4-1-fast-non-reasoning",
     "temperature": 0.1
   },
   "voice": {

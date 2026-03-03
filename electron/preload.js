@@ -38,4 +38,10 @@ contextBridge.exposeInMainWorld("voiceEverywhere", {
 
   // Quit the app
   quitApp: () => ipcRenderer.send("quit-app"),
+
+  // Bar window control
+  showBar: () => ipcRenderer.send("show-bar"),
+  hideBar: () => ipcRenderer.send("hide-bar"),
+  setMouseEvents: (ignore) => ipcRenderer.send("set-ignore-mouse", ignore),
+  showSettings: () => ipcRenderer.send("show-settings"),
 });

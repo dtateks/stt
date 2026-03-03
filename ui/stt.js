@@ -13,6 +13,7 @@ class SonioxSTT {
     this.ws = null;
     this.audioContext = null;
     this.processor = null;
+    this.analyser = null;
     this.stream = null;
     this.transcript = "";
     this.onTranscript = null; // (fullTranscript, finalTranscript, hasFinal) => void
@@ -54,6 +55,11 @@ class SonioxSTT {
     // Set up Web Audio pipeline
     this.audioContext = new AudioContext({ sampleRate: cfg.sample_rate });
     const source = this.audioContext.createMediaStreamSource(this.stream);
+
+    // AnalyserNode for waveform visualization
+    this.analyser = this.audioContext.createAnalyser();
+    this.analyser.fftSize = 256;
+    source.connect(this.analyser);
 
     // ScriptProcessorNode for raw PCM access
     this.processor = this.audioContext.createScriptProcessor(
@@ -126,9 +132,20 @@ class SonioxSTT {
   }
 
   /**
+   * Get the AnalyserNode for waveform visualization.
+   */
+  getAnalyser() {
+    return this.analyser;
+  }
+
+  /**
    * Stop mic and disconnect.
    */
   stop() {
+    if (this.analyser) {
+      this.analyser.disconnect();
+      this.analyser = null;
+    }
     if (this.processor) {
       this.processor.disconnect();
       this.processor = null;

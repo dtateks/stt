@@ -1,0 +1,237 @@
+/* ============================================================
+   Voice Bar — Floating always-on-top bar
+   600x56px, glass-morphism, frameless
+   ============================================================ */
+
+:root {
+  --bar-bg: rgba(30, 30, 30, 0.85);
+  --bar-border: rgba(255, 255, 255, 0.08);
+  --bar-radius: 16px;
+  --bar-text: rgba(255, 255, 255, 0.9);
+  --bar-text-dim: rgba(255, 255, 255, 0.45);
+  --bar-accent: #007aff;
+  --bar-green: #30d158;
+  --bar-red: #ff3b30;
+  --bar-orange: #ff9f0a;
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+  --transition: 180ms ease;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: transparent;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Bar container ---- */
+.bar {
+  width: 600px;
+  height: 56px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  background: var(--bar-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--bar-border);
+  border-bottom: none;
+  border-radius: var(--bar-radius) var(--bar-radius) 0 0;
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.3);
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+  -webkit-app-region: drag;
+}
+
+/* ---- States ---- */
+.bar.hidden {
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+}
+
+.bar.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.bar.state-connecting {
+  opacity: 0.5;
+}
+
+.bar.state-success {
+  animation: success-flash 0.4s ease;
+}
+
+.bar.state-error {
+  animation: error-flash 0.4s ease;
+}
+
+@keyframes success-flash {
+  0% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(48, 209, 88, 0.4); }
+  50% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 4px rgba(48, 209, 88, 0.2); }
+  100% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(48, 209, 88, 0); }
+}
+
+@keyframes error-flash {
+  0% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(255, 59, 48, 0.4); }
+  50% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 4px rgba(255, 59, 48, 0.2); }
+  100% { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(255, 59, 48, 0); }
+}
+
+/* ---- Status dot ---- */
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--bar-text-dim);
+  transition: background var(--transition);
+}
+
+.state-connecting .status-dot {
+  background: var(--bar-orange);
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+
+.state-listening .status-dot {
+  background: var(--bar-red);
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+
+.state-processing .status-dot {
+  background: var(--bar-orange);
+  animation: dot-spin 1s linear infinite;
+}
+
+.state-inserting .status-dot {
+  background: var(--bar-orange);
+  animation: dot-spin 1s linear infinite;
+}
+
+.state-success .status-dot {
+  background: var(--bar-green);
+}
+
+.state-error .status-dot {
+  background: var(--bar-red);
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+@keyframes dot-spin {
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 1; }
+}
+
+/* ---- Waveform ---- */
+.waveform {
+  width: 80px;
+  height: 32px;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity var(--transition);
+}
+
+.state-listening .waveform {
+  opacity: 1;
+}
+
+.state-processing .waveform,
+.state-inserting .waveform,
+.state-success .waveform,
+.state-error .waveform {
+  opacity: 0.2;
+}
+
+/* ---- Transcript ---- */
+.transcript {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--bar-text);
+  letter-spacing: -0.01em;
+  direction: rtl; /* scrolls right — latest text visible */
+  text-align: left;
+}
+
+#transcript-text {
+  direction: ltr;
+  unicode-bidi: bidi-override;
+  display: inline-block;
+}
+
+.transcript .interim {
+  color: var(--bar-text-dim);
+}
+
+.transcript .status-msg {
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.transcript .status-msg.connecting {
+  color: var(--bar-text-dim);
+}
+
+.transcript .status-msg.processing {
+  color: var(--bar-orange);
+}
+
+.transcript .status-msg.inserting {
+  color: var(--bar-orange);
+}
+
+.transcript .status-msg.success {
+  color: var(--bar-green);
+}
+
+.transcript .status-msg.error {
+  color: var(--bar-red);
+}
+
+/* ---- Action buttons ---- */
+.bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.bar-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--bar-text-dim);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+.bar-btn:hover {
+  color: var(--bar-text);
+  background: rgba(255, 255, 255, 0.1);
+}

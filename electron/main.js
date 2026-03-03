@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, ipcMain, session, globalShortcut } = require("electron");
+const { app, BrowserWindow, Tray, ipcMain, session, globalShortcut, screen } = require("electron");
 
 // Keep app running when all windows are closed (lives in tray)
 app.on("window-all-closed", () => {
@@ -29,64 +29,23 @@ const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
 // --- Load credentials: Keychain → shell env vars → .env fallback ---
 function loadApiKeys() {
-  // 1. Try Keychain (encrypted storage)
-  if (credentials.hasCredentials()) {
-    const creds = credentials.getCredentials();
-    if (creds.xaiKey) process.env.XAI_API_KEY = creds.xaiKey;
-    if (creds.sonioxKey) process.env.SONIOX_API_KEY = creds.sonioxKey;
-    if (creds.xaiKey && creds.sonioxKey) return;
-  }
-
-  // 2. Try sourcing shell env vars (packaged apps don't inherit shell env)
-  if (!process.env.XAI_API_KEY || !process.env.SONIOX_API_KEY) {
-    try {
-      const { execSync } = require("child_process");
-      const shellEnv = execSync('zsh -ilc "env"', {
-        encoding: "utf-8",
-        timeout: 5000,
-      });
-      for (const line of shellEnv.split("\n")) {
-        const eqIdx = line.indexOf("=");
-        if (eqIdx > 0) {
-          const key = line.slice(0, eqIdx);
-          if (key === "SONIOX_API_KEY" || key === "XAI_API_KEY") {
-            if (!process.env[key]) process.env[key] = line.slice(eqIdx + 1);
-          }
-        }
-      }
-    } catch {
-      // Shell sourcing failed, continue to .env fallback
-    }
-  }
-
-  // 3. Dev fallback: .env file in project root
-  if (!process.env.XAI_API_KEY || !process.env.SONIOX_API_KEY) {
-    const envPath = app.isPackaged
-      ? null
-      : path.join(__dirname, "..", ".env");
-    if (envPath && fs.existsSync(envPath)) {
-      const envContent = fs.readFileSync(envPath, "utf-8");
-      for (const line of envContent.split("\n")) {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith("#")) {
-          const eqIdx = trimmed.indexOf("=");
-          if (eqIdx > 0) {
-            const key = trimmed.slice(0, eqIdx);
-            const value = trimmed.slice(eqIdx + 1);
-            if (!process.env[key]) process.env[key] = value;
-          }
-        }
-      }
-    }
-  }
+  // Only source: stored credentials (user-entered via setup page)
+  // No shell env, no .env fallback — avoids stale/expired key confusion
+  const creds = credentials.getCredentials();
+  if (creds.xaiKey) process.env.XAI_API_KEY = creds.xaiKey;
+  if (creds.sonioxKey) process.env.SONIOX_API_KEY = creds.sonioxKey;
 }
 
 loadApiKeys();
 
-// --- Determine which page to show ---
-function getStartUrl() {
-  const needsSetup =
-    !credentials.hasCredentials() && !(process.env.XAI_API_KEY && process.env.SONIOX_API_KEY);
+// Log which keys are loaded (redacted) for debugging
+const xaiK = process.env.XAI_API_KEY || "";
+const sonK = process.env.SONIOX_API_KEY || "";
+console.log(`[keys] XAI: ${xaiK.slice(0, 10)}...${xaiK.slice(-4)} | Soniox: ${sonK ? sonK.slice(0, 8) + "..." + sonK.slice(-4) : "NOT SET"}`);
+
+// --- Determine which page to show for settings ---
+function getSettingsStartUrl() {
+  const needsSetup = !credentials.hasCredentials();
   const page = needsSetup ? "setup.html" : "index.html";
   return `file://${path.join(__dirname, "..", "ui", page)}`;
 }
@@ -95,7 +54,8 @@ const iconPath = path.join(__dirname, "..", "assets", "circleTemplate.png");
 const activeIconPath = path.join(__dirname, "..", "assets", "circle-active.png");
 
 let tray = null;
-let win = null;
+let settingsWin = null;
+let barWin = null;
 
 app.on("ready", () => {
   console.log("Voice Everywhere ready");
@@ -115,19 +75,20 @@ app.on("ready", () => {
   tray = new Tray(iconPath);
   tray.setToolTip("Voice Everywhere");
   tray.on("click", () => {
-    if (win) {
-      if (win.isVisible()) {
-        win.focus();
+    if (settingsWin) {
+      if (settingsWin.isVisible()) {
+        settingsWin.focus();
       } else {
-        win.show();
+        settingsWin.show();
       }
     }
   });
 
-  // --- Normal persistent window ---
-  win = new BrowserWindow({
+  // --- Settings window (focusable, for API keys / settings) ---
+  settingsWin = new BrowserWindow({
     width: 360,
     height: 560,
+    show: false,
     resizable: true,
     title: "Voice Everywhere",
     webPreferences: {
@@ -137,25 +98,55 @@ app.on("ready", () => {
     },
   });
 
-  win.loadURL(getStartUrl());
-
-  // DevTools only in dev mode
-  if (!app.isPackaged) {
-    win.webContents.openDevTools({ mode: "detach" });
-  }
+  settingsWin.loadURL(getSettingsStartUrl());
 
   // Hide instead of close (keep running in tray)
-  win.on("close", (e) => {
+  settingsWin.on("close", (e) => {
     if (!app.isQuitting) {
       e.preventDefault();
-      win.hide();
+      settingsWin.hide();
     }
   });
 
+  // --- Bar window (floating, non-focusable) ---
+  const display = screen.getPrimaryDisplay();
+  const { width: screenW } = display.workAreaSize;
+  const screenBottom = display.bounds.y + display.bounds.height; // absolute bottom of screen
+  const barWidth = 600;
+  const barHeight = 56;
+  const barX = Math.round((screenW - barWidth) / 2);
+  const barY = screenBottom - barHeight;
+
+  barWin = new BrowserWindow({
+    width: barWidth,
+    height: barHeight,
+    x: barX,
+    y: barY,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    focusable: false,
+    hasShadow: false,
+    resizable: false,
+    skipTaskbar: true,
+    visibleOnAllWorkspaces: true,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  barWin.loadURL(`file://${path.join(__dirname, "..", "ui", "bar.html")}`);
+  barWin.setIgnoreMouseEvents(true, { forward: true });
+
+  // Start hidden
+  barWin.showInactive();
+
   // Global shortcut: Ctrl+Option+Cmd+V to toggle mic
   globalShortcut.register("Control+Option+Command+V", () => {
-    if (win) {
-      win.webContents.send("toggle-mic");
+    if (barWin) {
+      barWin.webContents.send("toggle-mic");
     }
   });
 });
@@ -165,9 +156,39 @@ app.on("before-quit", () => {
   app.isQuitting = true;
 });
 
-// macOS: re-show window when dock icon clicked
+// macOS: re-show settings window when dock icon clicked
 app.on("activate", () => {
-  if (win) win.show();
+  if (settingsWin) settingsWin.show();
+});
+
+// --- IPC: Bar window control ---
+ipcMain.on("show-bar", () => {
+  if (barWin) barWin.showInactive();
+});
+
+ipcMain.on("hide-bar", () => {
+  // Don't actually hide — the bar CSS handles visibility (opacity 0, pointer-events none)
+  // Keeping the window shown avoids mic permission issues on re-show
+});
+
+ipcMain.on("set-ignore-mouse", (_event, ignore) => {
+  if (barWin) {
+    if (ignore) {
+      barWin.setIgnoreMouseEvents(true, { forward: true });
+    } else {
+      barWin.setIgnoreMouseEvents(false);
+    }
+  }
+});
+
+ipcMain.on("show-settings", () => {
+  if (settingsWin) {
+    if (settingsWin.isVisible()) {
+      settingsWin.focus();
+    } else {
+      settingsWin.show();
+    }
+  }
 });
 
 // --- IPC: Save credentials from setup page, then reload to main UI ---
@@ -175,7 +196,7 @@ ipcMain.handle("save-credentials", async (_event, { xaiKey, sonioxKey }) => {
   credentials.saveCredentials(xaiKey, sonioxKey);
   process.env.XAI_API_KEY = xaiKey;
   process.env.SONIOX_API_KEY = sonioxKey;
-  win.loadURL(
+  settingsWin.loadURL(
     `file://${path.join(__dirname, "..", "ui", "index.html")}`
   );
 });
@@ -191,7 +212,7 @@ ipcMain.handle("reset-credentials", async () => {
   credentials.clearCredentials();
   delete process.env.XAI_API_KEY;
   delete process.env.SONIOX_API_KEY;
-  win.loadURL(
+  settingsWin.loadURL(
     `file://${path.join(__dirname, "..", "ui", "setup.html")}`
   );
 });

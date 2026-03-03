@@ -35,6 +35,7 @@ Input: "chạy pie test cho folder backend đi, rồi check xem có lỗi gì kh
 Output: Run pytest for the backend folder, then check if there are any errors
 
 ## Output
+ALWAYS output in English. NEVER output Vietnamese or any other language — translate everything to English.
 Return ONLY the corrected English text. No explanations, no quotes, no formatting.`;
 
 /**
@@ -55,7 +56,7 @@ async function correctTranscript(transcript, apiKey, llmConfig = {}) {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: llmConfig.model || "grok-4-fast-non-reasoning",
+      model: llmConfig.model || "grok-4-1-fast-non-reasoning",
       temperature: llmConfig.temperature ?? 0.1,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
