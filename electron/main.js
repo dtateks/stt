@@ -1,5 +1,10 @@
 const { app, BrowserWindow, Tray, ipcMain, session, globalShortcut, screen } = require("electron");
 
+// Disable ScreenCaptureKit — Chromium enables it by default on macOS,
+// causing GPU process to burn CPU even though we only need the mic.
+app.commandLine.appendSwitch("disable-features", "ScreenCaptureKitPickerScreen,ScreenCaptureKitStreamPickerSonoma,TimeoutHangingVideoCaptureStarts");
+app.commandLine.appendSwitch("disable-gpu");
+
 // Keep app running when all windows are closed (lives in tray)
 app.on("window-all-closed", () => {
   // Don't quit on macOS — app stays in tray
