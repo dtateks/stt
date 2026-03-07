@@ -208,6 +208,10 @@ function buildSonioxContext() {
 async function startListening() {
   if (state === "LISTENING" || state === "CONNECTING") return;
 
+  // Cancel any pending auto-transition and clean up any lingering session
+  if (autoHideTimer) { clearTimeout(autoHideTimer); autoHideTimer = null; }
+  stopListening();
+
   loadSettings();
   if (!sonioxKey) {
     setState("ERROR", "No Soniox key");
@@ -228,6 +232,7 @@ async function startListening() {
 
     reminderTimer = setInterval(() => beep(660, 0.15, 0.2), 60000);
   } catch (err) {
+    if (state === "HIDDEN") return; // stopped externally while connecting
     console.error("Failed to start:", err);
     setState("ERROR", "Mic error: " + err.message);
     window.voiceEverywhere.setMicState(false);
@@ -291,6 +296,7 @@ async function handleCommandDetected(rawCommand) {
       setState("ERROR", "Insert failed");
     }
   } else {
+    stopListening();
     setState("HIDDEN");
   }
 }
@@ -337,11 +343,13 @@ bar.addEventListener("mouseleave", () => {
 
 // --- Toggle mic from global shortcut ---
 window.voiceEverywhere.onToggleMic(() => {
-  if (state === "LISTENING" || state === "CONNECTING") {
+  if (state === "HIDDEN") {
+    startListening();
+  } else {
+    // Stop regardless of state (LISTENING, CONNECTING, PROCESSING, INSERTING, SUCCESS, ERROR)
+    if (autoHideTimer) { clearTimeout(autoHideTimer); autoHideTimer = null; }
     stopListening();
     setState("HIDDEN");
-  } else {
-    startListening();
   }
 });
 

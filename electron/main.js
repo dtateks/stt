@@ -138,6 +138,7 @@ app.on("ready", () => {
   });
 
   barWin.loadURL(`file://${path.join(__dirname, "..", "ui", "bar.html")}`);
+  barWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   barWin.setIgnoreMouseEvents(true, { forward: true });
 
   // Start hidden
