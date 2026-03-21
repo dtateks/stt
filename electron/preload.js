@@ -8,8 +8,8 @@ contextBridge.exposeInMainWorld("voiceEverywhere", {
   insertText: (text, options) => ipcRenderer.invoke("insert-text", { text, ...options }),
 
   // LLM correction
-  correctTranscript: (transcript) =>
-    ipcRenderer.invoke("correct-transcript", { transcript }),
+  correctTranscript: (transcript, outputLang) =>
+    ipcRenderer.invoke("correct-transcript", { transcript, outputLang }),
 
   // Soniox API key (for direct WebSocket from renderer)
   getSonioxKey: () => ipcRenderer.invoke("get-soniox-key"),

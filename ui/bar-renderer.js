@@ -269,7 +269,8 @@ async function handleCommandDetected(rawCommand) {
   if (hasXaiKey && !skipLlm) {
     setState("PROCESSING", "Correcting...");
     try {
-      text = await window.voiceEverywhere.correctTranscript(text);
+      const outputLang = localStorage.getItem("outputLang") || "auto";
+      text = await window.voiceEverywhere.correctTranscript(text, outputLang);
     } catch (err) {
       console.error("LLM correction failed:", err);
       // Brief warning beep + flash, but continue with raw text

@@ -3,7 +3,6 @@ const { app, BrowserWindow, Tray, ipcMain, session, globalShortcut, screen } = r
 // Disable ScreenCaptureKit — Chromium enables it by default on macOS,
 // causing GPU process to burn CPU even though we only need the mic.
 app.commandLine.appendSwitch("disable-features", "ScreenCaptureKitPickerScreen,ScreenCaptureKitStreamPickerSonoma,TimeoutHangingVideoCaptureStarts");
-app.commandLine.appendSwitch("disable-gpu");
 
 // Keep app running when all windows are closed (lives in tray)
 app.on("window-all-closed", () => {
@@ -146,8 +145,8 @@ app.on("ready", () => {
   barWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   barWin.setIgnoreMouseEvents(true, { forward: true });
 
-  // Start hidden
-  barWin.showInactive();
+  // Start hidden — don't show until mic is toggled
+  barWin.hide();
 
   // Global shortcut: Ctrl+Option+Cmd+V to toggle mic
   globalShortcut.register("Control+Option+Command+V", () => {
@@ -169,12 +168,14 @@ app.on("activate", () => {
 
 // --- IPC: Bar window control ---
 ipcMain.on("show-bar", () => {
-  if (barWin) barWin.showInactive();
+  if (barWin) {
+    barWin.showInactive();
+    barWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
 });
 
 ipcMain.on("hide-bar", () => {
-  // Don't actually hide — the bar CSS handles visibility (opacity 0, pointer-events none)
-  // Keeping the window shown avoids mic permission issues on re-show
+  if (barWin) barWin.hide();
 });
 
 ipcMain.on("set-ignore-mouse", (_event, ignore) => {
@@ -257,7 +258,7 @@ ipcMain.handle("insert-text", async (_event, { text, enterMode }) => {
 // Correct transcript via LLM
 ipcMain.handle(
   "correct-transcript",
-  async (_event, { transcript }) => {
+  async (_event, { transcript, outputLang }) => {
     const apiKey = process.env.XAI_API_KEY;
     if (!apiKey) {
       throw new Error("XAI_API_KEY not set — run setup or add .env");
@@ -265,7 +266,8 @@ ipcMain.handle(
     return await llmService.correctTranscript(
       transcript,
       apiKey,
-      config.llm
+      config.llm,
+      outputLang
     );
   }
 );

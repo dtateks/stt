@@ -75,6 +75,13 @@ enterModeToggle.addEventListener("change", () => {
   localStorage.setItem("enterMode", enterModeToggle.checked);
 });
 
+// Output language (default "auto", persisted in localStorage)
+const outputLangSelect = document.getElementById("output-lang-select");
+outputLangSelect.value = localStorage.getItem("outputLang") || "auto";
+outputLangSelect.addEventListener("change", () => {
+  localStorage.setItem("outputLang", outputLangSelect.value);
+});
+
 // Reset API keys
 document.getElementById("reset-keys-btn").addEventListener("click", () => {
   window.voiceEverywhere.resetCredentials();
