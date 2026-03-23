@@ -145,8 +145,9 @@ app.on("ready", () => {
   barWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   barWin.setIgnoreMouseEvents(true, { forward: true });
 
-  // Start hidden — don't show until mic is toggled
-  barWin.hide();
+  // Start shown but visually hidden (CSS handles opacity) —
+  // keeping the window "shown" is required for setVisibleOnAllWorkspaces to persist across spaces.
+  barWin.showInactive();
 
   // Global shortcut: Ctrl+Option+Cmd+V to toggle mic
   globalShortcut.register("Control+Option+Command+V", () => {
@@ -168,14 +169,13 @@ app.on("activate", () => {
 
 // --- IPC: Bar window control ---
 ipcMain.on("show-bar", () => {
-  if (barWin) {
-    barWin.showInactive();
-    barWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  }
+  // Window is always shown — CSS handles visibility (opacity/pointer-events).
+  // No-op; kept for IPC compatibility.
 });
 
 ipcMain.on("hide-bar", () => {
-  if (barWin) barWin.hide();
+  // Don't actually hide — the bar CSS handles visibility (opacity 0, pointer-events none).
+  // Keeping the window shown avoids breaking setVisibleOnAllWorkspaces across spaces.
 });
 
 ipcMain.on("set-ignore-mouse", (_event, ignore) => {
