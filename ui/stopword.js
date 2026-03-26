@@ -65,3 +65,7 @@ class StopWordDetector {
     return { detected: true, command };
   }
 }
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { StopWordDetector };
+}

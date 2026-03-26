@@ -9,19 +9,19 @@ saveBtn.addEventListener("click", async () => {
 
   if (!xaiKey || !sonioxKey) {
     errorEl.textContent = "Both API keys are required.";
-    errorEl.style.display = "block";
+    errorEl.classList.remove("hidden");
     return;
   }
 
   saveBtn.disabled = true;
   saveBtn.textContent = "Saving...";
-  errorEl.style.display = "none";
+  errorEl.classList.add("hidden");
 
   try {
     await window.voiceEverywhere.saveCredentials(xaiKey, sonioxKey);
   } catch (err) {
     errorEl.textContent = "Failed to save: " + err.message;
-    errorEl.style.display = "block";
+    errorEl.classList.remove("hidden");
     saveBtn.disabled = false;
     saveBtn.textContent = "Save & Start";
   }

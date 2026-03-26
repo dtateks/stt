@@ -6,62 +6,18 @@
  *                                                                     ERROR
  */
 
-// --- Default Soniox terms (shared with settings window via localStorage) ---
-const DEFAULT_TERMS = [
-  "Claude Code", "tmux", "tm-send", "LLM", "API", "GitHub", "pytest",
-  "uv", "pnpm", "Celery", "Redis", "FastAPI", "Docker", "Kubernetes",
-  "git", "npm", "pip", "debug", "refactor", "deploy", "endpoint",
-  "middleware", "async", "await", "webhook", "caching", "SSH",
-  "localhost", "frontend", "backend", "TypeScript", "Python",
-];
-
-const DEFAULT_TRANSLATION_TERMS = [
-  { source: "cross code", target: "Claude Code" },
-  { source: "cloud code", target: "Claude Code" },
-  { source: "cloth code", target: "Claude Code" },
-  { source: "tea mux", target: "tmux" },
-  { source: "tee mux", target: "tmux" },
-  { source: "T mux", target: "tmux" },
-  { source: "TMAX", target: "tmux" },
-  { source: "tm send", target: "tm-send" },
-  { source: "T M send", target: "tm-send" },
-  { source: "team send", target: "tm-send" },
-  { source: "L M", target: "LLM" },
-  { source: "elem", target: "LLM" },
-  { source: "A P I", target: "API" },
-  { source: "a p i", target: "API" },
-  { source: "get hub", target: "GitHub" },
-  { source: "git hub", target: "GitHub" },
-  { source: "pie test", target: "pytest" },
-  { source: "pi test", target: "pytest" },
-  { source: "you v", target: "uv" },
-  { source: "UV", target: "uv" },
-  { source: "pee npm", target: "pnpm" },
-  { source: "P NPM", target: "pnpm" },
-  { source: "salary", target: "Celery" },
-  { source: "seller e", target: "Celery" },
-  { source: "celery", target: "Celery" },
-  { source: "did bug", target: "debug" },
-  { source: "dee bug", target: "debug" },
-  { source: "dee back", target: "debug" },
-  { source: "re fact er", target: "refactor" },
-  { source: "duh ploy", target: "deploy" },
-  { source: "fast a p i", target: "FastAPI" },
-  { source: "fast API", target: "FastAPI" },
-  { source: "docker", target: "Docker" },
-  { source: "web hook", target: "webhook" },
-  { source: "end point", target: "endpoint" },
-  { source: "middle ware", target: "middleware" },
-];
+const DEFAULT_TERMS = window.voiceEverywhereDefaults.terms;
+const DEFAULT_TRANSLATION_TERMS = window.voiceEverywhereDefaults.translationTerms;
 
 // --- DOM ---
 const bar = document.getElementById("bar");
-const statusDot = document.getElementById("status-dot");
 const waveformCanvas = document.getElementById("waveform");
-const waveformCtx = waveformCanvas.getContext("2d");
+const waveformCtx = waveformCanvas ? waveformCanvas.getContext("2d") : null;
 const transcriptEl = document.getElementById("transcript-text");
 const gearBtn = document.getElementById("gear-btn");
 const closeBtn = document.getElementById("close-btn");
+
+const LISTENING_PROMPT = "Listening for your voice…";
 
 // --- Services ---
 const stt = new SonioxSTT();
@@ -117,41 +73,70 @@ function setState(newState, message) {
   if (autoHideTimer) { clearTimeout(autoHideTimer); autoHideTimer = null; }
   if (newState === "SUCCESS") {
     autoHideTimer = setTimeout(() => {
-      setState("LISTENING");
-      transcriptEl.textContent = "";
+      setState("LISTENING", LISTENING_PROMPT);
       startWaveform();
     }, 1500);
   } else if (newState === "ERROR") {
     autoHideTimer = setTimeout(() => {
-      setState("LISTENING");
-      transcriptEl.textContent = "";
+      setState("LISTENING", LISTENING_PROMPT);
       startWaveform();
     }, 2000);
   }
 }
 
 function setTranscriptStatus(msg, cls) {
-  transcriptEl.innerHTML = `<span class="status-msg ${cls}">${escapeHtml(msg)}</span>`;
+  transcriptEl.textContent = "";
+  const span = document.createElement("span");
+  span.className = "status-msg " + cls;
+  span.textContent = msg;
+  transcriptEl.appendChild(span);
+}
+
+function showListeningPrompt() {
+  setTranscriptStatus(LISTENING_PROMPT, "listening");
 }
 
 function setTranscriptLive(finalText, interimText) {
-  transcriptEl.innerHTML = escapeHtml(finalText) +
-    (interimText ? `<span class="interim">${escapeHtml(interimText)}</span>` : "");
-}
+  if (!finalText && !interimText) {
+    if (state === "LISTENING") {
+      showListeningPrompt();
+    }
+    return;
+  }
 
-function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
+  transcriptEl.textContent = "";
+  if (finalText) {
+    const finalSpan = document.createElement("span");
+    finalSpan.textContent = finalText;
+    transcriptEl.appendChild(finalSpan);
+  }
+  if (interimText) {
+    const interimSpan = document.createElement("span");
+    interimSpan.className = "interim";
+    interimSpan.textContent = interimText;
+    transcriptEl.appendChild(interimSpan);
+  }
 }
 
 // --- Waveform rendering ---
 function startWaveform() {
+  if (!waveformCanvas || !waveformCtx || waveformAnimId) return;
+
   const analyser = stt.getAnalyser();
   if (!analyser) return;
 
   const bufLen = analyser.frequencyBinCount;
   const dataArray = new Uint8Array(bufLen);
+
+  function getWaveformFill(alpha) {
+    if (state === "LISTENING") return `rgba(255, 92, 84, ${alpha})`;
+    if (state === "PROCESSING" || state === "INSERTING") {
+      return `rgba(255, 214, 10, ${alpha})`;
+    }
+    if (state === "SUCCESS") return `rgba(48, 209, 88, ${alpha})`;
+    if (state === "ERROR") return `rgba(255, 69, 58, ${alpha})`;
+    return `rgba(245, 245, 247, ${alpha})`;
+  }
 
   function draw() {
     waveformAnimId = requestAnimationFrame(draw);
@@ -161,20 +146,18 @@ function startWaveform() {
     const h = waveformCanvas.height;
     waveformCtx.clearRect(0, 0, w, h);
 
-    // Draw bars
     const barCount = 16;
-    const barW = w / barCount - 2;
+    const gap = 2;
+    const barW = Math.max(2, (w - gap * (barCount - 1)) / barCount);
     const step = Math.floor(bufLen / barCount);
 
     for (let i = 0; i < barCount; i++) {
       const val = dataArray[i * step] / 255;
       const barH = Math.max(2, val * h * 0.9);
-      const x = i * (barW + 2);
+      const x = i * (barW + gap);
       const y = (h - barH) / 2;
 
-      waveformCtx.fillStyle = state === "LISTENING"
-        ? `rgba(255, 59, 48, ${0.4 + val * 0.6})`
-        : `rgba(255, 255, 255, ${0.2 + val * 0.3})`;
+      waveformCtx.fillStyle = getWaveformFill(0.24 + val * 0.72);
       waveformCtx.beginPath();
       waveformCtx.roundRect(x, y, barW, barH, 1.5);
       waveformCtx.fill();
@@ -189,6 +172,9 @@ function stopWaveform() {
     cancelAnimationFrame(waveformAnimId);
     waveformAnimId = null;
   }
+
+  if (!waveformCanvas || !waveformCtx) return;
+
   waveformCtx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
 }
 
@@ -220,14 +206,22 @@ async function startListening() {
 
   try {
     window.voiceEverywhere.showBar();
+    setState("CONNECTING", "Checking microphone permission...");
+
+    const micPermission = await window.voiceEverywhere.ensureMicrophonePermission();
+    if (!micPermission?.granted) {
+      setState("ERROR", micPermission?.message || "Microphone permission is required");
+      window.voiceEverywhere.setMicState(false);
+      return;
+    }
+
     setState("CONNECTING", "Connecting...");
     window.voiceEverywhere.setMicState(true);
 
     const context = buildSonioxContext();
     await stt.start(sonioxKey, context);
 
-    setState("LISTENING");
-    transcriptEl.textContent = "";
+    setState("LISTENING", LISTENING_PROMPT);
     startWaveform();
 
     reminderTimer = setInterval(() => beep(660, 0.15, 0.2), 60000);
@@ -290,11 +284,11 @@ async function handleCommandDetected(rawCommand) {
         beep(1200, 0.2, 0.15);
         setState("SUCCESS", text);
       } else {
-        setState("ERROR", "Insert failed");
+        setState("ERROR", result.error || "Insert failed");
       }
     } catch (err) {
       console.error("Insert failed:", err);
-      setState("ERROR", "Insert failed");
+      setState("ERROR", err.message || "Insert failed");
     }
   } else {
     stopListening();

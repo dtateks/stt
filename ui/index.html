@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src * wss:; media-src *"
+      content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'; media-src 'none'"
     />
-    <title>Voice Everywhere</title>
+    <title>Voice to Text</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -19,77 +19,86 @@
         <div class="drag-pill"></div>
       </div>
 
-      <!-- Enter Mode Toggle -->
-      <div class="section toggle-section">
-        <label class="toggle-label" for="enter-mode-toggle">
-          <span class="toggle-label-text">Enter Mode</span>
-          <div class="toggle-switch">
+      <!-- Settings sections -->
+      <div class="app-section">
+        <div class="section-label">Transcription</div>
+
+        <!-- Enter Mode -->
+        <div class="toggle-row" role="group" aria-labelledby="enter-mode-label">
+          <div class="toggle-row-left">
+            <span class="toggle-row-title" id="enter-mode-label">Enter Mode</span>
+            <span class="toggle-row-desc">Send Enter after inserting text</span>
+          </div>
+          <label class="toggle-switch">
             <input type="checkbox" id="enter-mode-toggle" checked />
             <span class="toggle-slider"></span>
-          </div>
-        </label>
-      </div>
+          </label>
+        </div>
 
-      <!-- Output Language -->
-      <div class="section toggle-section">
-        <label class="toggle-label" for="output-lang-select">
-          <span class="toggle-label-text">Output Language</span>
+        <!-- Output Language -->
+        <div class="toggle-row" role="group" aria-labelledby="output-lang-label">
+          <div class="toggle-row-left">
+            <span class="toggle-row-title" id="output-lang-label">Output Language</span>
+          </div>
           <select id="output-lang-select" class="select-input">
-            <option value="auto">Auto (match input)</option>
-            <option value="english">Always English</option>
-            <option value="vietnamese">Always Vietnamese</option>
+            <option value="auto">Auto</option>
+            <option value="english">English</option>
+            <option value="vietnamese">Vietnamese</option>
           </select>
-        </label>
+        </div>
       </div>
 
       <!-- Footer actions -->
-      <div class="footer-section">
-        <button id="reset-keys-btn" class="footer-btn">Reset API Keys</button>
+      <footer class="app-footer">
+        <button type="button" id="reset-keys-btn" class="footer-btn">Reset Keys</button>
         <span class="footer-sep">&middot;</span>
-        <button id="settings-btn" class="footer-btn">Settings</button>
+        <button type="button" id="settings-btn" class="footer-btn">Settings</button>
         <span class="footer-sep">&middot;</span>
-        <button id="quit-btn" class="footer-btn footer-btn--danger">Quit</button>
-      </div>
+        <button type="button" id="quit-btn" class="footer-btn footer-btn--danger">Quit</button>
+      </footer>
     </div>
 
     <!-- Settings Dialog -->
-    <div id="settings-overlay" class="dialog-overlay" style="display:none;">
-      <div class="dialog-box settings-dialog">
-        <div class="dialog-title">Settings</div>
+    <div id="settings-overlay" class="dialog-overlay hidden" aria-hidden="true">
+      <div class="dialog-box settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div id="settings-title" class="dialog-title">Settings</div>
 
-        <!-- Terms section -->
-        <div class="settings-section">
-          <div class="settings-section-label">Terms (vocabulary boost)</div>
-          <div id="settings-terms-list" class="settings-list"></div>
-          <div class="settings-add-row">
-            <input type="text" id="settings-term-input" class="settings-input" placeholder="Add term..." />
-            <button id="settings-term-add" class="settings-add-btn">Add</button>
+        <div class="settings-scroll">
+          <!-- Terms section -->
+          <div class="settings-section">
+            <div class="settings-section-label">Terms</div>
+            <div id="settings-terms-list" class="settings-list"></div>
+            <div class="settings-add-row">
+              <input type="text" id="settings-term-input" class="settings-input" placeholder="Add term..." />
+              <button type="button" id="settings-term-add" class="settings-add-btn">Add</button>
+            </div>
           </div>
-        </div>
 
-        <!-- Translation Terms section -->
-        <div class="settings-section">
-          <div class="settings-section-label">Translation Terms (phonetic corrections)</div>
-          <div id="settings-trans-list" class="settings-list"></div>
-          <div class="settings-add-row">
-            <input type="text" id="settings-trans-source" class="settings-input settings-input-half" placeholder="Source..." />
-            <span class="settings-arrow">&#8594;</span>
-            <input type="text" id="settings-trans-target" class="settings-input settings-input-half" placeholder="Target..." />
-            <button id="settings-trans-add" class="settings-add-btn">Add</button>
+          <!-- Translation Terms section -->
+          <div class="settings-section">
+            <div class="settings-section-label">Translation Terms</div>
+            <div id="settings-trans-list" class="settings-list"></div>
+            <div class="settings-add-row">
+              <input type="text" id="settings-trans-source" class="settings-input settings-input-half" placeholder="Source" />
+              <span class="settings-arrow">&rarr;</span>
+              <input type="text" id="settings-trans-target" class="settings-input settings-input-half" placeholder="Target" />
+              <button type="button" id="settings-trans-add" class="settings-add-btn">Add</button>
+            </div>
           </div>
         </div>
 
         <!-- Footer -->
         <div class="settings-footer">
-          <button id="settings-reset" class="dialog-btn-secondary">Reset to Defaults</button>
+          <button type="button" id="settings-reset" class="dialog-btn-secondary">Reset</button>
           <div class="settings-footer-right">
-            <button id="settings-cancel" class="dialog-btn-secondary">Cancel</button>
-            <button id="settings-save" class="dialog-btn-primary">Save</button>
+            <button type="button" id="settings-cancel" class="dialog-btn-secondary">Cancel</button>
+            <button type="button" id="settings-save" class="dialog-btn-primary">Save</button>
           </div>
         </div>
       </div>
     </div>
 
+    <script src="soniox-defaults.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>

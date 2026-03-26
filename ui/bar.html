@@ -4,37 +4,37 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src * wss:; media-src *"
+      content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' wss://stt-rt.soniox.com; media-src 'none'"
     />
-    <title>Voice Bar</title>
+    <title>Voice to Text</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="bar-styles.css" />
   </head>
   <body>
     <div id="bar" class="bar hidden">
-      <!-- Status dot -->
-      <div id="status-dot" class="status-dot"></div>
-
-      <!-- Waveform canvas -->
-      <canvas id="waveform" class="waveform" width="80" height="32"></canvas>
-
-      <!-- Transcript text -->
-      <div id="transcript" class="transcript">
-        <span id="transcript-text"></span>
+      <div class="bar-status" aria-hidden="true">
+        <div id="bar-indicator" class="bar-indicator"></div>
+        <canvas id="waveform" class="bar-waveform" width="96" height="24"></canvas>
       </div>
 
-      <!-- Interactive buttons (pointer-events: auto) -->
+      <div id="transcript" class="bar-transcript">
+        <span id="transcript-text" class="bar-transcript-text"></span>
+      </div>
+
       <div class="bar-actions">
-        <button id="gear-btn" class="bar-btn" title="Settings">
-          <svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor">
-            <path d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.062 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z"/>
+        <button type="button" id="gear-btn" class="bar-btn" aria-label="Settings">
+          <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="10" cy="10" r="3"/>
+            <path d="M10 2v2m0 12v2M2 10h2m12 0h2m-3.17-4.83l-1.42 1.42M5.59 14.41l-1.42 1.42m0-9.66l1.42 1.42m7.07 7.07l1.42 1.42"/>
           </svg>
         </button>
-        <button id="close-btn" class="bar-btn" title="Stop & close">
-          <svg viewBox="0 0 20 20" width="12" height="12" fill="currentColor">
-            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+        <button type="button" id="close-btn" class="bar-btn" aria-label="Stop and close">
+          <svg viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <line x1="4" y1="4" x2="16" y2="16"/>
+            <line x1="16" y1="4" x2="4" y2="16"/>
           </svg>
         </button>
       </div>
@@ -42,6 +42,7 @@
 
     <script src="stt.js"></script>
     <script src="stopword.js"></script>
+    <script src="soniox-defaults.js"></script>
     <script src="bar-renderer.js"></script>
   </body>
 </html>
