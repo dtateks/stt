@@ -55,7 +55,7 @@ macOS Electron app using Tray + BrowserWindow (NOT `menubar` package). Normal pe
 - First-run screen if no API keys configured
 - Two password input fields: xAI API key + Soniox API key
 - "Save & Start" button
-- Keys stored in macOS Keychain (encrypted via Electron `safeStorage`)
+- Keys stored in plain JSON at `~/Library/Application Support/voice-to-text/credentials.json` (Keychain abandoned — breaks across rebuilds)
 
 ## Design Tokens
 
@@ -85,7 +85,7 @@ macOS Electron app using Tray + BrowserWindow (NOT `menubar` package). Normal pe
 
 ## Adaptations from voice-terminal
 
-- **NO terminal selector dropdown** — voice-everywhere inserts at system cursor, not a specific terminal
+- **NO terminal selector dropdown** — Voice to Text inserts at system cursor, not a specific terminal
 - **NO terminal preview on hover** — no terminals to preview
 - **NO "Send to Terminal" button** — text auto-inserts at cursor
 - **NO terminal context** — LLM correction works without context (same as voice-vs-extension)

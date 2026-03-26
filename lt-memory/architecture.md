@@ -2,7 +2,7 @@
 
 ## Overview
 
-Voice Everywhere is a global voice input app for macOS. It converts speech to text and inserts text at the system cursor position — any app, any editable field.
+Voice to Text is a global voice input app for macOS. It converts speech to text and inserts text at the system cursor position — any app, any editable field.
 
 ## Sibling Projects
 
@@ -14,9 +14,9 @@ Voice Everywhere is a global voice input app for macOS. It converts speech to te
 ## Pipeline Flow
 
 ```
-Microphone (SoX: rec -q -t raw -b 16 -e signed -c 1 -r 16000 -)
+Microphone (Web Audio API / getUserMedia in renderer)
     ↓
-Audio Recorder (raw 16-bit PCM, 16kHz, mono)
+Renderer audio pipeline (raw 16-bit PCM, 16kHz, mono)
     ↓
 Soniox STT (WebSocket streaming, model stt-rt-v4)
     ↓
@@ -29,14 +29,13 @@ Stop Word Detector ("thank you")
 Insert text at cursor (system-level)
 ```
 
-Pipeline code is nearly identical to voice-vs-extension. The only difference is the final step: system-level text insertion instead of `terminal.sendText()`.
+Pipeline logic is conceptually similar to voice-vs-extension, but this app captures audio in the renderer with Web Audio API and finishes with system-level text insertion instead of `terminal.sendText()`.
 
 ## Reference Files from voice-vs-extension (pipeline logic)
 
-The pipeline logic is nearly identical. Reference these files and adapt for standalone Electron context:
+The pipeline logic is conceptually similar. Reference these files for structure, but adapt them to renderer-side Web Audio capture instead of SoX:
 
-- `src/audio/recorder.ts` — SoX audio capture (nearly identical)
-- `src/stt/soniox.ts` — Soniox WebSocket client (nearly identical)
+- `src/stt/soniox.ts` — Soniox WebSocket client (conceptually similar)
 - `src/stt/context.ts` — Context/terms builder (nearly identical)
 - `src/detection/stopword.ts` — Stop word detection (nearly identical)
 - `src/llm/correction.ts` — xAI Grok LLM correction (nearly identical)
@@ -53,18 +52,18 @@ Reference and adapt (discard terminal-specific features like terminal dropdown a
 - `ui/setup.html` — First-run API key entry
 - `electron/main.js` — Menubar app setup
 - `electron/preload.js` — Context bridge
-- `electron/credentials.js` — Keychain storage
+- `electron/credentials.js` — Plain JSON file storage (no Keychain)
 
 ## Key Differences from Sibling Projects
 
-| Aspect | voice-vs-extension | voice-terminal | voice-everywhere |
+| Aspect | voice-vs-extension | voice-terminal | voice-to-text |
 |--------|-------------------|---------------|-----------------|
 | Scope | VS Code only | Kitty terminal only | System-wide (any app) |
 | Text insertion | `terminal.sendText()` | `kitty @ send-text` | System-level (clipboard paste / AppleScript) |
 | Terminal context | None | Last 100 lines from Kitty | None |
 | UI | VS Code status bar | Electron menubar popup | Electron menubar popup (same as voice-terminal) |
 | Activation | VS Code keybinding | Click tray icon | Click tray icon |
-| Config | VS Code settings + SecretStorage | config.json + Keychain | config.json + Keychain |
+| Config | VS Code settings + SecretStorage | config.json + Keychain | config.json + plain JSON |
 
 ## Text Insertion (the main engineering challenge)
 
@@ -87,5 +86,5 @@ Requires macOS Accessibility permissions.
 
 ### xAI Grok (LLM Correction)
 - API: `https://api.x.ai/v1/chat/completions`
-- Model: `grok-4-fast-non-reasoning`
+- Model: `grok-4-1-fast-non-reasoning`
 - Purpose: Fix STT errors, translate Vietnamese to English, remove fillers
