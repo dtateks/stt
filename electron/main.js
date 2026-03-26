@@ -1,4 +1,14 @@
-const { app, BrowserWindow, Tray, ipcMain, session, globalShortcut, screen } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Tray,
+  ipcMain,
+  session,
+  globalShortcut,
+  screen,
+  shell,
+  systemPreferences,
+} = require("electron");
 
 // Disable ScreenCaptureKit — Chromium enables it by default on macOS,
 // causing GPU process to burn CPU even though we only need the mic.
@@ -11,10 +21,12 @@ app.on("window-all-closed", () => {
 });
 const path = require("path");
 const fs = require("fs");
+const { pathToFileURL } = require("url");
 
 const textInserter = require("./text-inserter");
 const llmService = require("./llm-service");
 const credentials = require("./credentials");
+const { createMacosPermissionCoordinator } = require("./macos-permissions");
 
 // --- PATH fix for packaged app (Finder doesn't inherit shell PATH) ---
 if (app.isPackaged) {
@@ -31,21 +43,18 @@ const configPath = app.isPackaged
   : path.join(__dirname, "..", "config.json");
 const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
-// --- Load credentials: Keychain → shell env vars → .env fallback ---
-function loadApiKeys() {
-  // Only source: stored credentials (user-entered via setup page)
-  // No shell env, no .env fallback — avoids stale/expired key confusion
-  const creds = credentials.getCredentials();
-  if (creds.xaiKey) process.env.XAI_API_KEY = creds.xaiKey;
-  if (creds.sonioxKey) process.env.SONIOX_API_KEY = creds.sonioxKey;
+let currentCredentials = credentials.getCredentials();
+const macosPermissions = createMacosPermissionCoordinator({
+  systemPreferences,
+  shell,
+});
+
+function setCurrentCredentials(nextCredentials) {
+  currentCredentials = {
+    xaiKey: nextCredentials.xaiKey || "",
+    sonioxKey: nextCredentials.sonioxKey || "",
+  };
 }
-
-loadApiKeys();
-
-// Log which keys are loaded (redacted) for debugging
-const xaiK = process.env.XAI_API_KEY || "";
-const sonK = process.env.SONIOX_API_KEY || "";
-console.log(`[keys] XAI: ${xaiK.slice(0, 10)}...${xaiK.slice(-4)} | Soniox: ${sonK ? sonK.slice(0, 8) + "..." + sonK.slice(-4) : "NOT SET"}`);
 
 // --- Determine which page to show for settings ---
 function getSettingsStartUrl() {
@@ -61,8 +70,40 @@ let tray = null;
 let settingsWin = null;
 let barWin = null;
 
+const UI_PAGE_URLS = Object.freeze({
+  setup: pathToFileURL(path.join(__dirname, "..", "ui", "setup.html")).toString(),
+  index: pathToFileURL(path.join(__dirname, "..", "ui", "index.html")).toString(),
+  bar: pathToFileURL(path.join(__dirname, "..", "ui", "bar.html")).toString(),
+});
+
+const IPC_ALLOWED_URLS = Object.freeze({
+  anyPage: new Set(Object.values(UI_PAGE_URLS)),
+  setupOnly: new Set([UI_PAGE_URLS.setup]),
+  indexOnly: new Set([UI_PAGE_URLS.index]),
+  settingsPages: new Set([UI_PAGE_URLS.setup, UI_PAGE_URLS.index]),
+  barOnly: new Set([UI_PAGE_URLS.bar]),
+});
+
+// --- Sender validation helper ---
+// Validates that IPC sender is from an expected local UI page.
+// Returns the sender URL on success, null on failure.
+// Must be called synchronously at the start of every handle/on handler.
+function validateSender(event, allowedUrls) {
+  const frame = event.senderFrame;
+  if (!frame) {
+    console.warn("[security] IPC from null frame — rejected");
+    return null;
+  }
+  const url = frame.url;
+  if (!url || !allowedUrls.has(url)) {
+    console.warn(`[security] IPC from untrusted URL: ${url}`);
+    return null;
+  }
+  return url;
+}
+
 app.on("ready", () => {
-  console.log("Voice Everywhere ready");
+  console.log("Voice to Text ready");
 
   // Auto-grant microphone permission
   session.defaultSession.setPermissionRequestHandler(
@@ -77,7 +118,7 @@ app.on("ready", () => {
 
   // --- Tray icon ---
   tray = new Tray(iconPath);
-  tray.setToolTip("Voice Everywhere");
+  tray.setToolTip("Voice to Text");
   tray.on("click", () => {
     if (settingsWin) {
       if (settingsWin.isVisible()) {
@@ -94,7 +135,7 @@ app.on("ready", () => {
     height: 560,
     show: false,
     resizable: true,
-    title: "Voice Everywhere",
+    title: "Voice to Text",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
@@ -150,16 +191,20 @@ app.on("ready", () => {
   barWin.showInactive();
 
   // Global shortcut: Ctrl+Option+Cmd+V to toggle mic
-  globalShortcut.register("Control+Option+Command+V", () => {
+  const shortcutRegistered = globalShortcut.register("Control+Option+Command+V", () => {
     if (barWin) {
       barWin.webContents.send("toggle-mic");
     }
   });
+  if (!shortcutRegistered) {
+    console.error("[security] Global shortcut registration failed — shortcut will not work");
+  }
 });
 
 // Quit properly when app.quit() is called
 app.on("before-quit", () => {
   app.isQuitting = true;
+  globalShortcut.unregisterAll();
 });
 
 // macOS: re-show settings window when dock icon clicked
@@ -168,17 +213,20 @@ app.on("activate", () => {
 });
 
 // --- IPC: Bar window control ---
-ipcMain.on("show-bar", () => {
+ipcMain.on("show-bar", (event) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
   // Window is always shown — CSS handles visibility (opacity/pointer-events).
   // No-op; kept for IPC compatibility.
 });
 
-ipcMain.on("hide-bar", () => {
+ipcMain.on("hide-bar", (event) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
   // Don't actually hide — the bar CSS handles visibility (opacity 0, pointer-events none).
   // Keeping the window shown avoids breaking setVisibleOnAllWorkspaces across spaces.
 });
 
-ipcMain.on("set-ignore-mouse", (_event, ignore) => {
+ipcMain.on("set-ignore-mouse", (event, ignore) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
   if (barWin) {
     if (ignore) {
       barWin.setIgnoreMouseEvents(true, { forward: true });
@@ -188,7 +236,8 @@ ipcMain.on("set-ignore-mouse", (_event, ignore) => {
   }
 });
 
-ipcMain.on("show-settings", () => {
+ipcMain.on("show-settings", (event) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
   if (settingsWin) {
     if (settingsWin.isVisible()) {
       settingsWin.focus();
@@ -199,53 +248,81 @@ ipcMain.on("show-settings", () => {
 });
 
 // --- IPC: Save credentials from setup page, then reload to main UI ---
-ipcMain.handle("save-credentials", async (_event, { xaiKey, sonioxKey }) => {
+ipcMain.handle("save-credentials", async (event, { xaiKey, sonioxKey }) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.setupOnly)) return;
   credentials.saveCredentials(xaiKey, sonioxKey);
-  process.env.XAI_API_KEY = xaiKey;
-  process.env.SONIOX_API_KEY = sonioxKey;
+  setCurrentCredentials({ xaiKey, sonioxKey });
   settingsWin.loadURL(
     `file://${path.join(__dirname, "..", "ui", "index.html")}`
   );
 });
 
 // --- IPC: Update just the xAI key (without touching Soniox) ---
-ipcMain.handle("update-xai-key", async (_event, { xaiKey }) => {
+ipcMain.handle("update-xai-key", async (event, { xaiKey }) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.indexOnly)) return;
   credentials.saveXaiKey(xaiKey);
-  process.env.XAI_API_KEY = xaiKey;
+  setCurrentCredentials({
+    xaiKey,
+    sonioxKey: currentCredentials.sonioxKey,
+  });
 });
 
 // --- IPC: Reset credentials, go back to setup ---
-ipcMain.handle("reset-credentials", async () => {
+ipcMain.handle("reset-credentials", async (event) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.indexOnly)) return;
   credentials.clearCredentials();
-  delete process.env.XAI_API_KEY;
-  delete process.env.SONIOX_API_KEY;
+  setCurrentCredentials({ xaiKey: "", sonioxKey: "" });
   settingsWin.loadURL(
     `file://${path.join(__dirname, "..", "ui", "setup.html")}`
   );
 });
 
 // --- IPC: Copy to clipboard ---
-ipcMain.handle("copy-to-clipboard", async (_event, text) => {
+ipcMain.handle("copy-to-clipboard", async (event, text) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.anyPage)) return;
   const { clipboard } = require("electron");
   clipboard.writeText(text);
 });
 
 // --- IPC: Quit app ---
-ipcMain.on("quit-app", () => {
+ipcMain.on("quit-app", (event) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.anyPage)) return;
   app.quit();
 });
 
 // Toggle tray icon when mic state changes
-ipcMain.on("mic-state", (_event, isActive) => {
+ipcMain.on("mic-state", (event, isActive) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
   const icon = isActive ? activeIconPath : iconPath;
   if (tray) tray.setImage(icon);
 });
 
 // Provide config to renderer
-ipcMain.handle("get-config", async () => config);
+ipcMain.handle("get-config", async (event) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
+  return config;
+});
+
+// Check/request microphone permission before renderer capture starts
+ipcMain.handle("ensure-microphone-permission", async (event) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
+  return macosPermissions.ensureMicrophonePermission();
+});
 
 // Insert text at cursor in frontmost app
-ipcMain.handle("insert-text", async (_event, { text, enterMode }) => {
+ipcMain.handle("insert-text", async (event, { text, enterMode }) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
+
+  const accessibilityPermission = await macosPermissions.ensureAccessibilityPermission();
+  if (!accessibilityPermission.granted) {
+    return {
+      success: false,
+      code: accessibilityPermission.code,
+      error: accessibilityPermission.message,
+      openedSettings: accessibilityPermission.openedSettings,
+    };
+  }
+
   try {
     await textInserter.insertText(text, { enterMode });
     return { success: true };
@@ -258,14 +335,14 @@ ipcMain.handle("insert-text", async (_event, { text, enterMode }) => {
 // Correct transcript via LLM
 ipcMain.handle(
   "correct-transcript",
-  async (_event, { transcript, outputLang }) => {
-    const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) {
-      throw new Error("XAI_API_KEY not set — run setup or add .env");
+  async (event, { transcript, outputLang }) => {
+    if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
+    if (!currentCredentials.xaiKey) {
+      throw new Error("xAI key not configured — run setup");
     }
     return await llmService.correctTranscript(
       transcript,
-      apiKey,
+      currentCredentials.xaiKey,
       config.llm,
       outputLang
     );
@@ -273,11 +350,13 @@ ipcMain.handle(
 );
 
 // Provide Soniox API key to renderer
-ipcMain.handle("get-soniox-key", async () => {
-  return process.env.SONIOX_API_KEY || "";
+ipcMain.handle("get-soniox-key", async (event) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
+  return currentCredentials.sonioxKey;
 });
 
 // Check if xAI key is configured
-ipcMain.handle("has-xai-key", async () => {
-  return !!process.env.XAI_API_KEY;
+ipcMain.handle("has-xai-key", async (event) => {
+  if (!validateSender(event, IPC_ALLOWED_URLS.barOnly)) return;
+  return !!currentCredentials.xaiKey;
 });

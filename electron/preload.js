@@ -20,7 +20,10 @@ contextBridge.exposeInMainWorld("voiceEverywhere", {
   // Config
   getConfig: () => ipcRenderer.invoke("get-config"),
 
-  // Setup: save credentials (Keychain)
+  // Check/request macOS microphone permission
+  ensureMicrophonePermission: () => ipcRenderer.invoke("ensure-microphone-permission"),
+
+  // Setup: save credentials (plain JSON in app data)
   saveCredentials: (xaiKey, sonioxKey) =>
     ipcRenderer.invoke("save-credentials", { xaiKey, sonioxKey }),
 
@@ -31,7 +34,11 @@ contextBridge.exposeInMainWorld("voiceEverywhere", {
   resetCredentials: () => ipcRenderer.invoke("reset-credentials"),
 
   // Listen for toggle-mic from global shortcut
-  onToggleMic: (callback) => ipcRenderer.on("toggle-mic", callback),
+  onToggleMic: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on("toggle-mic", handler);
+    return () => ipcRenderer.removeListener("toggle-mic", handler);
+  },
 
   // Copy to clipboard (navigator.clipboard fails in Electron)
   copyToClipboard: (text) => ipcRenderer.invoke("copy-to-clipboard", text),

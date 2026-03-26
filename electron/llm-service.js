@@ -81,21 +81,35 @@ async function correctTranscript(transcript, apiKey, llmConfig = {}, outputLang 
   const systemPrompt = PROMPTS[outputLang] || PROMPTS.auto;
   const userContent = `## Voice Transcript (may have pronunciation errors):\n"${transcript}"`;
 
-  const response = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: llmConfig.model || "grok-4-1-fast-non-reasoning",
-      temperature: llmConfig.temperature ?? 0.1,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
+  let response;
+  try {
+    response = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: llmConfig.model || "grok-4-1-fast-non-reasoning",
+        temperature: llmConfig.temperature ?? 0.1,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error("xAI request timed out after 15 seconds");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     const err = await response.text();
@@ -103,6 +117,19 @@ async function correctTranscript(transcript, apiKey, llmConfig = {}, outputLang 
   }
 
   const data = await response.json();
+
+  // Validate response shape before dereferencing nested fields
+  if (
+    !data ||
+    !Array.isArray(data.choices) ||
+    data.choices.length === 0 ||
+    !data.choices[0] ||
+    typeof data.choices[0].message !== "object" ||
+    typeof data.choices[0].message.content !== "string"
+  ) {
+    throw new Error("xAI response shape unexpected — could not extract corrected text");
+  }
+
   return data.choices[0].message.content.trim();
 }
 
