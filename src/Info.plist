@@ -5,6 +5,6 @@
   <key>NSMicrophoneUsageDescription</key>
   <string>Voice to Text needs microphone access for speech-to-text.</string>
   <key>NSAppleEventsUsageDescription</key>
-  <string>Voice to Text needs accessibility to paste text into other apps.</string>
+  <string>Voice to Text needs automation access to System Events to paste text and press Enter in other apps.</string>
 </dict>
 </plist>

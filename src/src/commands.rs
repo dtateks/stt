@@ -7,8 +7,8 @@ use crate::credentials;
 use crate::llm_service;
 use crate::permissions;
 use crate::text_inserter;
+use crate::BAR_WINDOW_LABEL;
 
-const BAR_WINDOW_LABEL: &str = "bar";
 const MAIN_WINDOW_LABEL: &str = "main";
 
 #[tauri::command]
@@ -53,6 +53,16 @@ pub fn reset_credentials(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn ensure_microphone_permission() -> permissions::MicrophonePermissionResult {
     permissions::ensure_microphone_permission()
+}
+
+#[tauri::command]
+pub fn ensure_accessibility_permission() -> permissions::AccessibilityPermissionResult {
+    permissions::ensure_accessibility_permission()
+}
+
+#[tauri::command]
+pub fn ensure_text_insertion_permission() -> text_inserter::TextInsertionPermissionResult {
+    text_inserter::ensure_text_insertion_permission()
 }
 
 #[tauri::command]
@@ -105,7 +115,12 @@ pub fn show_bar(app: AppHandle) -> Result<(), String> {
         return Err("bar window not found".to_string());
     };
 
-    bar_window.show().map_err(|error| error.to_string())
+    // Configure transparency and position BEFORE showing to prevent opaque flash.
+    crate::configure_bar_window_for_macos(&bar_window).map_err(|error| error.to_string())?;
+    crate::position_bar_window_bottom_center(&app, &bar_window).map_err(|error| error.to_string())?;
+    bar_window.show().map_err(|error| error.to_string())?;
+    crate::order_bar_window_front_for_macos(&bar_window).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
