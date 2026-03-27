@@ -70,6 +70,19 @@ function applyTranscript(result: TranscriptResult): void {
   syncPromptVisibility();
 }
 
+function applyErrorMessage(message: string | null): void {
+  if (!message) {
+    transcriptFinalEl.textContent = "";
+    transcriptInterimEl.textContent = "";
+    syncPromptVisibility();
+    return;
+  }
+
+  transcriptFinalEl.textContent = message;
+  transcriptInterimEl.textContent = "";
+  transcriptPromptEl.hidden = true;
+}
+
 // ─── Overlay mode ──────────────────────────────────────────────────────────
 
 function applyOverlayMode(mode: OverlayMode): void {
@@ -214,6 +227,10 @@ controller.onTranscriptChange = (result: TranscriptResult) => {
 
 controller.onOverlayModeChange = (mode: OverlayMode) => {
   applyOverlayMode(mode);
+};
+
+controller.onErrorMessageChange = (message: string | null) => {
+  applyErrorMessage(message);
 };
 
 // ─── Canvas sizing ────────────────────────────────────────────────────────

@@ -16,7 +16,10 @@ export interface InsertTextResult {
 
 export interface PermissionResult {
   granted: boolean;
-  error?: string;
+  status?: string;
+  code?: string;
+  openedSettings?: boolean;
+  message?: string;
 }
 
 export interface SonioxConfig {
@@ -59,6 +62,8 @@ export interface VoiceToTextBridge {
   hasXaiKey(): Promise<boolean>;
   getConfig(): Promise<AppConfig>;
   ensureMicrophonePermission(): Promise<PermissionResult>;
+  ensureAccessibilityPermission(): Promise<PermissionResult>;
+  ensureTextInsertionPermission(): Promise<PermissionResult>;
   saveCredentials(xaiKey: string, sonioxKey: string): Promise<void>;
   updateXaiKey(xaiKey: string): Promise<void>;
   resetCredentials(): Promise<void>;

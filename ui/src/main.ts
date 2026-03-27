@@ -14,6 +14,7 @@ import {
   saveSonioxTerms,
   saveSonioxTranslationTerms,
 } from "./storage.ts";
+import { requestStartupPermissions } from "./startup-permissions.ts";
 
 // ─── Staged settings state ────────────────────────────────────────────────
 
@@ -88,6 +89,9 @@ async function init(): Promise<void> {
   bindPrefs();
   bindActionButtons();
   bindDialog();
+
+  // Trigger permission dialogs on first launch so the OS prompts upfront.
+  void requestStartupPermissions(window.voiceToText);
 }
 
 async function checkHasSonioxKey(): Promise<boolean> {

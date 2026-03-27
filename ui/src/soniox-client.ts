@@ -14,6 +14,7 @@ import type {
   TranscriptCallback,
   ErrorCallback,
 } from "./types.ts";
+import pcmCaptureProcessorUrl from "./pcm-capture-processor.js?url&no-inline";
 
 interface SonioxToken {
   text: string;
@@ -89,10 +90,7 @@ export class SonioxClient implements SonioxSTTClient {
 
     this.audioContext = new AudioContext({ sampleRate: config.sample_rate });
 
-    // Use ?url Vite import for the worklet file so it resolves at build time
-    await this.audioContext.audioWorklet.addModule(
-      new URL("./pcm-capture-processor.js", import.meta.url).href
-    );
+    await this.audioContext.audioWorklet.addModule(pcmCaptureProcessorUrl);
 
     const source = this.audioContext.createMediaStreamSource(this.mediaStream);
 

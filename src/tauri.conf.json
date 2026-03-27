@@ -10,7 +10,35 @@
     "frontendDist": "../ui/dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "url": "index.html",
+        "title": "Voice to Text",
+        "width": 360,
+        "height": 560,
+        "visible": false,
+        "resizable": true
+      },
+      {
+        "label": "bar",
+        "create": false,
+        "url": "bar.html",
+        "title": "Voice to Text Bar",
+        "width": 600,
+        "height": 56,
+        "visible": false,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "transparent": true,
+        "visibleOnAllWorkspaces": true
+      }
+    ],
     "security": {
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost http://127.0.0.1:1420 http://localhost:1420 ws://127.0.0.1:1420 ws://localhost:1420 ws://127.0.0.1:1421 ws://localhost:1421 https://*.soniox.com wss://*.soniox.com; img-src 'self' asset: http://asset.localhost blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; media-src 'self' blob: data:; worker-src 'self' blob:; child-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
       "capabilities": ["default"]

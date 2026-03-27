@@ -28,12 +28,19 @@ const SUCCESS_AUTO_RETURN_MS  = 1_500;
 const ERROR_AUTO_RETURN_MS    = 2_000;
 /** Revert to passive (click-through) after this many ms of pointer inactivity. */
 const OVERLAY_IDLE_MS         = 4_000;
+const STARTUP_PERMISSION_ERROR_MESSAGE = "Microphone permission is required. Open Settings to allow access.";
+const STARTUP_MISSING_KEY_ERROR_MESSAGE = "Soniox API key is missing. Open Settings and add your key.";
+const STREAM_INTERRUPTED_ERROR_MESSAGE = "Connection interrupted. Retrying…";
+const STREAM_RESTART_FAILED_ERROR_MESSAGE = "Could not reconnect to Soniox. Check your key/network, then retry.";
+const INSERT_FAILED_ERROR_MESSAGE = "Could not insert text. Check accessibility permission, then retry.";
+const SESSION_START_FAILED_PREFIX = "Could not start listening";
 
 export type OverlayMode = "PASSIVE" | "INTERACTIVE";
 
 export type StateChangeCallback        = (state: BarState) => void;
 export type TranscriptChangeCallback   = (result: TranscriptResult) => void;
 export type OverlayModeChangeCallback  = (mode: OverlayMode) => void;
+export type ErrorMessageChangeCallback = (message: string | null) => void;
 
 export class BarSessionController {
   private state: BarState = "HIDDEN";
@@ -46,10 +53,12 @@ export class BarSessionController {
   private overlayMode: OverlayMode = "PASSIVE";
   private overlayIdleTimer: ReturnType<typeof setTimeout> | null = null;
   private boundPointerActivity: (() => void) | null = null;
+  private currentErrorMessage: string | null = null;
 
   onStateChange:        StateChangeCallback       | null = null;
   onTranscriptChange:   TranscriptChangeCallback  | null = null;
   onOverlayModeChange:  OverlayModeChangeCallback | null = null;
+  onErrorMessageChange: ErrorMessageChangeCallback | null = null;
 
   constructor() {
     this.client = new SonioxClient();
@@ -135,6 +144,11 @@ export class BarSessionController {
   }
 
   private resetOverlayIdleTimer(): void {
+    if (this.state === "ERROR") {
+      this.clearOverlayIdleTimer();
+      return;
+    }
+
     if (this.overlayIdleTimer !== null) {
       clearTimeout(this.overlayIdleTimer);
     }
@@ -143,12 +157,16 @@ export class BarSessionController {
     }, OVERLAY_IDLE_MS);
   }
 
-  /** Full cleanup of overlay interactive state — called on session end. */
-  private stopOverlayInteractive(): void {
+  private clearOverlayIdleTimer(): void {
     if (this.overlayIdleTimer !== null) {
       clearTimeout(this.overlayIdleTimer);
       this.overlayIdleTimer = null;
     }
+  }
+
+  /** Full cleanup of overlay interactive state — called on session end. */
+  private stopOverlayInteractive(): void {
+    this.clearOverlayIdleTimer();
     if (this.boundPointerActivity) {
       document.removeEventListener("pointermove", this.boundPointerActivity);
       document.removeEventListener("pointerdown", this.boundPointerActivity);
@@ -168,16 +186,26 @@ export class BarSessionController {
 
       const perm = await window.voiceToText.ensureMicrophonePermission();
       if (!perm.granted) {
-        // Startup failure: ERROR with no stream to recover; close after delay.
         await this.applyEvent("PERMISSION_DENIED");
-        await this.handleStartupError();
+        await this.handleStartupError(STARTUP_PERMISSION_ERROR_MESSAGE);
+        return;
+      }
+
+      // Pre-check accessibility before the user speaks — fail early with
+      // actionable guidance instead of waiting until text insertion.
+      const accessibility = await window.voiceToText.ensureAccessibilityPermission();
+      if (!accessibility.granted) {
+        await this.applyEvent("CONNECTION_ERROR");
+        await this.handleStartupError(
+          "Accessibility permission is required to insert text. Enable Voice to Text in System Settings → Privacy & Security → Accessibility, then retry."
+        );
         return;
       }
 
       const apiKey = await window.voiceToText.getSonioxKey();
       if (!apiKey) {
         await this.applyEvent("CONNECTION_ERROR");
-        await this.handleStartupError();
+        await this.handleStartupError(STARTUP_MISSING_KEY_ERROR_MESSAGE);
         return;
       }
 
@@ -214,14 +242,20 @@ export class BarSessionController {
     } catch (error) {
       console.error("[session] start failed", error);
       await this.applyEvent("CONNECTION_ERROR");
-      await this.handleStartupError();
+      await this.handleStartupError(
+        `${SESSION_START_FAILED_PREFIX}: ${formatErrorMessage(error)}`
+      );
     }
   }
 
-  private async stopSession(): Promise<void> {
+  private async stopAudioPipeline(): Promise<void> {
     this.stopReminderBeep();
     this.client.stop();
     await window.voiceToText.setMicState(false);
+  }
+
+  private async stopSession(): Promise<void> {
+    await this.stopAudioPipeline();
     await this.applyEvent("CLOSE"); // → HIDDEN
     await window.voiceToText.hideBar();
     // Restore pass-through and tear down overlay interaction.
@@ -233,15 +267,11 @@ export class BarSessionController {
 
   /**
    * Startup error — session never reached LISTENING.
-   * Show ERROR for the contract duration, then close entirely (no stream to
-   * resume, no meaningful LISTENING state to return to).
+   * Keep the HUD visible with an actionable error until user close/retry.
    */
-  private async handleStartupError(): Promise<void> {
-    await new Promise<void>((resolve) => setTimeout(resolve, ERROR_AUTO_RETURN_MS));
-    // Only act if we're still in ERROR (not if user pressed close in the meantime).
-    if (this.state === "ERROR") {
-      await this.stopSession();
-    }
+  private async handleStartupError(message: string): Promise<void> {
+    await this.stopAudioPipeline();
+    this.setErrorMessage(message);
   }
 
   /**
@@ -250,10 +280,9 @@ export class BarSessionController {
    * contract (ERROR → AUTO_RETURN → LISTENING), resuming the reminder beep.
    */
   private async handleStreamError(): Promise<void> {
-    this.stopReminderBeep();
-    this.client.stop();
-    await window.voiceToText.setMicState(false);
+    await this.stopAudioPipeline();
     await this.applyEvent("CONNECTION_ERROR"); // LISTENING/PROCESSING → ERROR
+    this.setErrorMessage(STREAM_INTERRUPTED_ERROR_MESSAGE);
 
     await new Promise<void>((resolve) => setTimeout(resolve, ERROR_AUTO_RETURN_MS));
 
@@ -263,7 +292,7 @@ export class BarSessionController {
     try {
       const apiKey = await window.voiceToText.getSonioxKey();
       if (!apiKey) {
-        await this.stopSession();
+        this.setErrorMessage(STARTUP_MISSING_KEY_ERROR_MESSAGE);
         return;
       }
 
@@ -278,7 +307,9 @@ export class BarSessionController {
       this.startReminderBeep();
     } catch (restartError) {
       console.error("[session] stream restart failed", restartError);
-      await this.stopSession();
+      this.setErrorMessage(
+        `${STREAM_RESTART_FAILED_ERROR_MESSAGE} ${formatErrorMessage(restartError)}`
+      );
     }
   }
 
@@ -333,11 +364,8 @@ export class BarSessionController {
     } else {
       console.error("[insert] failed", result.error);
       await this.applyEvent("INSERT_ERROR"); // INSERTING → ERROR
-      await new Promise<void>((resolve) =>
-        setTimeout(resolve, ERROR_AUTO_RETURN_MS)
-      );
-      await this.applyEvent("AUTO_RETURN"); // ERROR → LISTENING
-      this.startReminderBeep();
+      await this.stopAudioPipeline();
+      this.setErrorMessage(result.error ?? INSERT_FAILED_ERROR_MESSAGE);
     }
   }
 
@@ -364,7 +392,29 @@ export class BarSessionController {
   private async applyEvent(event: BarEvent): Promise<void> {
     const result = transition(this.state, event);
     this.state = result.next;
+
+    if (this.state === "ERROR") {
+      await this.enterOverlayInteractive();
+      this.clearOverlayIdleTimer();
+    } else {
+      this.clearErrorMessage();
+      if (this.overlayMode === "INTERACTIVE" && this.overlayIdleTimer === null) {
+        this.resetOverlayIdleTimer();
+      }
+    }
+
     this.onStateChange?.(this.state);
+  }
+
+  private setErrorMessage(message: string): void {
+    this.currentErrorMessage = message;
+    this.onErrorMessageChange?.(message);
+  }
+
+  private clearErrorMessage(): void {
+    if (this.currentErrorMessage === null) return;
+    this.currentErrorMessage = null;
+    this.onErrorMessageChange?.(null);
   }
 }
 
@@ -390,4 +440,16 @@ function playReminderBeep(): void {
   } catch {
     // Non-critical — audio context may be suspended.
   }
+}
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message.trim();
+  }
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error.trim();
+  }
+
+  return "Unknown error";
 }

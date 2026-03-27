@@ -266,26 +266,41 @@ describe("connection error recovery — state sequences", () => {
 
   /**
    * Simulate the startup error path (PERMISSION_DENIED before CONNECTED).
-   * Expected: CONNECTING → ERROR, then CLOSE → HIDDEN (no LISTENING).
+   * Expected: CONNECTING → ERROR and remains visible until explicit CLOSE.
    */
-  it("startup permission failure ends at HIDDEN, not LISTENING", () => {
+  it("startup permission failure stays in ERROR until user closes", () => {
     let state = transition("HIDDEN", "TOGGLE").next;        // → CONNECTING
     state = transition(state, "PERMISSION_DENIED").next;    // → ERROR
     expect(state).toBe("ERROR");
-    // Controller calls stopSession after delay → CLOSE
+    // No implicit close event is emitted by the state machine.
+    state = transition(state, "PERMISSION_GRANTED").next;
+    expect(state).toBe("ERROR");
+
+    // User explicitly closes the HUD.
     state = transition(state, "CLOSE").next;                // → HIDDEN
     expect(state).toBe("HIDDEN");
   });
 
   /**
    * Simulate the startup error path (no API key).
-   * Expected: CONNECTING → ERROR → HIDDEN on CLOSE, not LISTENING.
+   * Expected: CONNECTING → ERROR and remains visible until explicit CLOSE.
    */
-  it("startup key-missing failure ends at HIDDEN, not LISTENING", () => {
+  it("startup key-missing failure stays in ERROR until user closes", () => {
     let state = transition("HIDDEN", "TOGGLE").next;        // → CONNECTING
     state = transition(state, "CONNECTION_ERROR").next;     // → ERROR
     expect(state).toBe("ERROR");
     state = transition(state, "CLOSE").next;                // → HIDDEN
+    expect(state).toBe("HIDDEN");
+  });
+
+  it("insert failure stays in ERROR until user closes", () => {
+    let state = transition("HIDDEN", "TOGGLE").next;          // → CONNECTING
+    state = transition(state, "CONNECTED").next;              // → LISTENING
+    state = transition(state, "STOP_WORD_DETECTED").next;     // → PROCESSING
+    state = transition(state, "LLM_DONE").next;               // → INSERTING
+    state = transition(state, "INSERT_ERROR").next;           // → ERROR
+    expect(state).toBe("ERROR");
+    state = transition(state, "CLOSE").next;                  // → HIDDEN
     expect(state).toBe("HIDDEN");
   });
 

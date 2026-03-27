@@ -55,6 +55,12 @@
     ensureMicrophonePermission: () =>
       invoke("ensure_microphone_permission"),
 
+    ensureAccessibilityPermission: () =>
+      invoke("ensure_accessibility_permission"),
+
+    ensureTextInsertionPermission: () =>
+      invoke("ensure_text_insertion_permission"),
+
     saveCredentials: (xaiKey, sonioxKey) =>
       invoke("save_credentials", { xaiKey, sonioxKey }),
 
