@@ -1,0 +1,315 @@
+/**
+ * Bar HUD styles — obsidian glass surface with luminous cyan-violet accents.
+ *
+ * Design intent: premium futurist overlay — translucent dark material,
+ * luminous accent glows, exceptional legibility, purposeful motion.
+ */
+
+@import "./tokens.css";
+
+/* ─── Bar window reset ───────────────────────────────────────────────────── */
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── HUD shell ──────────────────────────────────────────────────────────── */
+.hud {
+  width: 580px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) 0 var(--space-4);
+  position: relative;
+
+  /* Obsidian glass material */
+  background: rgba(8, 10, 14, 0.82);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-2xl);
+  box-shadow:
+    0 0 0 1px rgba(56, 232, 255, 0.05),
+    0 8px 32px rgba(0, 0, 0, 0.6),
+    0 2px 8px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Ambient glow beneath the bar — state-driven */
+.hud::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-slow) var(--ease-out);
+  z-index: -1;
+}
+
+.hud[data-state="LISTENING"]::before {
+  opacity: 1;
+  box-shadow: 0 0 40px rgba(56, 232, 255, 0.12), 0 0 80px rgba(56, 232, 255, 0.06);
+}
+
+.hud[data-state="PROCESSING"]::before {
+  opacity: 1;
+  box-shadow: 0 0 40px rgba(167, 139, 250, 0.15), 0 0 80px rgba(167, 139, 250, 0.08);
+}
+
+.hud[data-state="SUCCESS"]::before {
+  opacity: 1;
+  box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
+}
+
+.hud[data-state="ERROR"]::before {
+  opacity: 1;
+  box-shadow: 0 0 40px rgba(239, 68, 68, 0.15);
+}
+
+/* ─── Status dot ─────────────────────────────────────────────────────────── */
+.hud-status {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  background: var(--text-disabled);
+  transition: background var(--duration-normal) var(--ease-out);
+  position: relative;
+}
+
+/* Pulse ring on LISTENING */
+.hud-status::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: var(--radius-full);
+  border: 1px solid currentColor;
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.hud[data-state="CONNECTING"] .hud-status {
+  background: var(--color-warning-500);
+  animation: hud-pulse 1.2s ease-in-out infinite;
+}
+
+.hud[data-state="LISTENING"] .hud-status {
+  background: var(--color-cyan-400);
+  box-shadow: 0 0 8px var(--color-cyan-400), 0 0 16px rgba(56, 232, 255, 0.4);
+  animation: hud-breathe 2.4s ease-in-out infinite;
+}
+
+.hud[data-state="PROCESSING"] .hud-status {
+  background: var(--color-violet-400);
+  box-shadow: 0 0 8px var(--color-violet-400);
+  animation: hud-pulse 0.8s ease-in-out infinite;
+}
+
+.hud[data-state="INSERTING"] .hud-status {
+  background: var(--color-cyan-300);
+  animation: hud-pulse 0.6s ease-in-out infinite;
+}
+
+.hud[data-state="SUCCESS"] .hud-status {
+  background: var(--color-success-500);
+  box-shadow: 0 0 8px var(--color-success-500);
+  animation: none;
+}
+
+.hud[data-state="ERROR"] .hud-status {
+  background: var(--color-error-500);
+  box-shadow: 0 0 8px var(--color-error-500);
+  animation: hud-pulse 0.4s ease-in-out 3;
+}
+
+@keyframes hud-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.85); }
+}
+
+@keyframes hud-breathe {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--color-cyan-400), 0 0 12px rgba(56, 232, 255, 0.3); }
+  50%       { opacity: 0.8; box-shadow: 0 0 10px var(--color-cyan-400), 0 0 20px rgba(56, 232, 255, 0.5); }
+}
+
+/* ─── Waveform ───────────────────────────────────────────────────────────── */
+.hud-waveform {
+  flex-shrink: 0;
+  width: 56px;
+  height: 28px;
+  position: relative;
+}
+
+.hud-waveform canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ─── Transcript area ────────────────────────────────────────────────────── */
+.hud-transcript {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.transcript-final {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: var(--line-height-tight);
+  letter-spacing: -0.01em;
+}
+
+.transcript-interim {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: var(--line-height-tight);
+  font-style: italic;
+}
+
+.transcript-prompt {
+  font-size: var(--font-size-sm);
+  color: var(--text-disabled);
+  line-height: var(--line-height-tight);
+}
+
+/* State-specific transcript coloring */
+.hud[data-state="SUCCESS"] .transcript-final {
+  color: var(--color-success-300);
+}
+
+.hud[data-state="ERROR"] .transcript-final {
+  color: var(--color-error-300);
+}
+
+.hud[data-state="PROCESSING"] .transcript-final,
+.hud[data-state="INSERTING"] .transcript-final {
+  color: var(--text-secondary);
+}
+
+/* ─── HUD action buttons ─────────────────────────────────────────────────── */
+.hud-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.hud-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.hud-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.hud-btn:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.hud-btn svg {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+
+.hud-btn-close:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-error-300);
+}
+
+/* ─── State labels ───────────────────────────────────────────────────────── */
+.hud-state-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+  flex-shrink: 0;
+  transition: color var(--duration-normal) var(--ease-out);
+}
+
+.hud[data-state="LISTENING"] .hud-state-label { color: var(--color-cyan-400); }
+.hud[data-state="PROCESSING"] .hud-state-label { color: var(--color-violet-400); }
+.hud[data-state="INSERTING"] .hud-state-label { color: var(--color-cyan-300); }
+.hud[data-state="SUCCESS"] .hud-state-label { color: var(--color-success-500); }
+.hud[data-state="ERROR"] .hud-state-label { color: var(--color-error-500); }
+
+/* ─── Separator ──────────────────────────────────────────────────────────── */
+.hud-sep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+/* ─── Hidden state suppression ───────────────────────────────────────────── */
+/*
+ * When data-state="HIDDEN" the native window is being hidden, but there can
+ * be a brief frame gap. Zero opacity ensures no stale content is visible.
+ * pointer-events:none is a belt-and-suspenders guard at the DOM level
+ * (the native click-through policy is the primary mechanism).
+ */
+.hud[data-state="HIDDEN"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ─── Overlay interaction mode ───────────────────────────────────────────── */
+/*
+ * data-overlay="interactive" — cursor events are enabled natively; dim the
+ * action buttons slightly less so they look reachable.
+ * data-overlay="passive"     — click-through; dim buttons to indicate
+ *                              they won't respond to pointer.
+ */
+.hud[data-overlay="passive"] .hud-btn {
+  opacity: 0.55;
+}
+
+.hud[data-overlay="interactive"] .hud-btn {
+  opacity: 1;
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .hud-status,
+  .hud-status::after,
+  .hud::before {
+    animation: none !important;
+    transition: background var(--duration-fast), opacity var(--duration-fast) !important;
+  }
+}

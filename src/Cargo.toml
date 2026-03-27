@@ -1,0 +1,29 @@
+[package]
+name = "voice_to_text"
+version = "1.0.0"
+description = "Voice to Text Tauri shell"
+authors = ["dta.teks"]
+license = "MIT"
+repository = "https://github.com/dtateks/stt"
+edition = "2021"
+
+[lib]
+name = "voice_to_text_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-http = "2"
+tauri-plugin-clipboard-manager = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSArray"] }
+objc2-app-kit = "0.3"

@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default capability for main and bar windows","local":true,"windows":["main","bar"],"permissions":["core:default","core:window:default","core:tray:default","global-shortcut:default","shell:default","clipboard-manager:default","http:default"]}}
