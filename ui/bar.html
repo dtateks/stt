@@ -1,48 +1,95 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' wss://stt-rt.soniox.com; media-src 'none'"
-    />
-    <title>Voice to Text</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="bar-styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voice to Text — HUD</title>
+    <script type="module" src="./src/bar.ts"></script>
   </head>
   <body>
-    <div id="bar" class="bar hidden">
-      <div class="bar-status" aria-hidden="true">
-        <div id="bar-indicator" class="bar-indicator"></div>
-        <canvas id="waveform" class="bar-waveform" width="96" height="24"></canvas>
+    <!--
+      Floating HUD bar.
+
+      Non-focusable by default (native), always-on-top, borderless.
+      State is driven by bar.ts via BarSessionController.
+      data-state attribute reflects BarState and drives all CSS transitions.
+    -->
+    <div
+      id="hud"
+      class="hud"
+      role="status"
+      aria-live="polite"
+      aria-atomic="false"
+      data-state="HIDDEN"
+    >
+      <!-- Status indicator dot -->
+      <span
+        id="hud-status"
+        class="hud-status"
+        aria-hidden="true"
+      ></span>
+
+      <!-- Waveform visualization -->
+      <div class="hud-waveform" aria-hidden="true">
+        <canvas id="waveform"></canvas>
       </div>
 
-      <div id="transcript" class="bar-transcript">
-        <span id="transcript-text" class="bar-transcript-text"></span>
+      <!-- Transcript content area -->
+      <div class="hud-transcript">
+        <span
+          id="transcript-final"
+          class="transcript-final"
+          aria-label="Transcribed text"
+        ></span>
+        <span
+          id="transcript-interim"
+          class="transcript-interim"
+          aria-label="Interim transcription"
+        ></span>
+        <span
+          id="transcript-prompt"
+          class="transcript-prompt"
+          aria-hidden="true"
+          hidden
+        >Listening…</span>
       </div>
 
-      <div class="bar-actions">
-        <button type="button" id="gear-btn" class="bar-btn" aria-label="Settings">
-          <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="10" cy="10" r="3"/>
-            <path d="M10 2v2m0 12v2M2 10h2m12 0h2m-3.17-4.83l-1.42 1.42M5.59 14.41l-1.42 1.42m0-9.66l1.42 1.42m7.07 7.07l1.42 1.42"/>
+      <!-- State label -->
+      <span
+        id="hud-state-label"
+        class="hud-state-label"
+        aria-hidden="true"
+      ></span>
+
+      <div class="hud-sep" aria-hidden="true"></div>
+
+      <!-- Controls — only reachable when bar enters interactive mode -->
+      <div class="hud-actions" role="group" aria-label="HUD controls">
+        <button
+          id="hud-settings-btn"
+          class="hud-btn"
+          type="button"
+          aria-label="Open settings"
+          tabindex="0"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
         </button>
-        <button type="button" id="close-btn" class="bar-btn" aria-label="Stop and close">
-          <svg viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-            <line x1="4" y1="4" x2="16" y2="16"/>
-            <line x1="16" y1="4" x2="4" y2="16"/>
+
+        <button
+          id="hud-close-btn"
+          class="hud-btn hud-btn-close"
+          type="button"
+          aria-label="Stop listening and close"
+          tabindex="0"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12"/>
           </svg>
         </button>
       </div>
     </div>
-
-    <script src="stt.js"></script>
-    <script src="stopword.js"></script>
-    <script src="soniox-defaults.js"></script>
-    <script src="bar-renderer.js"></script>
   </body>
 </html>

@@ -1,48 +1,27 @@
 {
-  "name": "voice-everywhere",
+  "name": "voice-to-text",
   "version": "1.0.0",
   "description": "Voice-to-text menubar app for macOS",
-  "main": "electron/main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev",
-    "test": "node --test",
-    "build": "electron-builder --mac",
-    "build:dir": "electron-builder --mac --dir"
+    "ui:dev": "vite --config vite.config.mjs",
+    "ui:build": "vite build --config vite.config.mjs",
+    "ui:preview": "vite preview --config vite.config.mjs",
+    "start": "TAURI_APP_PATH=src tauri dev",
+    "dev": "TAURI_APP_PATH=src tauri dev",
+    "test": "npm run test:ui && cargo test --manifest-path src/Cargo.toml",
+    "test:ui": "vitest run",
+    "build": "TAURI_APP_PATH=src tauri build",
+    "build:dir": "TAURI_APP_PATH=src tauri build --bundles app"
   },
   "devDependencies": {
-    "electron": "^38.0.0",
-    "electron-builder": "^25.1.8"
+    "@tauri-apps/cli": "^2.10.1",
+    "jsdom": "^27.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.11",
+    "vitest": "^3.2.4"
   },
-  "dependencies": {},
-  "build": {
-    "appId": "com.voiceeverywhere.app",
-    "productName": "Voice to Text",
-    "mac": {
-      "category": "public.app-category.productivity",
-      "hardenedRuntime": true,
-      "icon": "assets/icon.png",
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "extendInfo": {
-        "NSMicrophoneUsageDescription": "Voice to Text needs microphone access for speech-to-text.",
-        "NSAppleEventsUsageDescription": "Voice to Text needs accessibility to paste text into other apps."
-      }
-    },
-    "files": [
-      "electron/**/*",
-      "ui/**/*",
-      "assets/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "config.json",
-        "to": "config.json"
-      }
-    ]
+  "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.0"
   }
 }
