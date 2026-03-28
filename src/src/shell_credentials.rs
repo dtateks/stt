@@ -1,6 +1,6 @@
 use std::env;
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use crate::credentials::Credentials;
 
@@ -8,12 +8,24 @@ const SHELL_ENV_MAX_BUFFER_BYTES: usize = 1024 * 1024;
 const SHELL_ENV_START_MARKER: &str = "__VOICE_TO_TEXT_ENV_START__";
 const SHELL_ENV_END_MARKER: &str = "__VOICE_TO_TEXT_ENV_END__";
 
-static CACHED_CREDENTIALS: OnceLock<Credentials> = OnceLock::new();
+static CACHED_CREDENTIALS: OnceLock<Mutex<Option<Credentials>>> = OnceLock::new();
 
 pub fn get_credentials_from_shell_environment() -> Credentials {
-    CACHED_CREDENTIALS
-        .get_or_init(read_credentials_from_shell)
-        .clone()
+    let cache = CACHED_CREDENTIALS.get_or_init(|| Mutex::new(None));
+
+    if let Some(cached) = cache.lock().ok().and_then(|guard| guard.clone()) {
+        return cached;
+    }
+
+    let resolved = read_credentials_from_shell();
+
+    if has_any_credential(&resolved) {
+        if let Ok(mut guard) = cache.lock() {
+            *guard = Some(resolved.clone());
+        }
+    }
+
+    resolved
 }
 
 fn read_credentials_from_shell() -> Credentials {
@@ -32,11 +44,7 @@ fn read_credentials_from_shell() -> Credentials {
         return Credentials::empty();
     };
 
-    if !output.status.success() || output.stdout.len() > SHELL_ENV_MAX_BUFFER_BYTES {
-        return Credentials::empty();
-    }
-
-    parse_shell_environment_output(&output.stdout)
+    parse_shell_environment_result(output.status.success(), &output.stdout)
 }
 
 fn get_user_shell_path() -> String {
@@ -97,6 +105,27 @@ pub fn parse_shell_environment_output(stdout: &[u8]) -> Credentials {
     }
 
     credentials
+}
+
+pub fn parse_shell_environment_result(status_success: bool, stdout: &[u8]) -> Credentials {
+    if stdout.len() > SHELL_ENV_MAX_BUFFER_BYTES {
+        return Credentials::empty();
+    }
+
+    let parsed = parse_shell_environment_output(stdout);
+    if has_any_credential(&parsed) {
+        return parsed;
+    }
+
+    if !status_success {
+        return Credentials::empty();
+    }
+
+    parsed
+}
+
+fn has_any_credential(credentials: &Credentials) -> bool {
+    !credentials.soniox_key.is_empty() || !credentials.xai_key.is_empty()
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
