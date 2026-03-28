@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ensure-accessibility-permission"
+description = "Enables the ensure_accessibility_permission command without any pre-configured scope."
+commands.allow = ["ensure_accessibility_permission"]
+
+[[permission]]
+identifier = "deny-ensure-accessibility-permission"
+description = "Denies the ensure_accessibility_permission command without any pre-configured scope."
+commands.deny = ["ensure_accessibility_permission"]

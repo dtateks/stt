@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-correct-transcript"
+description = "Enables the correct_transcript command without any pre-configured scope."
+commands.allow = ["correct_transcript"]
+
+[[permission]]
+identifier = "deny-correct-transcript"
+description = "Denies the correct_transcript command without any pre-configured scope."
+commands.deny = ["correct_transcript"]

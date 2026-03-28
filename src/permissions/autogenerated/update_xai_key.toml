@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-xai-key"
+description = "Enables the update_xai_key command without any pre-configured scope."
+commands.allow = ["update_xai_key"]
+
+[[permission]]
+identifier = "deny-update-xai-key"
+description = "Denies the update_xai_key command without any pre-configured scope."
+commands.deny = ["update_xai_key"]

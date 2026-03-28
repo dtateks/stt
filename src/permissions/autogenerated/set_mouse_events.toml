@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-mouse-events"
+description = "Enables the set_mouse_events command without any pre-configured scope."
+commands.allow = ["set_mouse_events"]
+
+[[permission]]
+identifier = "deny-set-mouse-events"
+description = "Denies the set_mouse_events command without any pre-configured scope."
+commands.deny = ["set_mouse_events"]
