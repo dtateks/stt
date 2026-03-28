@@ -36,6 +36,14 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost',
+      },
+    },
+    // Installs a reliable in-memory localStorage before any test runs,
+    // replacing the Node 25 --localstorage-file implementation that lacks .clear().
+    setupFiles: ['src/__tests__/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}', 'src/**/*.spec.{ts,tsx}'],
   },
 })
