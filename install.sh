@@ -76,7 +76,7 @@ resolve_release_zip_url() {
 build_app_bundle_from_source() {
 	if [ -f "package.json" ] && grep -q '"voice-to-text"' package.json 2>/dev/null; then
 		npm install --no-fund --no-audit
-		npm run build:dir
+		npm run build
 		printf '%s' "src/target/release/bundle"
 		return
 	else
@@ -85,7 +85,7 @@ build_app_bundle_from_source() {
 		(
 			cd "$SOURCE_REPO_DIR"
 			npm install --no-fund --no-audit
-			npm run build:dir
+			npm run build
 		)
 		printf '%s' "$SOURCE_REPO_DIR/src/target/release/bundle"
 		return
