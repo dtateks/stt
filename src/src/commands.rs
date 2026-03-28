@@ -35,12 +35,12 @@ pub fn has_xai_key(app: AppHandle) -> Result<bool, String> {
     Ok(!credentials.xai_key.is_empty())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn save_credentials(app: AppHandle, xai_key: String, soniox_key: String) -> Result<(), String> {
     credentials::save_credentials(&app, xai_key, soniox_key)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn update_xai_key(app: AppHandle, xai_key: String) -> Result<(), String> {
     credentials::save_xai_key(&app, xai_key)
 }
@@ -65,12 +65,12 @@ pub fn ensure_text_insertion_permission() -> text_inserter::TextInsertionPermiss
     text_inserter::ensure_text_insertion_permission()
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn insert_text(text: String, enter_mode: Option<bool>) -> text_inserter::InsertTextResult {
     text_inserter::insert_text(text, enter_mode.unwrap_or(false))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn correct_transcript(
     app: AppHandle,
     transcript: String,
@@ -96,8 +96,10 @@ pub async fn correct_transcript(
     .await
 }
 
-#[tauri::command]
-pub fn set_mic_state(_is_active: bool) {}
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_mic_state(is_active: bool) {
+    let _ = is_active;
+}
 
 #[tauri::command]
 pub fn copy_to_clipboard(text: String) -> Result<(), String> {
@@ -117,6 +119,8 @@ pub fn show_bar(app: AppHandle) -> Result<(), String> {
 
     crate::show_bar_window_with_runtime_invariants(&app, &bar_window)
         .map_err(|error| error.to_string())?;
+    crate::set_bar_ignores_mouse_events_native(&app, &bar_window, false)
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -135,8 +139,7 @@ pub fn set_mouse_events(app: AppHandle, ignore: bool) -> Result<(), String> {
         return Err("bar window not found".to_string());
     };
 
-    bar_window
-        .set_ignore_cursor_events(ignore)
+    crate::set_bar_ignores_mouse_events_native(&app, &bar_window, ignore)
         .map_err(|error| error.to_string())
 }
 
