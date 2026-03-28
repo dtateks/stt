@@ -7,6 +7,10 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 #[cfg(target_os = "macos")]
 use objc2::msg_send;
 #[cfg(target_os = "macos")]
+use core_graphics::event::CGEvent;
+#[cfg(target_os = "macos")]
+use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+#[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSColor, NSWindow, NSWindowCollectionBehavior};
@@ -14,6 +18,10 @@ use objc2_app_kit::{NSColor, NSWindow, NSWindowCollectionBehavior};
 use objc2_foundation::{NSNumber, NSString};
 #[cfg(target_os = "macos")]
 use objc2_web_kit::WKWebView;
+#[cfg(target_os = "macos")]
+use std::sync::mpsc;
+#[cfg(target_os = "macos")]
+use std::time::Duration;
 
 mod commands;
 pub mod credentials;
@@ -68,6 +76,18 @@ where
     hide_main_window()
 }
 
+pub fn run_bar_close_request_sequence<PreventClose, HideBarWindow>(
+    prevent_close: PreventClose,
+    hide_bar_window: HideBarWindow,
+) -> tauri::Result<()>
+where
+    PreventClose: FnOnce(),
+    HideBarWindow: FnOnce() -> tauri::Result<()>,
+{
+    prevent_close();
+    hide_bar_window()
+}
+
 pub(crate) fn show_bar_window_with_runtime_invariants(
     app: &AppHandle,
     bar_window: &WebviewWindow,
@@ -115,6 +135,45 @@ fn bar_window_collection_behavior() -> NSWindowCollectionBehavior {
     NSWindowCollectionBehavior::CanJoinAllSpaces
         | NSWindowCollectionBehavior::FullScreenAuxiliary
         | NSWindowCollectionBehavior::Stationary
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn set_bar_ignores_mouse_events_native(
+    app: &AppHandle,
+    bar_window: &WebviewWindow,
+    ignores: bool,
+) -> tauri::Result<()> {
+    let ns_window_ptr = bar_window.ns_window()? as usize;
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+
+    app.run_on_main_thread(move || {
+        let ns_window = unsafe { &*(ns_window_ptr as *mut NSWindow) };
+        ns_window.setIgnoresMouseEvents(ignores);
+        let _ = done_tx.send(());
+    })?;
+
+    if done_rx
+        .recv_timeout(Duration::from_millis(700))
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    eprintln!(
+        "[bar] setIgnoresMouseEvents main-thread ack timed out (ignore={}); falling back to tao set_ignore_cursor_events",
+        ignores
+    );
+
+    bar_window.set_ignore_cursor_events(ignores)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn set_bar_ignores_mouse_events_native(
+    _app: &AppHandle,
+    bar_window: &WebviewWindow,
+    ignores: bool,
+) -> tauri::Result<()> {
+    bar_window.set_ignore_cursor_events(ignores)
 }
 
 #[cfg(target_os = "macos")]
@@ -178,6 +237,22 @@ pub(crate) fn configure_bar_window_for_macos(_bar_window: &WebviewWindow) -> tau
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn monitor_from_global_mouse_location(app: &AppHandle) -> Option<tauri::Monitor> {
+    let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState).ok()?;
+    let event = CGEvent::new(source).ok()?;
+    let point = event.location();
+
+    app.monitor_from_point(point.x, point.y)
+        .ok()
+        .and_then(|monitor| monitor)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn monitor_from_global_mouse_location(_app: &AppHandle) -> Option<tauri::Monitor> {
+    None
+}
+
 pub(crate) fn position_bar_window_bottom_center(
     app: &AppHandle,
     bar_window: &WebviewWindow,
@@ -187,6 +262,8 @@ pub(crate) fn position_bar_window_bottom_center(
             .ok()
             .and_then(|monitor| monitor)
     });
+
+    let monitor_from_cursor = monitor_from_cursor.or_else(|| monitor_from_global_mouse_location(app));
 
     let monitor = match monitor_from_cursor {
         Some(monitor) => Some(monitor),
@@ -240,11 +317,21 @@ fn build_bar_window(app: &tauri::App) -> tauri::Result<()> {
             .initialization_script(include_str!("../../ui/tauri-bridge.js"))
             .build()?;
 
+    let bar_window_for_events = bar_window.clone();
+    bar_window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            if let Err(error) = run_bar_close_request_sequence(
+                || api.prevent_close(),
+                || bar_window_for_events.hide(),
+            ) {
+                eprintln!("[bar] close-request hide failed: {}", error);
+            }
+        }
+    });
+
     let app_handle = app.handle().clone();
     position_bar_window_bottom_center(&app_handle, &bar_window)?;
     configure_bar_window_for_macos(&bar_window)?;
-
-    bar_window.set_ignore_cursor_events(true)?;
 
     Ok(())
 }
