@@ -11,7 +11,9 @@ use voice_to_text_lib::llm_service::{
     extract_corrected_text_from_response, format_xai_api_error, validate_llm_config_for_xai,
     AppConfig, LlmConfig,
 };
-use voice_to_text_lib::shell_credentials::parse_shell_environment_output;
+use voice_to_text_lib::shell_credentials::{
+    parse_shell_environment_output, parse_shell_environment_result,
+};
 
 #[test]
 fn credential_precedence_is_store_then_env_then_shell() {
@@ -47,6 +49,23 @@ fn shell_parser_extracts_credentials_between_markers() {
     .concat();
 
     let parsed = parse_shell_environment_output(&payload);
+
+    assert_eq!(parsed.soniox_key, "shell-soniox");
+    assert_eq!(parsed.xai_key, "shell-xai");
+}
+
+#[test]
+fn shell_parser_keeps_credentials_even_if_shell_exit_status_is_non_zero() {
+    let payload = [
+        b"shell noise\0".as_slice(),
+        b"__VOICE_TO_TEXT_ENV_START__\0".as_slice(),
+        b"SONIOX_API_KEY=shell-soniox\0".as_slice(),
+        b"XAI_API_KEY=shell-xai\0".as_slice(),
+        b"__VOICE_TO_TEXT_ENV_END__\0".as_slice(),
+    ]
+    .concat();
+
+    let parsed = parse_shell_environment_result(false, &payload);
 
     assert_eq!(parsed.soniox_key, "shell-soniox");
     assert_eq!(parsed.xai_key, "shell-xai");

@@ -253,3 +253,44 @@ fn bridge_payload_keys_match_rust_command_signatures() {
         "update_xai_key payload must use snake_case xai_key"
     );
 }
+
+#[test]
+fn set_mic_state_command_keeps_snake_case_argument_name() {
+    let commands_rs = read_file("src/commands.rs");
+
+    assert!(
+        commands_rs.contains("set_mic_state(is_active: bool)"),
+        "set_mic_state command must keep `is_active` so snake_case bridge payloads deserialize"
+    );
+}
+
+#[test]
+fn commands_with_multiword_args_opt_into_snake_case_deserialization() {
+    let commands_rs = read_file("src/commands.rs");
+
+    assert!(
+        commands_rs
+            .contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn save_credentials"),
+        "save_credentials must opt into snake_case arg deserialization"
+    );
+    assert!(
+        commands_rs
+            .contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn update_xai_key"),
+        "update_xai_key must opt into snake_case arg deserialization"
+    );
+    assert!(
+        commands_rs.contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn insert_text"),
+        "insert_text must opt into snake_case arg deserialization"
+    );
+    assert!(
+        commands_rs.contains(
+            "#[tauri::command(rename_all = \"snake_case\")]\npub async fn correct_transcript"
+        ),
+        "correct_transcript must opt into snake_case arg deserialization"
+    );
+    assert!(
+        commands_rs
+            .contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn set_mic_state"),
+        "set_mic_state must opt into snake_case arg deserialization"
+    );
+}

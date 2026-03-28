@@ -2,7 +2,9 @@ use std::fs;
 use std::path::Path;
 
 use serde_json::Value;
-use voice_to_text_lib::{run_bar_show_sequence, run_main_close_request_sequence};
+use voice_to_text_lib::{
+    run_bar_close_request_sequence, run_bar_show_sequence, run_main_close_request_sequence,
+};
 
 const CORE_DEFAULT_PERMISSION: &str = "core:default";
 const DEFAULT_CAPABILITY: &str = "default";
@@ -249,6 +251,24 @@ fn runtime_invariant_main_close_request_prevents_exit_and_hides_window() {
 }
 
 #[test]
+fn runtime_invariant_bar_close_request_prevents_destroy_and_hides_window() {
+    let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+    let result = run_bar_close_request_sequence(
+        || {
+            executed_steps.borrow_mut().push("prevent-close");
+        },
+        || {
+            executed_steps.borrow_mut().push("hide");
+            Ok(())
+        },
+    );
+
+    assert!(result.is_ok());
+    assert_eq!(executed_steps.into_inner(), vec!["prevent-close", "hide"]);
+}
+
+#[test]
 fn runtime_builder_no_longer_registers_tray_icon() {
     let lib_rs = read_project_file("src/lib.rs");
 
@@ -259,5 +279,29 @@ fn runtime_builder_no_longer_registers_tray_icon() {
     assert!(
         !lib_rs.contains("setup_tray"),
         "runtime should not keep tray setup helpers after menubar removal"
+    );
+}
+
+#[test]
+fn runtime_commands_use_native_mouse_event_toggle_path() {
+    let commands_rs = read_project_file("src/commands.rs");
+
+    assert!(
+        commands_rs.contains("set_bar_ignores_mouse_events_native(&app, &bar_window, false)"),
+        "show_bar should use native mouse-event toggle helper"
+    );
+    assert!(
+        commands_rs.contains("set_bar_ignores_mouse_events_native(&app, &bar_window, ignore)"),
+        "set_mouse_events should use native mouse-event toggle helper"
+    );
+}
+
+#[test]
+fn runtime_positioning_uses_global_mouse_fallback_for_background_shortcuts() {
+    let lib_rs = read_project_file("src/lib.rs");
+
+    assert!(
+        lib_rs.contains("monitor_from_global_mouse_location"),
+        "bar positioning should include global-mouse fallback when cursor lookup fails"
     );
 }
