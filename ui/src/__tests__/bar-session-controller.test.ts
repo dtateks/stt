@@ -214,6 +214,63 @@ describe("BarSessionController", () => {
     expect(controller.getCurrentState()).toBe("HIDDEN");
   });
 
+  it("re-applies interactive mouse events when startup enters ERROR", async () => {
+    const { bridge, mocks } = createBridge();
+    mocks.ensureAccessibilityPermission.mockResolvedValueOnce(
+      createPermissionResult(false),
+    );
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("ERROR");
+    expect(mocks.setMouseEvents).toHaveBeenNthCalledWith(1, false);
+    expect(mocks.setMouseEvents).toHaveBeenNthCalledWith(2, false);
+  });
+
+  it("retries enabling interactive mouse events after first toggle failure", async () => {
+    const { bridge, mocks } = createBridge();
+    mocks.ensureAccessibilityPermission.mockResolvedValueOnce(
+      createPermissionResult(false),
+    );
+    mocks.setMouseEvents
+      .mockRejectedValueOnce(new Error("cursor toggle failed"))
+      .mockResolvedValue(undefined);
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("ERROR");
+    expect(mocks.setMouseEvents).toHaveBeenNthCalledWith(1, false);
+    expect(mocks.setMouseEvents).toHaveBeenNthCalledWith(2, false);
+  });
+
+  it("still hides the HUD when close cleanup hits a stop-audio error", async () => {
+    const { bridge, mocks } = createBridge();
+    mocks.ensureAccessibilityPermission.mockResolvedValueOnce(
+      createPermissionResult(false),
+    );
+    mocks.setMicState
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("mic state update failed"));
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("ERROR");
+
+    await controller.handleClose();
+
+    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(mocks.hideBar).toHaveBeenCalledTimes(1);
+  });
+
   it("stops immediately when transcript only contains the stop word", async () => {
     const { bridge, mocks } = createBridge();
     window.voiceToText = bridge;

@@ -116,6 +116,10 @@ export class BarSessionController {
    * Pointer activity on the document resets the timer.
    */
   private async enterOverlayInteractive(): Promise<void> {
+    await window.voiceToText.setMouseEvents(false).catch((error: unknown) => {
+      console.error("[session] setMouseEvents(false) failed", error);
+    });
+
     if (this.overlayMode === "INTERACTIVE") {
       // Already interactive — just reset the idle timer.
       this.resetOverlayIdleTimer();
@@ -124,7 +128,6 @@ export class BarSessionController {
 
     this.overlayMode = "INTERACTIVE";
     this.onOverlayModeChange?.(this.overlayMode);
-    await window.voiceToText.setMouseEvents(false);
 
     // Track pointer activity to reset the idle countdown.
     this.boundPointerActivity = () => { this.resetOverlayIdleTimer(); };
@@ -141,9 +144,9 @@ export class BarSessionController {
   private async revertOverlayPassive(): Promise<void> {
     if (this.overlayMode === "PASSIVE") return;
 
+    await window.voiceToText.setMouseEvents(true);
     this.overlayMode = "PASSIVE";
     this.onOverlayModeChange?.(this.overlayMode);
-    await window.voiceToText.setMouseEvents(true);
   }
 
   private resetOverlayIdleTimer(): void {
@@ -274,12 +277,20 @@ export class BarSessionController {
 
   private async stopSession(): Promise<void> {
     this.invalidateStartAttempt();
-    await this.stopAudioPipeline();
-    await this.applyEvent("CLOSE"); // → HIDDEN
-    await window.voiceToText.hideBar();
+    await this.stopAudioPipeline().catch((error: unknown) => {
+      console.error("[session] stopAudioPipeline failed", error);
+    });
+    await this.applyEvent("CLOSE").catch((error: unknown) => {
+      console.error("[session] CLOSE transition failed", error);
+    });
+    await window.voiceToText.hideBar().catch((error: unknown) => {
+      console.error("[session] hideBar failed", error);
+    });
     // Restore pass-through and tear down overlay interaction.
     this.stopOverlayInteractive();
-    await this.revertOverlayPassive();
+    await this.revertOverlayPassive().catch((error: unknown) => {
+      console.error("[session] revertOverlayPassive failed", error);
+    });
   }
 
   // ─── Error recovery ───────────────────────────────────────────────────────
@@ -289,7 +300,9 @@ export class BarSessionController {
    * Keep the HUD visible with an actionable error until user close/retry.
    */
   private async handleStartupError(message: string): Promise<void> {
-    await this.stopAudioPipeline();
+    await this.stopAudioPipeline().catch((error: unknown) => {
+      console.error("[session] stopAudioPipeline failed during startup error", error);
+    });
     this.setErrorMessage(message);
   }
 
@@ -299,7 +312,9 @@ export class BarSessionController {
    * contract (ERROR → AUTO_RETURN → LISTENING), resuming the reminder beep.
    */
   private async handleStreamError(): Promise<void> {
-    await this.stopAudioPipeline();
+    await this.stopAudioPipeline().catch((error: unknown) => {
+      console.error("[session] stopAudioPipeline failed during stream error", error);
+    });
     await this.applyEvent("CONNECTION_ERROR"); // LISTENING/PROCESSING → ERROR
     this.setErrorMessage(STREAM_INTERRUPTED_ERROR_MESSAGE);
 

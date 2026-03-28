@@ -167,11 +167,22 @@ function drawAudioWaveform(data: Uint8Array, W: number, H: number): void {
 
 function bindControls(): void {
   settingsBtn.addEventListener("click", () => {
+    if (!window.voiceToText) {
+      return;
+    }
+
     void window.voiceToText.showSettings();
   });
 
   closeBtn.addEventListener("click", () => {
-    void controller.handleClose();
+    if (!window.voiceToText) {
+      return;
+    }
+
+    void controller.handleClose().catch((error: unknown) => {
+      console.error("[bar] close handler failed; retrying hideBar", error);
+      void window.voiceToText?.hideBar();
+    });
   });
 }
 
@@ -212,6 +223,8 @@ function resizeCanvas(): void {
 // ─── Boot ─────────────────────────────────────────────────────────────────
 
 async function bootstrapBar(): Promise<void> {
+  bindControls();
+
   try {
     await waitForVoiceToTextBridge();
   } catch (error) {
@@ -222,7 +235,6 @@ async function bootstrapBar(): Promise<void> {
   }
 
   resizeCanvas();
-  bindControls();
 
   // Initialise in HIDDEN — no waveform animation until a session starts.
   applyState("HIDDEN");
