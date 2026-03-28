@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Updated:** 2026-03-28 10:41
-**Commit:** e234c011
+**Updated:** 2026-03-28 11:20
+**Commit:** a59156d3
 **Branch:** main
 
 ## OVERVIEW
@@ -75,10 +75,13 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 |------|--------|
 | Bridge surface | `ui/tauri-bridge.js` is the only file that reads `window.__TAURI__`; app code uses `window.voiceToText`.
 | Bridge payloads | JS command args use snake_case keys; Rust tests require exact invocation/result shapes.
+| Bridge command deserialization | Rust commands with multiword args must opt into `#[tauri::command(rename_all = "snake_case")]`; otherwise Tauri expects camelCase keys and rejects snake_case bridge payloads at runtime.
 | Overlay mode | PASSIVE/INTERACTIVE is explicit native state via `setMouseEvents`; no hover-driven passthrough.
 | Overlay scope | Current bridge only supports whole-window click-through. Per-control hit-testing needs native support.
 | Overlay reachability | HUD buttons are tabbable only in `INTERACTIVE`; passive mode removes them from tab order.
+| HUD click-through default | Bar window should keep cursor events ignored by default; `show_bar` re-enables pointer interaction after the window is shown.
 | Bar lifecycle | `bar` starts hidden at boot; each show repositions it bottom-center on the active monitor before display.
+| HUD close behavior | Close requests on the bar are intercepted, hidden, and never allowed to destroy the window; controller close action delegates to the same hidden-close path.
 | Main window visibility | `src/tauri.conf.json` keeps `main.visible=true`; startup is a normal visible window, not a hidden tray launcher.
 | Startup bridge gate | `ui/src/bridge-ready.ts`, `ui/src/main.ts`, `ui/src/bar.ts` wait for `window.voiceToText` before startup key checks and permission prompts.
 | Startup permission checks | `ui/src/startup-permissions.ts` requests microphone → accessibility → text insertion in order, keeps going after individual failures, and `ui/src/main.ts` turns the results into advisory copy only.
@@ -86,7 +89,8 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 | macOS HUD spaces | Native `NSWindow` collection behavior uses `CanJoinAllSpaces` + `FullScreenAuxiliary`; do not add `MoveToActiveSpace`.
 | macOS HUD level | `NSStatusWindowLevel` keeps the HUD above fullscreen apps; `NSFloatingWindowLevel` is too low.
 | macOS HUD movement | `NSWindowCollectionBehavior::Stationary` is part of the HUD flag set; keep the window anchored between Spaces.
-| Bar positioning | Compare logical HUD dimensions only after multiplying by `monitor.scale_factor()`; monitor sizes are physical pixels.
+| Bar positioning | Compare logical HUD dimensions only after multiplying by `monitor.scale_factor()`; monitor sizes are physical pixels. When `app.cursor_position()` fails in background/fullscreen shortcuts, fall back to CoreGraphics global mouse location before choosing a monitor.
+| Shell credential fallback | Shell output may exit non-zero and still contain valid marker-delimited credentials; parse marker payloads before treating shell status as fatal, and do not cache empty results.
 | macOS HUD transparency | Transparency depends on both Tauri webview background clearing and the native `NSWindow` clear background path.
 | HUD chrome | `html`, `body`, and the HUD root must fill the full window, stay transparent, and use `overflow: hidden` so the rounded webview shell clips to the pill radius.
 | HUD render split | `bar.ts` binds DOM refs and delegates pure DOM updates to `bar-render.ts`; keep render helpers free of module-scope side effects.
@@ -115,6 +119,7 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 - Assuming per-control HUD hit-testing exists without new native support.
 - Sending any JSON to Soniox after the initial config frame.
 - Loosening bridge contract tests to partial object matches or camelCase payload keys.
+- Sending snake_case bridge payloads to commands that omit `#[tauri::command(rename_all = "snake_case")]`; Tauri defaults to camelCase args and throws `invalid args` at runtime, including `is_active`/`isActive` mismatches.
 - Importing the Soniox PCM worklet as an inlined data URL; it must stay a real `?url&no-inline` asset to satisfy CSP.
 - Reintroducing resend/insert buttons that steal focus from the destination app.
 - Bypassing the permission coordinator before mic capture or text insertion.
@@ -125,24 +130,28 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 - Wrapping autoreleased Objective-C clipboard snapshot returns in `Retained::from_raw` in `src/src/text_inserter.rs`; `generalPasteboard`, `types`, `objectAtIndex:`, and `dataForType:` must keep their native ownership semantics.
 - Checking Accessibility with AppleScript `tell application "System Events"`; it misses app-specific TCC trust and does not register the app in System Settings.
 - Calling `bar_window.show()` before `configure_bar_window_for_macos()` / `position_bar_window_bottom_center()`; it causes a visible opaque flash.
+- Assuming the bar starts pointer-active after show; `show_bar` only makes it interactive after the show sequence completes.
 - Using `NSFloatingWindowLevel` for the HUD; it can fall behind fullscreen apps.
 - Adding `MoveToActiveSpace` to the HUD window flags; paired with `CanJoinAllSpaces` it trips AppKit startup assertions in `-[TaoWindow _validateCollectionBehavior:]`.
 - Comparing logical HUD dimensions directly against `monitor.size()`; Retina displays need scale-factor conversion first.
+- Falling back straight to `primary_monitor()` when `app.cursor_position()` fails; use CoreGraphics global cursor lookup first so fullscreen/secondary-display shortcuts place HUD on the active screen.
 - Setting `focusable: false` or `focus: false` on the bar window; it blocks mouse events from reaching HUD controls.
 - Leaving the HUD shell/root un-clipped or smaller than the window bounds; WKWebView corners expose rectangular background.
 - Splitting `window.voiceToTextDefaults` across files.
 - Reintroducing remote Google Fonts or other network font loads.
 - Treating stored credential lookup failures as fatal instead of falling through to env/shell lookup.
+- Treating non-zero shell exit status as an automatic credential miss when the marker payload is present.
+- Caching empty shell credential reads; retry shell lookup until real credentials are found.
 - Looking for credentials in removed legacy support dirs instead of the current `voice-to-text/credentials.json` path.
 - Replacing `ui/src/__tests__/setup.ts` with direct `globalThis.localStorage` assumptions in UI tests.
 - Rewriting Rust closure-order tests without `RefCell`-backed execution logs.
 - Changing bar state names without updating matching CSS classes.
 - Treating a missing `docs/` tree as optional when checking HUD/runtime behavior; the code paths above are the current source of truth.
+- Allowing bar close requests to destroy the window; close must be prevented and converted into hide semantics.
 - Copying `Info.plist` via `bundle.macOS.files`; it replaces Tauri's generated plist and breaks app launch.
 - Forcing unsigned macOS package builds in install/signing flow; packaged identity must stay valid so TCC permissions appear in System Settings.
 - Skipping `com.apple.security.device.audio-input` on the packaged app; mic/TCC registration fails without it.
 - Bypassing the Rust bridge and calling `__TAURI__` directly from app code.
-
 
 ## COMMANDS
 ```bash
@@ -152,6 +161,7 @@ npm run ui:build
 npm run ui:preview
 npm run dev
 npm run build
+npm run build:dmg
 npm test
 ```
 
@@ -163,6 +173,7 @@ npm test
 - `src/permissions/autogenerated/*.toml` are generated outputs; edit source permissions, not the generated files.
 - `src/src/credentials.rs` treats stored lookup failures as non-fatal and keeps searching env/shell sources.
 - `ui/src/bridge-ready.ts` gates startup work until `window.voiceToText` is injected.
+- `npm run build` emits only the macOS `.app` bundle; build DMGs explicitly with `npm run build:dmg`.
 - Credentials persist under `voice-to-text/credentials.json`; do not rely on removed legacy support dirs.
 - `ui/src/__tests__/setup.ts` must load before storage tests; it replaces Node 25 `localStorage` with a predictable in-memory implementation.
 - `src/tests/window_shell.rs` is the invariant check for renderer permissions, plugin pruning, and build allow-list alignment.
