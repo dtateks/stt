@@ -26,7 +26,7 @@
         </div>
       </header>
 
-      <div class="setup-body">
+      <main class="setup-body">
         <div class="setup-intro">
           <h1 class="setup-title">Connect your API keys</h1>
           <p class="setup-subtitle">
@@ -39,7 +39,6 @@
           id="setup-error"
           class="error-region"
           role="alert"
-          aria-live="polite"
         ></div>
 
         <div class="form-stack">
@@ -99,7 +98,7 @@
             supported as fallbacks.
           </p>
         </div>
-      </div>
+      </main>
     </section>
 
     <!-- ── Preferences screen ─────────────────────────────────────────────── -->
@@ -124,7 +123,7 @@
       <main class="prefs-body">
         <!-- Transcription prefs -->
         <div class="prefs-section">
-          <div class="prefs-section-label" aria-hidden="true">Transcription</div>
+          <h3 class="prefs-section-label">Transcription</h3>
 
           <div class="pref-row">
             <div class="pref-label-group">
@@ -156,7 +155,7 @@
 
         <!-- Actions -->
         <div class="prefs-section">
-          <div class="prefs-section-label" aria-hidden="true">Vocabulary</div>
+          <h3 class="prefs-section-label">Vocabulary</h3>
           <div class="action-list">
             <button id="action-open-settings" class="action-row" type="button">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
@@ -169,7 +168,7 @@
 
         <!-- Danger zone -->
         <div class="prefs-section">
-          <div class="prefs-section-label" aria-hidden="true">Account</div>
+          <h3 class="prefs-section-label">Account</h3>
           <div class="action-list">
             <button id="action-reset-keys" class="action-row is-danger" type="button">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
@@ -284,7 +283,7 @@
             <button id="dialog-cancel" class="btn-secondary" type="button">
               Cancel
             </button>
-            <button id="dialog-save" class="btn-primary" type="button" style="width: auto; padding: var(--space-2) var(--space-5);">
+            <button id="dialog-save" class="btn-primary btn-dialog-save" type="button">
               Save
             </button>
           </div>

@@ -12,6 +12,8 @@ export interface InsertTextOptions {
 export interface InsertTextResult {
   success: boolean;
   error?: string;
+  code?: string;
+  openedSettings?: boolean;
 }
 
 export interface PermissionResult {
@@ -57,7 +59,7 @@ export interface TranslationTerm {
 export interface VoiceToTextBridge {
   setMicState(isActive: boolean): Promise<void>;
   insertText(text: string, opts?: InsertTextOptions): Promise<InsertTextResult>;
-  correctTranscript(transcript: string, outputLang: string): Promise<string>;
+  correctTranscript(transcript: string, outputLang?: string): Promise<string>;
   getSonioxKey(): Promise<string>;
   hasXaiKey(): Promise<boolean>;
   getConfig(): Promise<AppConfig>;

@@ -15,6 +15,14 @@ import {
   saveSonioxTranslationTerms,
 } from "./storage.ts";
 import { requestStartupPermissions } from "./startup-permissions.ts";
+import { waitForVoiceToTextBridge } from "./bridge-ready.ts";
+import {
+  applySetupError,
+  clearSetupError,
+  validateSonioxKey,
+  applyDialogOpen,
+  applyDialogClose,
+} from "./main-logic.ts";
 
 // ─── Staged settings state ────────────────────────────────────────────────
 
@@ -77,7 +85,26 @@ const quitBtn = q<HTMLButtonElement>("#action-quit");
 // ─── Initialization ───────────────────────────────────────────────────────
 
 async function init(): Promise<void> {
-  const hasKey = await checkHasSonioxKey();
+  bindSetupForm();
+  bindPrefs();
+  bindActionButtons();
+  bindDialog();
+
+  let bridge: Awaited<ReturnType<typeof waitForVoiceToTextBridge>>;
+  try {
+    bridge = await waitForVoiceToTextBridge();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    showSetupScreen();
+    applySetupError(`Startup bridge failed: ${message}`, setupError, sonioxInput);
+    return;
+  }
+
+  const keyCheck = await checkHasSonioxKey(bridge);
+  const hasKey = keyCheck.hasKey;
+  let startupErrorMessage = keyCheck.error
+    ? `Startup credential check failed: ${keyCheck.error}`
+    : null;
 
   if (hasKey) {
     showPrefsScreen();
@@ -85,21 +112,46 @@ async function init(): Promise<void> {
     showSetupScreen();
   }
 
-  bindSetupForm();
-  bindPrefs();
-  bindActionButtons();
-  bindDialog();
+  if (startupErrorMessage) {
+    applySetupError(startupErrorMessage, setupError, sonioxInput);
+  }
 
   // Trigger permission dialogs on first launch so the OS prompts upfront.
-  void requestStartupPermissions(window.voiceToText);
+  // Surface an advisory on the setup screen if any permission was not granted.
+  const permResults = await requestStartupPermissions(bridge);
+  const anyDenied = permResults.some((r) => !r.granted);
+  if (anyDenied) {
+    const denied = permResults
+      .filter((r) => !r.granted)
+      .map((r) => r.permission)
+      .join(", ");
+    startupErrorMessage = startupErrorMessage
+      ? `${startupErrorMessage} — Some permissions were not granted (${denied}). Voice to Text may not function correctly. Check System Settings → Privacy.`
+      : `Some permissions were not granted (${denied}). Voice to Text may not function correctly. Check System Settings → Privacy.`;
+    applySetupError(
+      startupErrorMessage,
+      setupError,
+      sonioxInput,
+    );
+  }
 }
 
-async function checkHasSonioxKey(): Promise<boolean> {
+async function checkHasSonioxKey(
+  bridge: Pick<typeof window.voiceToText, "getSonioxKey">,
+): Promise<{ hasKey: boolean; error?: string }> {
   try {
-    const key = await window.voiceToText.getSonioxKey();
-    return Boolean(key && key.trim());
-  } catch {
-    return false;
+    const key = await bridge.getSonioxKey();
+    if (typeof key !== "string") {
+      return {
+        hasKey: false,
+        error: `getSonioxKey returned ${typeof key} instead of string`,
+      };
+    }
+
+    return { hasKey: Boolean(key && key.trim()) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { hasKey: false, error: message };
   }
 }
 
@@ -133,14 +185,14 @@ function bindSetupForm(): void {
 }
 
 async function handleSetupSubmit(): Promise<void> {
+  clearSetupError(setupError, sonioxInput);
+
   const sonioxKey = sonioxInput.value.trim();
   const xaiKey = xaiInput.value.trim();
 
-  clearSetupError();
-
-  if (!sonioxKey) {
-    showSetupError("Soniox API key is required.");
-    sonioxInput.classList.add("has-error");
+  const validationError = validateSonioxKey(sonioxKey);
+  if (validationError) {
+    applySetupError(validationError, setupError, sonioxInput);
     sonioxInput.focus();
     return;
   }
@@ -152,7 +204,7 @@ async function handleSetupSubmit(): Promise<void> {
     showPrefsScreen();
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    showSetupError(`Failed to save credentials: ${msg}`);
+    applySetupError(`Failed to save credentials: ${msg}`, setupError, sonioxInput);
     setSetupSaving(false);
   }
 }
@@ -160,17 +212,6 @@ async function handleSetupSubmit(): Promise<void> {
 function setSetupSaving(saving: boolean): void {
   setupSubmitBtn.disabled = saving;
   setupSubmitBtn.textContent = saving ? "Saving…" : "Continue";
-}
-
-function showSetupError(message: string): void {
-  setupError.textContent = message;
-  setupError.classList.add("is-visible");
-}
-
-function clearSetupError(): void {
-  setupError.textContent = "";
-  setupError.classList.remove("is-visible");
-  sonioxInput.classList.remove("has-error");
 }
 
 // ─── Prefs UI ─────────────────────────────────────────────────────────────
@@ -213,7 +254,9 @@ async function handleResetKeys(): Promise<void> {
     await window.voiceToText.resetCredentials();
     showSetupScreen();
   } catch (error) {
-    console.error("[reset-keys]", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    showSetupScreen();
+    applySetupError(`Failed to reset credentials: ${msg}`, setupError, sonioxInput);
   }
 }
 
@@ -286,8 +329,18 @@ function closeSettingsDialog(): void {
 }
 
 function commitStagedSettings(): void {
-  saveSonioxTerms(staged.terms);
-  saveSonioxTranslationTerms(staged.translationTerms);
+  const termsOk = saveSonioxTerms(staged.terms);
+  const translationOk = saveSonioxTranslationTerms(staged.translationTerms);
+  if (!termsOk || !translationOk) {
+    // Storage quota exceeded or unavailable — alert the user so they know
+    // their vocabulary changes were not persisted.
+    applySetupError(
+      "Could not save vocabulary settings. Storage may be full or unavailable.",
+      setupError,
+      sonioxInput,
+    );
+    showSetupScreen();
+  }
 }
 
 function loadStagedFromDefaults(): void {

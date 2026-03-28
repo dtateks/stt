@@ -233,9 +233,12 @@ body {
   color: rgba(255, 255, 255, 0.35);
   cursor: pointer;
   padding: 0;
+  /* Eliminate 300ms tap delay on touch devices */
+  touch-action: manipulation;
   transition:
     background var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
+    color var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
 }
 
 .hud-btn:hover {
@@ -245,6 +248,13 @@ body {
 
 .hud-btn:active {
   background: rgba(255, 255, 255, 0.12);
+}
+
+/* Visible focus ring matching the HUD button shape */
+.hud-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
 }
 
 .hud-btn svg {

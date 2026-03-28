@@ -2,13 +2,23 @@
  * Bar HUD entry point.
  *
  * Owns: DOM rendering, waveform animation, state-driven UI updates,
- *       overlay mode indicator.
+ *       overlay mode indicator, button keyboard reachability.
  * Delegates: session orchestration → BarSessionController.
+ *            pure render logic → bar-render.ts (imported, tested independently).
  */
 
 import "./bar.css";
 import type { BarState, TranscriptResult } from "./types.ts";
+import { waitForVoiceToTextBridge } from "./bridge-ready.ts";
 import { BarSessionController, type OverlayMode } from "./bar-session-controller.ts";
+import {
+  applyState as renderApplyState,
+  applyTranscript as renderApplyTranscript,
+  applyErrorMessage as renderApplyErrorMessage,
+  applyOverlayMode as renderApplyOverlayMode,
+  resizeCanvasWithContext,
+  waveformShouldRun,
+} from "./bar-render.ts";
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────
 
@@ -21,79 +31,38 @@ const stateLabelEl    = document.getElementById("hud-state-label")   as HTMLSpan
 const settingsBtn     = document.getElementById("hud-settings-btn")  as HTMLButtonElement;
 const closeBtn        = document.getElementById("hud-close-btn")     as HTMLButtonElement;
 
+const HUD_BUTTONS: HTMLButtonElement[] = [settingsBtn, closeBtn];
+
 // ─── Controller ───────────────────────────────────────────────────────────
 
 const controller = new BarSessionController();
 
-// ─── State rendering ──────────────────────────────────────────────────────
-
-const STATE_LABELS: Record<BarState, string> = {
-  HIDDEN:     "",
-  CONNECTING: "Connecting",
-  LISTENING:  "Listening",
-  PROCESSING: "Processing",
-  INSERTING:  "Inserting",
-  SUCCESS:    "Inserted",
-  ERROR:      "Error",
-};
+// ─── State rendering — thin wrappers that bind module DOM refs ────────────
 
 function applyState(state: BarState): void {
-  hud.dataset.state = state;
-  stateLabelEl.textContent = STATE_LABELS[state];
-
-  if (state === "HIDDEN" || state === "CONNECTING") {
-    clearTranscript();
-  }
-
-  syncPromptVisibility();
-}
-
-function clearTranscript(): void {
-  transcriptFinalEl.textContent = "";
-  transcriptInterimEl.textContent = "";
-  syncPromptVisibility();
-}
-
-function syncPromptVisibility(): void {
-  const hasFinal   = Boolean(transcriptFinalEl.textContent);
-  const hasInterim = Boolean(transcriptInterimEl.textContent);
-  const isListening = hud.dataset.state === "LISTENING";
-
-  transcriptPromptEl.hidden = hasFinal || hasInterim || !isListening;
+  renderApplyState(state, hud, stateLabelEl, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
 }
 
 function applyTranscript(result: TranscriptResult): void {
-  if (hud.dataset.state !== "LISTENING") return;
-
-  transcriptFinalEl.textContent = result.finalText;
-  transcriptInterimEl.textContent = result.interimText;
-  syncPromptVisibility();
+  renderApplyTranscript(result, hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
 }
 
 function applyErrorMessage(message: string | null): void {
-  if (!message) {
-    transcriptFinalEl.textContent = "";
-    transcriptInterimEl.textContent = "";
-    syncPromptVisibility();
-    return;
-  }
-
-  transcriptFinalEl.textContent = message;
-  transcriptInterimEl.textContent = "";
-  transcriptPromptEl.hidden = true;
+  renderApplyErrorMessage(message, hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
 }
 
 // ─── Overlay mode ──────────────────────────────────────────────────────────
 
 function applyOverlayMode(mode: OverlayMode): void {
-  // Reflect mode on the HUD element so CSS can adjust affordances.
-  hud.dataset.overlay = mode.toLowerCase();
+  renderApplyOverlayMode(mode, hud, HUD_BUTTONS);
 }
 
 // ─── Waveform ─────────────────────────────────────────────────────────────
 
 let rafId: number | null = null;
 const canvasCtx = waveformCanvas.getContext("2d");
+
+/** Start the animation loop; idempotent — ignores duplicate calls. */
 
 function startWaveform(): void {
   if (rafId !== null) return;
@@ -114,12 +83,11 @@ function clearWaveform(): void {
 }
 
 function drawWaveform(): void {
-  const analyser = controller.getAnalyserNode();
-
   rafId = requestAnimationFrame(drawWaveform);
 
   if (!canvasCtx) return;
 
+  const analyser = controller.getAnalyserNode();
   const W = waveformCanvas.width;
   const H = waveformCanvas.height;
 
@@ -212,11 +180,13 @@ function bindControls(): void {
 controller.onStateChange = (state) => {
   applyState(state);
 
-  if (state === "LISTENING") {
+  if (waveformShouldRun(state)) {
     startWaveform();
-  } else if (state === "HIDDEN") {
-    // Stop animation completely — window may briefly remain visible during
-    // the native hide transition; blank canvas prevents stale frames.
+  } else {
+    // Stop animation for every non-LISTENING state including HIDDEN, CONNECTING,
+    // PROCESSING, INSERTING, SUCCESS, and ERROR. This prevents stale frames
+    // from accumulating during non-audio states and blanks the canvas cleanly
+    // before the native window hide transition completes.
     stopWaveform();
   }
 };
@@ -236,16 +206,21 @@ controller.onErrorMessageChange = (message: string | null) => {
 // ─── Canvas sizing ────────────────────────────────────────────────────────
 
 function resizeCanvas(): void {
-  const dpr = window.devicePixelRatio || 1;
-  const rect = waveformCanvas.getBoundingClientRect();
-  waveformCanvas.width  = rect.width  * dpr;
-  waveformCanvas.height = rect.height * dpr;
-  canvasCtx?.scale(dpr, dpr);
+  resizeCanvasWithContext(waveformCanvas, canvasCtx, window.devicePixelRatio || 1);
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────
 
-document.addEventListener("DOMContentLoaded", () => {
+async function bootstrapBar(): Promise<void> {
+  try {
+    await waitForVoiceToTextBridge();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    applyState("ERROR");
+    applyErrorMessage(`Startup bridge failed: ${message}`);
+    return;
+  }
+
   resizeCanvas();
   bindControls();
 
@@ -255,4 +230,8 @@ document.addEventListener("DOMContentLoaded", () => {
   stopWaveform();
 
   void controller.init();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  void bootstrapBar();
 });

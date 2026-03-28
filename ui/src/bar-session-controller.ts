@@ -48,6 +48,7 @@ export class BarSessionController {
   private client: SonioxClient;
   private reminderTimer: ReturnType<typeof setInterval> | null = null;
   private unlistenToggle: (() => void) | null = null;
+  private startAttemptId = 0;
 
   // Overlay interaction mode
   private overlayMode: OverlayMode = "PASSIVE";
@@ -95,8 +96,10 @@ export class BarSessionController {
 
   async handleToggle(): Promise<void> {
     if (this.state === "HIDDEN") {
-      await this.startSession();
+      const startAttemptId = this.nextStartAttemptId();
+      await this.startSession(startAttemptId);
     } else {
+      this.invalidateStartAttempt();
       await this.stopSession();
     }
   }
@@ -176,15 +179,19 @@ export class BarSessionController {
 
   // ─── Session lifecycle ────────────────────────────────────────────────────
 
-  private async startSession(): Promise<void> {
+  private async startSession(startAttemptId: number): Promise<void> {
     await this.applyEvent("TOGGLE"); // HIDDEN → CONNECTING
+    if (!this.isStartAttemptCurrent(startAttemptId)) return;
 
     try {
       await window.voiceToText.showBar();
+      if (!this.isStartAttemptCurrent(startAttemptId)) return;
       // Enter interactive mode so HUD buttons are reachable immediately.
       await this.enterOverlayInteractive();
+      if (!this.isStartAttemptCurrent(startAttemptId)) return;
 
       const perm = await window.voiceToText.ensureMicrophonePermission();
+      if (!this.isStartAttemptCurrent(startAttemptId)) return;
       if (!perm.granted) {
         await this.applyEvent("PERMISSION_DENIED");
         await this.handleStartupError(STARTUP_PERMISSION_ERROR_MESSAGE);
@@ -194,6 +201,7 @@ export class BarSessionController {
       // Pre-check accessibility before the user speaks — fail early with
       // actionable guidance instead of waiting until text insertion.
       const accessibility = await window.voiceToText.ensureAccessibilityPermission();
+      if (!this.isStartAttemptCurrent(startAttemptId)) return;
       if (!accessibility.granted) {
         await this.applyEvent("CONNECTION_ERROR");
         await this.handleStartupError(
@@ -203,6 +211,7 @@ export class BarSessionController {
       }
 
       const apiKey = await window.voiceToText.getSonioxKey();
+      if (!this.isStartAttemptCurrent(startAttemptId)) return;
       if (!apiKey) {
         await this.applyEvent("CONNECTION_ERROR");
         await this.handleStartupError(STARTUP_MISSING_KEY_ERROR_MESSAGE);
@@ -235,11 +244,20 @@ export class BarSessionController {
       };
 
       await this.client.start(apiKey, context);
+      if (!this.isStartAttemptCurrent(startAttemptId)) {
+        await this.stopAudioPipeline();
+        return;
+      }
       await window.voiceToText.setMicState(true);
+      if (!this.isStartAttemptCurrent(startAttemptId)) {
+        await this.stopAudioPipeline();
+        return;
+      }
 
       await this.applyEvent("CONNECTED"); // CONNECTING → LISTENING
       this.startReminderBeep();
     } catch (error) {
+      if (!this.isStartAttemptCurrent(startAttemptId)) return;
       console.error("[session] start failed", error);
       await this.applyEvent("CONNECTION_ERROR");
       await this.handleStartupError(
@@ -255,6 +273,7 @@ export class BarSessionController {
   }
 
   private async stopSession(): Promise<void> {
+    this.invalidateStartAttempt();
     await this.stopAudioPipeline();
     await this.applyEvent("CLOSE"); // → HIDDEN
     await window.voiceToText.hideBar();
@@ -416,6 +435,19 @@ export class BarSessionController {
     this.currentErrorMessage = null;
     this.onErrorMessageChange?.(null);
   }
+
+  private nextStartAttemptId(): number {
+    this.startAttemptId += 1;
+    return this.startAttemptId;
+  }
+
+  private invalidateStartAttempt(): void {
+    this.startAttemptId += 1;
+  }
+
+  private isStartAttemptCurrent(startAttemptId: number): boolean {
+    return this.startAttemptId === startAttemptId;
+  }
 }
 
 // ─── Utility ─────────────────────────────────────────────────────────────────
@@ -437,8 +469,8 @@ function playReminderBeep(): void {
     osc.stop(ctx.currentTime + 0.3);
 
     osc.onended = () => { void ctx.close(); };
-  } catch {
-    // Non-critical — audio context may be suspended.
+  } catch (error) {
+    console.warn("[audio] reminder beep skipped", formatErrorMessage(error));
   }
 }
 

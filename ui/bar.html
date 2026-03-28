@@ -35,13 +35,23 @@
       Non-focusable by default (native), always-on-top, borderless.
       State is driven by bar.ts via BarSessionController.
       data-state attribute reflects BarState and drives all CSS transitions.
+
+      Accessibility design:
+      - The HUD root uses role="status" (implicit aria-live="polite") for the
+        overall bar status, but aria-live is NOT set here to avoid over-announcing
+        every child text change. The transcript region owns the live announcement.
+      - Transcript content area carries aria-live="polite" so AT announces only
+        when spoken text or error messages change, not on every state transition.
+      - Decorative elements (status dot, waveform, state label, separator) are
+        aria-hidden to prevent noise.
+      - Buttons are tabindex="-1" in PASSIVE overlay mode (click-through); bar.ts
+        raises them to tabindex="0" when entering INTERACTIVE mode.
     -->
     <div
       id="hud"
       class="hud"
       role="status"
-      aria-live="polite"
-      aria-atomic="false"
+      aria-label="Voice to Text status"
       data-state="HIDDEN"
     >
       <!-- Status indicator dot -->
@@ -56,8 +66,8 @@
         <canvas id="waveform"></canvas>
       </div>
 
-      <!-- Transcript content area -->
-      <div class="hud-transcript">
+      <!-- Transcript content area — owns the live region announcement -->
+      <div class="hud-transcript" aria-live="polite" aria-atomic="false">
         <span
           id="transcript-final"
           class="transcript-final"
@@ -85,14 +95,14 @@
 
       <div class="hud-sep" aria-hidden="true"></div>
 
-      <!-- Controls — only reachable when bar enters interactive mode -->
+      <!-- Controls — tabindex managed by bar.ts: -1 in PASSIVE, 0 in INTERACTIVE -->
       <div class="hud-actions" role="group" aria-label="HUD controls">
         <button
           id="hud-settings-btn"
           class="hud-btn"
           type="button"
           aria-label="Open settings"
-          tabindex="0"
+          tabindex="-1"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3"/>
@@ -105,7 +115,7 @@
           class="hud-btn hud-btn-close"
           type="button"
           aria-label="Stop listening and close"
-          tabindex="0"
+          tabindex="-1"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M18 6 6 18M6 6l12 12"/>

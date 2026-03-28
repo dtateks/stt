@@ -143,7 +143,7 @@ body {
   font-family: var(--font-family-sans);
 }
 
-.form-input:focus {
+.form-input:focus-visible {
   outline: none;
   border-color: var(--border-focus);
   box-shadow: 0 0 0 3px var(--accent-glow);
@@ -195,6 +195,15 @@ body {
     background var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out),
     box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-ghost:focus-visible,
+.action-row:focus-visible,
+.tag-remove:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -319,7 +328,7 @@ body {
   color: var(--text-disabled);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  margin-bottom: var(--space-3);
+  margin: 0 0 var(--space-3);
 }
 
 /* ─── Pref row ───────────────────────────────────────────────────────────── */
@@ -430,7 +439,7 @@ body {
   flex-shrink: 0;
 }
 
-.pref-select:focus {
+.pref-select:focus-visible {
   outline: none;
   border-color: var(--border-focus);
   box-shadow: 0 0 0 3px var(--accent-glow);
@@ -708,4 +717,10 @@ body {
 .dialog-footer-actions {
   display: flex;
   gap: var(--space-2);
+}
+
+/* Dialog save button: auto width (overrides full-width btn-primary default) */
+.btn-dialog-save {
+  width: auto;
+  padding: var(--space-2) var(--space-5);
 }

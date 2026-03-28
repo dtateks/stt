@@ -7,40 +7,69 @@
 (function initBridge() {
   "use strict";
 
+  var TAURI_READY_POLL_MS = 10;
+  var TAURI_READY_TIMEOUT_MS = 10000;
+
+  function waitForTauriApi(selectApi) {
+    return new Promise(function(resolve, reject) {
+      var startedAt = Date.now();
+
+      function check() {
+        var tauri = window.__TAURI__;
+        var api = tauri ? selectApi(tauri) : undefined;
+        if (api) {
+          resolve(api);
+          return;
+        }
+
+        if (Date.now() - startedAt >= TAURI_READY_TIMEOUT_MS) {
+          reject(new Error("Tauri IPC not available"));
+          return;
+        }
+
+        window.setTimeout(check, TAURI_READY_POLL_MS);
+      }
+
+      check();
+    });
+  }
+
   /**
    * Thin wrapper around the Tauri invoke IPC. Surfaces a stable promise-based
    * API even when __TAURI__ becomes available asynchronously in some WebView
    * contexts.
    */
   function invoke(command, args) {
-    if (window.__TAURI__?.core?.invoke) {
-      return window.__TAURI__.core.invoke(command, args);
-    }
-    return Promise.reject(new Error("Tauri IPC not available"));
+    return waitForTauriApi(function(tauri) {
+      return tauri.core;
+    }).then(function(tauriCore) {
+      return tauriCore.invoke(command, args);
+    });
   }
 
   function listen(event, callback) {
-    if (window.__TAURI__?.event?.listen) {
-      return window.__TAURI__.event.listen(event, callback);
-    }
-    return Promise.resolve(() => {});
+    return waitForTauriApi(function(tauri) {
+      return tauri.event;
+    }).then(function(tauriEvent) {
+      return tauriEvent.listen(event, callback);
+    });
   }
 
   /** @type {import('./src/types').VoiceToTextBridge} */
   window.voiceToText = {
     setMicState: (isActive) =>
-      invoke("set_mic_state", { isActive }),
+      invoke("set_mic_state", { is_active: isActive }),
 
     insertText: (text, opts) =>
       invoke("insert_text", {
         text,
-        enterMode: opts?.enterMode ?? true,
+        enter_mode: opts?.enterMode ?? false,
       }),
 
     correctTranscript: (transcript, outputLang) =>
       invoke("correct_transcript", {
         transcript,
-        outputLang: outputLang ?? "auto",
+        output_lang: outputLang ?? "auto",
       }),
 
     getSonioxKey: () =>
@@ -62,10 +91,10 @@
       invoke("ensure_text_insertion_permission"),
 
     saveCredentials: (xaiKey, sonioxKey) =>
-      invoke("save_credentials", { xaiKey, sonioxKey }),
+      invoke("save_credentials", { xai_key: xaiKey, soniox_key: sonioxKey }),
 
     updateXaiKey: (xaiKey) =>
-      invoke("update_xai_key", { xaiKey }),
+      invoke("update_xai_key", { xai_key: xaiKey }),
 
     resetCredentials: () =>
       invoke("reset_credentials"),
