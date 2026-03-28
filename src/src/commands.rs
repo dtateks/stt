@@ -115,11 +115,8 @@ pub fn show_bar(app: AppHandle) -> Result<(), String> {
         return Err("bar window not found".to_string());
     };
 
-    // Configure transparency and position BEFORE showing to prevent opaque flash.
-    crate::configure_bar_window_for_macos(&bar_window).map_err(|error| error.to_string())?;
-    crate::position_bar_window_bottom_center(&app, &bar_window).map_err(|error| error.to_string())?;
-    bar_window.show().map_err(|error| error.to_string())?;
-    crate::order_bar_window_front_for_macos(&bar_window).map_err(|error| error.to_string())?;
+    crate::show_bar_window_with_runtime_invariants(&app, &bar_window)
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 

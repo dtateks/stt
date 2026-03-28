@@ -26,8 +26,8 @@ impl Credentials {
 }
 
 pub fn get_credentials(app: &AppHandle) -> Result<Credentials, String> {
-    let store = read_store(app)?;
     let env_credentials = get_env_credentials();
+    let store = load_stored_credentials_or_empty(read_store(app));
     let needs_shell_fallback = (store.xai_key.is_empty() && env_credentials.xai_key.is_empty())
         || (store.soniox_key.is_empty() && env_credentials.soniox_key.is_empty());
 
@@ -106,9 +106,26 @@ fn read_store(app: &AppHandle) -> Result<Credentials, String> {
     }
 
     let raw_data = fs::read_to_string(file_path).map_err(|error| error.to_string())?;
-    serde_json::from_str::<Credentials>(&raw_data)
-        .map_err(|_| String::new())
-        .or_else(|_| Ok(Credentials::empty()))
+    Ok(parse_stored_credentials_or_empty(&raw_data))
+}
+
+pub fn parse_stored_credentials(raw_data: &str) -> Result<Credentials, String> {
+    serde_json::from_str::<Credentials>(raw_data)
+        .map_err(|error| format!("Stored credentials are invalid JSON: {error}"))
+}
+
+pub fn parse_stored_credentials_or_empty(raw_data: &str) -> Credentials {
+    load_stored_credentials_or_empty(parse_stored_credentials(raw_data))
+}
+
+pub fn load_stored_credentials_or_empty(result: Result<Credentials, String>) -> Credentials {
+    match result {
+        Ok(credentials) => credentials,
+        Err(error) => {
+            eprintln!("[credentials] {error}; ignoring stored credentials file");
+            Credentials::empty()
+        }
+    }
 }
 
 fn write_store(app: &AppHandle, credentials: &Credentials) -> Result<(), String> {

@@ -1,9 +1,7 @@
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow, WebviewWindowBuilder,
-    WindowEvent,
-};
 use tauri::utils::config::{Color, WindowConfig};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 #[cfg(target_os = "macos")]
@@ -31,6 +29,56 @@ const BAR_WINDOW_WIDTH: f64 = 600.0;
 const BAR_WINDOW_HEIGHT: f64 = 56.0;
 const BAR_BOTTOM_OFFSET_PX: i32 = 40;
 const BAR_WINDOW_CORNER_RADIUS: f64 = 24.0;
+#[cfg(target_os = "macos")]
+const NS_STATUS_WINDOW_LEVEL: i64 = 25;
+
+pub fn run_bar_show_sequence<
+    ConfigureBarWindow,
+    PositionBarWindow,
+    ShowBarWindow,
+    OrderBarWindowFront,
+>(
+    mut configure_bar_window: ConfigureBarWindow,
+    mut position_bar_window: PositionBarWindow,
+    mut show_bar_window: ShowBarWindow,
+    mut order_bar_window_front: OrderBarWindowFront,
+) -> tauri::Result<()>
+where
+    ConfigureBarWindow: FnMut() -> tauri::Result<()>,
+    PositionBarWindow: FnMut() -> tauri::Result<()>,
+    ShowBarWindow: FnMut() -> tauri::Result<()>,
+    OrderBarWindowFront: FnMut() -> tauri::Result<()>,
+{
+    configure_bar_window()?;
+    position_bar_window()?;
+    show_bar_window()?;
+    order_bar_window_front()?;
+    Ok(())
+}
+
+pub fn run_main_close_request_sequence<PreventClose, HideMainWindow>(
+    prevent_close: PreventClose,
+    hide_main_window: HideMainWindow,
+) -> tauri::Result<()>
+where
+    PreventClose: FnOnce(),
+    HideMainWindow: FnOnce() -> tauri::Result<()>,
+{
+    prevent_close();
+    hide_main_window()
+}
+
+pub(crate) fn show_bar_window_with_runtime_invariants(
+    app: &AppHandle,
+    bar_window: &WebviewWindow,
+) -> tauri::Result<()> {
+    run_bar_show_sequence(
+        || configure_bar_window_for_macos(bar_window),
+        || position_bar_window_bottom_center(app, bar_window),
+        || bar_window.show(),
+        || order_bar_window_front_for_macos(bar_window),
+    )
+}
 
 fn get_window_config<'a>(app: &'a tauri::App, label: &str) -> tauri::Result<&'a WindowConfig> {
     app.config()
@@ -85,7 +133,7 @@ pub(crate) fn configure_bar_window_for_macos(bar_window: &WebviewWindow) -> taur
     // NSStatusWindowLevel (25) — high enough to appear over fullscreen apps.
     // setHidesOnDeactivate(false) keeps HUD visible when another app is active.
     unsafe {
-        let _: () = msg_send![ns_window, setLevel: 25i64];
+        let _: () = msg_send![ns_window, setLevel: NS_STATUS_WINDOW_LEVEL];
         let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
 
         let content_view: *mut AnyObject = msg_send![ns_window, contentView];
@@ -167,32 +215,19 @@ pub(crate) fn position_bar_window_bottom_center(
     Ok(())
 }
 
-fn toggle_main_window_visibility(app: &AppHandle) {
-    if let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        match main_window.is_visible() {
-            Ok(true) => {
-                let _ = main_window.hide();
-            }
-            Ok(false) => {
-                let _ = main_window.show();
-                let _ = main_window.set_focus();
-            }
-            Err(_) => {}
-        }
-    }
-}
-
 fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
-    let main_window = WebviewWindowBuilder::from_config(app, get_window_config(app, MAIN_WINDOW_LABEL)?)
-        ?
-        .initialization_script(include_str!("../../ui/tauri-bridge.js"))
-        .build()?;
+    let main_window =
+        WebviewWindowBuilder::from_config(app, get_window_config(app, MAIN_WINDOW_LABEL)?)?
+            .initialization_script(include_str!("../../ui/tauri-bridge.js"))
+            .build()?;
 
     let main_window_for_events = main_window.clone();
     main_window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
-            api.prevent_close();
-            let _ = main_window_for_events.hide();
+            let _ = run_main_close_request_sequence(
+                || api.prevent_close(),
+                || main_window_for_events.hide(),
+            );
         }
     });
 
@@ -200,41 +235,16 @@ fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
 }
 
 fn build_bar_window(app: &tauri::App) -> tauri::Result<()> {
-    let bar_window = WebviewWindowBuilder::from_config(app, get_window_config(app, BAR_WINDOW_LABEL)?)
-        ?
-        .initialization_script(include_str!("../../ui/tauri-bridge.js"))
-        .build()?;
+    let bar_window =
+        WebviewWindowBuilder::from_config(app, get_window_config(app, BAR_WINDOW_LABEL)?)?
+            .initialization_script(include_str!("../../ui/tauri-bridge.js"))
+            .build()?;
 
     let app_handle = app.handle().clone();
     position_bar_window_bottom_center(&app_handle, &bar_window)?;
     configure_bar_window_for_macos(&bar_window)?;
 
     bar_window.set_ignore_cursor_events(true)?;
-
-    Ok(())
-}
-
-fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
-    let icon = app.default_window_icon().cloned();
-
-    let mut tray_builder = TrayIconBuilder::new().tooltip("Voice to Text");
-    if let Some(window_icon) = icon {
-        tray_builder = tray_builder.icon(window_icon);
-    }
-
-    tray_builder
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                let app = tray.app_handle();
-                toggle_main_window_visibility(&app);
-            }
-        })
-        .build(app)?;
 
     Ok(())
 }
@@ -254,13 +264,16 @@ fn setup_global_shortcut(app: &tauri::App) -> tauri::Result<()> {
             }
         })
         .map_err(|error| {
-            eprintln!("[global-shortcut] Failed to set up shortcut handler: {}", error);
+            eprintln!(
+                "[global-shortcut] Failed to set up shortcut handler: {}",
+                error
+            );
             std::io::Error::other(error.to_string())
         })?;
 
     if let Err(error) = app.global_shortcut().register(shortcut) {
         eprintln!("[global-shortcut] Failed to register global shortcut (may be in use by another app): {}", error);
-        eprintln!("[global-shortcut] Continuing without global shortcut. Use tray icon to toggle mic.");
+        eprintln!("[global-shortcut] Continuing without global shortcut.");
         return Ok(());
     }
 
@@ -271,13 +284,9 @@ fn setup_global_shortcut(app: &tauri::App) -> tauri::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             build_main_window(app)?;
             build_bar_window(app)?;
-            setup_tray(app)?;
             setup_global_shortcut(app)?;
             Ok(())
         })

@@ -12,6 +12,8 @@ const MICROPHONE_PRIVACY_PANE_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
 const MICROPHONE_PERMISSION_REQUIRED_CODE: &str = "microphone-permission-required";
 const ACCESSIBILITY_PERMISSION_REQUIRED_CODE: &str = "accessibility-permission-required";
+const ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE: &str = "Accessibility permission is required to insert text. Enable Voice to Text in System Settings → Privacy & Security → Accessibility, then try again.";
+const ACCESSIBILITY_PERMISSION_MANUAL_OPEN_MESSAGE: &str = "Accessibility permission is required to insert text. Open System Settings → Privacy & Security → Accessibility manually, enable Voice to Text, then try again.";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MicrophonePermissionResult {
@@ -116,12 +118,23 @@ pub fn ensure_accessibility_permission() -> AccessibilityPermissionResult {
     // AXIsProcessTrustedWithOptions with kAXTrustedCheckOptionPrompt=true
     // both registers the app in TCC and shows the system prompt.
     let prompted = prompt_accessibility_trust();
+    build_accessibility_permission_required_result(prompted)
+}
+
+pub fn build_accessibility_permission_required_result(
+    opened_settings: bool,
+) -> AccessibilityPermissionResult {
     AccessibilityPermissionResult {
         granted: false,
         code: Some(ACCESSIBILITY_PERMISSION_REQUIRED_CODE.to_string()),
-        opened_settings: Some(prompted),
+        opened_settings: Some(opened_settings),
         message: Some(
-            "Accessibility permission is required to insert text. Enable Voice to Text in System Settings → Privacy & Security → Accessibility, then try again.".to_string(),
+            if opened_settings {
+                ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE
+            } else {
+                ACCESSIBILITY_PERMISSION_MANUAL_OPEN_MESSAGE
+            }
+            .to_string(),
         ),
     }
 }
@@ -189,9 +202,8 @@ pub fn build_microphone_denied_result(status: String) -> MicrophonePermissionRes
 }
 
 fn open_privacy_pane(url: &str) -> bool {
-    Command::new("open")
-        .arg(url)
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    match Command::new("open").arg(url).status() {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    }
 }
