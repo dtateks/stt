@@ -148,7 +148,11 @@ run_pre_push_release() {
 	local remote_url="$2"
 	local ref_file="$3"
 	local tag
-	mapfile -t refspecs < <(refspecs_from_pre_push_input "$ref_file")
+	local refspecs=()
+	while IFS= read -r refspec; do
+		[[ -z "$refspec" ]] && continue
+		refspecs+=("$refspec")
+	done < <(refspecs_from_pre_push_input "$ref_file")
 
 	ensure_prerequisites
 	build_and_package_local_arm64_release
