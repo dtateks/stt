@@ -195,6 +195,12 @@
           "markdownDescription": "Enables the correct_transcript command without any pre-configured scope."
         },
         {
+          "description": "Enables the create_soniox_temporary_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-soniox-temporary-key",
+          "markdownDescription": "Enables the create_soniox_temporary_key command without any pre-configured scope."
+        },
+        {
           "description": "Enables the ensure_accessibility_permission command without any pre-configured scope.",
           "type": "string",
           "const": "allow-ensure-accessibility-permission",
@@ -225,16 +231,16 @@
           "markdownDescription": "Enables the get_mic_toggle_shortcut command without any pre-configured scope."
         },
         {
-          "description": "Enables the get_soniox_key command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-get-soniox-key",
-          "markdownDescription": "Enables the get_soniox_key command without any pre-configured scope."
-        },
-        {
           "description": "Enables the has_openai_compatible_key command without any pre-configured scope.",
           "type": "string",
           "const": "allow-has-openai-compatible-key",
           "markdownDescription": "Enables the has_openai_compatible_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the has_soniox_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-has-soniox-key",
+          "markdownDescription": "Enables the has_soniox_key command without any pre-configured scope."
         },
         {
           "description": "Enables the has_xai_key command without any pre-configured scope.",
@@ -351,6 +357,12 @@
           "markdownDescription": "Denies the correct_transcript command without any pre-configured scope."
         },
         {
+          "description": "Denies the create_soniox_temporary_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-soniox-temporary-key",
+          "markdownDescription": "Denies the create_soniox_temporary_key command without any pre-configured scope."
+        },
+        {
           "description": "Denies the ensure_accessibility_permission command without any pre-configured scope.",
           "type": "string",
           "const": "deny-ensure-accessibility-permission",
@@ -381,16 +393,16 @@
           "markdownDescription": "Denies the get_mic_toggle_shortcut command without any pre-configured scope."
         },
         {
-          "description": "Denies the get_soniox_key command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-get-soniox-key",
-          "markdownDescription": "Denies the get_soniox_key command without any pre-configured scope."
-        },
-        {
           "description": "Denies the has_openai_compatible_key command without any pre-configured scope.",
           "type": "string",
           "const": "deny-has-openai-compatible-key",
           "markdownDescription": "Denies the has_openai_compatible_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the has_soniox_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-has-soniox-key",
+          "markdownDescription": "Denies the has_soniox_key command without any pre-configured scope."
         },
         {
           "description": "Denies the has_xai_key command without any pre-configured scope.",
