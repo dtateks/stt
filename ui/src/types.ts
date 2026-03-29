@@ -76,11 +76,6 @@ export interface AppConfig {
   voice: VoiceConfig;
 }
 
-export interface TranslationTerm {
-  source: string;
-  target: string;
-}
-
 export interface PermissionsStatus {
   microphone: boolean;
   accessibility: boolean;
@@ -126,7 +121,6 @@ export interface VoiceToTextBridge {
 
 export interface VoiceToTextDefaults {
   terms: string[];
-  translationTerms: TranslationTerm[];
 }
 
 declare global {
@@ -144,7 +138,6 @@ export interface UserPreferences {
   enterMode: boolean;
   outputLang: OutputLang;
   sonioxTerms: string[];
-  sonioxTranslationTerms: TranslationTerm[];
   skipLlm: boolean;
 }
 
@@ -174,7 +167,6 @@ export interface SonioxSTTClient {
 
 export interface SonioxContext {
   terms?: string[];
-  translationTerms?: TranslationTerm[];
 }
 
 export interface TranscriptResult {

@@ -89,7 +89,6 @@ function createBridge(): VoiceToTextBridge {
       return ["grok-4-1-fast-non-reasoning", "grok-4-fast-reasoning"];
     }),
     listSonioxModels: vi.fn(async () => ["stt-rt-v4", "stt-rt-v3", "stt-rt"]),
-    resetCredentials: vi.fn(async () => {}),
     onToggleMic: vi.fn(() => () => {}),
     copyToClipboard: vi.fn(async () => {}),
     quitApp: vi.fn(async () => {}),
@@ -107,7 +106,7 @@ async function bootMain(): Promise<void> {
   vi.resetModules();
   buildIndexDom();
   window.localStorage.clear();
-  window.voiceToTextDefaults = { terms: [], translationTerms: [] };
+  window.voiceToTextDefaults = { terms: [] };
 
   const bridge = createBridge();
   window.voiceToText = bridge;

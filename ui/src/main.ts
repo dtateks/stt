@@ -6,7 +6,7 @@
  */
 
 import "./main.css";
-import type { LlmProvider, OutputLang, TranslationTerm } from "./types.ts";
+import type { LlmProvider, OutputLang } from "./types.ts";
 import {
   readShortcutRecorderShortcut,
   renderShortcutRecorderState,
@@ -35,7 +35,6 @@ import {
   saveReminderBeepEnabledPreference,
   saveSonioxModelPreference,
   saveSonioxTerms,
-  saveSonioxTranslationTerms,
 } from "./storage.ts";
 import { requestStartupPermissions } from "./startup-permissions.ts";
 import { waitForVoiceToTextBridge } from "./bridge-ready.ts";
@@ -49,10 +48,9 @@ import {
 
 interface StagedSettings {
   terms: string[];
-  translationTerms: TranslationTerm[];
 }
 
-let staged: StagedSettings = { terms: [], translationTerms: [] };
+let staged: StagedSettings = { terms: [] };
 let settingsOpenedBy: HTMLElement | null = null;
 
 // ─── Shortcut recorder state ──────────────────────────────────────────────
@@ -138,12 +136,6 @@ const dialogEl = q<HTMLDivElement>("#settings-dialog");
 const termsTagList = q<HTMLDivElement>("#terms-tag-list");
 const termsAddInput = q<HTMLInputElement>("#terms-add-input");
 const termsAddBtn = q<HTMLButtonElement>("#terms-add-btn");
-
-// Dialog: translation terms
-const translationList = q<HTMLDivElement>("#translation-list");
-const translationSrcInput = q<HTMLInputElement>("#translation-src-input");
-const translationTgtInput = q<HTMLInputElement>("#translation-tgt-input");
-const translationAddBtn = q<HTMLButtonElement>("#translation-add-btn");
 
 // Dialog footer
 const dialogResetBtn = q<HTMLButtonElement>("#dialog-reset");
@@ -1237,7 +1229,7 @@ function syncAiFieldsetDisabledState(correctionEnabled: boolean): void {
 
 function updateVocabCount(): void {
   const prefs = loadPreferences();
-  const total = prefs.sonioxTerms.length + prefs.sonioxTranslationTerms.length;
+  const total = prefs.sonioxTerms.length;
   vocabCountBadge.textContent = total > 0 ? String(total) : "";
 }
 
@@ -1300,17 +1292,11 @@ function bindDialog(): void {
   dialogResetBtn.addEventListener("click", () => {
     loadStagedFromDefaults();
     renderDialogTerms();
-    renderDialogTranslations();
   });
 
   termsAddBtn.addEventListener("click", addStagedTerm);
   termsAddInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") addStagedTerm();
-  });
-
-  translationAddBtn.addEventListener("click", addStagedTranslation);
-  translationTgtInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") addStagedTranslation();
   });
 
   // Close on backdrop click
@@ -1333,11 +1319,9 @@ function openSettingsDialog(): void {
   const prefs = loadPreferences();
   staged = {
     terms: [...prefs.sonioxTerms],
-    translationTerms: prefs.sonioxTranslationTerms.map((t) => ({ ...t })),
   };
 
   renderDialogTerms();
-  renderDialogTranslations();
 
   dialogBackdrop.classList.add("is-open");
   dialogEl.setAttribute("aria-hidden", "false");
@@ -1356,8 +1340,7 @@ function closeSettingsDialog(): void {
 
 function commitStagedSettings(): void {
   const termsOk = saveSonioxTerms(staged.terms);
-  const translationOk = saveSonioxTranslationTerms(staged.translationTerms);
-  if (!termsOk || !translationOk) {
+  if (!termsOk) {
     applySetupError(
       "Could not save vocabulary settings. Storage may be full or unavailable.",
       setupError,
@@ -1373,7 +1356,6 @@ function loadStagedFromDefaults(): void {
   const defaults = window.voiceToTextDefaults;
   staged = {
     terms: [...defaults.terms],
-    translationTerms: defaults.translationTerms.map((t) => ({ ...t })),
   };
 }
 
@@ -1426,78 +1408,6 @@ function addStagedTerm(): void {
   staged.terms = [...staged.terms, value];
   termsAddInput.value = "";
   renderDialogTerms();
-}
-
-// ─── Dialog: translation terms ────────────────────────────────────────────
-
-function renderDialogTranslations(): void {
-  translationList.innerHTML = "";
-
-  if (staged.translationTerms.length === 0) {
-    const empty = document.createElement("span");
-    empty.className = "tag-empty";
-    empty.textContent = "No translation pairs added";
-    translationList.appendChild(empty);
-    return;
-  }
-
-  for (const pair of staged.translationTerms) {
-    translationList.appendChild(buildTranslationItem(pair));
-  }
-}
-
-function buildTranslationItem(pair: TranslationTerm): HTMLElement {
-  const item = document.createElement("div");
-  item.className = "translation-item";
-
-  const src = document.createElement("span");
-  src.className = "source";
-  src.textContent = pair.source;
-
-  const arrow = document.createElement("span");
-  arrow.className = "arrow";
-  arrow.textContent = "→";
-  arrow.setAttribute("aria-hidden", "true");
-
-  const tgt = document.createElement("span");
-  tgt.className = "target";
-  tgt.textContent = pair.target;
-
-  const removeBtn = document.createElement("button");
-  removeBtn.className = "tag-remove";
-  removeBtn.setAttribute("aria-label", `Remove translation "${pair.source}" → "${pair.target}"`);
-  removeBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
-  removeBtn.addEventListener("click", () => {
-    staged.translationTerms = staged.translationTerms.filter(
-      (t) => !(t.source === pair.source && t.target === pair.target),
-    );
-    renderDialogTranslations();
-  });
-
-  item.append(src, arrow, tgt, removeBtn);
-  return item;
-}
-
-function addStagedTranslation(): void {
-  const source = translationSrcInput.value.trim();
-  const target = translationTgtInput.value.trim();
-
-  if (!source || !target) return;
-
-  const isDuplicate = staged.translationTerms.some(
-    (t) => t.source === source && t.target === target,
-  );
-  if (isDuplicate) {
-    translationSrcInput.value = "";
-    translationTgtInput.value = "";
-    return;
-  }
-
-  staged.translationTerms = [...staged.translationTerms, { source, target }];
-  translationSrcInput.value = "";
-  translationTgtInput.value = "";
-  renderDialogTranslations();
-  translationSrcInput.focus();
 }
 
 // ─── Focus trap ───────────────────────────────────────────────────────────

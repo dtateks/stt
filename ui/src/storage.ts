@@ -3,7 +3,7 @@
  * All localStorage reads/writes are centralised here.
  */
 
-import type { LlmProvider, OutputLang, TranslationTerm, UserPreferences } from "./types.ts";
+import type { LlmProvider, OutputLang, UserPreferences } from "./types.ts";
 
 export const DEFAULT_MIC_TOGGLE_SHORTCUT = "Control+Alt+Super+V";
 export const DEFAULT_REMINDER_BEEP_ENABLED = true;
@@ -13,7 +13,6 @@ const KEYS = {
   enterMode: "enterMode",
   outputLang: "outputLang",
   sonioxTerms: "sonioxTerms",
-  sonioxTranslationTerms: "sonioxTranslationTerms",
   skipLlm: "skipLlm",
   micToggleShortcut: "micToggleShortcut",
   stopWord: "stopWord",
@@ -54,10 +53,6 @@ export function loadPreferences(): UserPreferences {
     enterMode: readJson<boolean>(KEYS.enterMode, true),
     outputLang: readJson<OutputLang>(KEYS.outputLang, "auto"),
     sonioxTerms: readJson<string[]>(KEYS.sonioxTerms, defaults.terms),
-    sonioxTranslationTerms: readJson<TranslationTerm[]>(
-      KEYS.sonioxTranslationTerms,
-      defaults.translationTerms
-    ),
     skipLlm: readJson<boolean>(KEYS.skipLlm, true),
   };
 }
@@ -72,10 +67,6 @@ export function saveOutputLang(value: OutputLang): boolean {
 
 export function saveSonioxTerms(terms: string[]): boolean {
   return writeJson(KEYS.sonioxTerms, terms);
-}
-
-export function saveSonioxTranslationTerms(terms: TranslationTerm[]): boolean {
-  return writeJson(KEYS.sonioxTranslationTerms, terms);
 }
 
 export function saveSkipLlm(value: boolean): boolean {

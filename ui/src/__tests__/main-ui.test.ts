@@ -52,7 +52,6 @@ import {
   saveSkipLlm,
   saveSonioxModelPreference,
   saveSonioxTerms,
-  saveSonioxTranslationTerms,
 } from "../storage.ts";
 import {
   applySetupError,
@@ -62,14 +61,13 @@ import {
   applyDialogClose,
 } from "../main-logic.ts";
 import { requestStartupPermissions } from "../startup-permissions.ts";
-import type { TranslationTerm } from "../types.ts";
 
 // ─── Storage: readJson fallback behavior ─────────────────────────────────
 
 describe("storage — readJson fallback behavior", () => {
   beforeEach(() => {
     window.localStorage.clear();
-    window.voiceToTextDefaults = { terms: [], translationTerms: [] };
+    window.voiceToTextDefaults = { terms: [] };
   });
 
   afterEach(() => {
@@ -145,19 +143,6 @@ describe("storage — writeJson returns false on quota failure (IMP-03)", () => 
     expect(ok).toBe(true);
   });
 
-  it("saveSonioxTranslationTerms returns false when setItem throws", () => {
-    vi.spyOn(window.localStorage, "setItem").mockImplementationOnce(() => {
-      throw new DOMException("QuotaExceededError");
-    });
-    const ok = saveSonioxTranslationTerms([{ source: "a", target: "b" }]);
-    expect(ok).toBe(false);
-  });
-
-  it("saveSonioxTranslationTerms returns true when write succeeds", () => {
-    const ok = saveSonioxTranslationTerms([{ source: "a", target: "b" }]);
-    expect(ok).toBe(true);
-  });
-
   it("saveOutputLang returns false when setItem throws", () => {
     vi.spyOn(window.localStorage, "setItem").mockImplementationOnce(() => {
       throw new DOMException("QuotaExceededError");
@@ -184,22 +169,20 @@ describe("storage — loadPreferences defaults hydration", () => {
   });
 
   it("uses voiceToTextDefaults.terms when no sonioxTerms stored", () => {
-    const defaults = { terms: ["hello", "world"], translationTerms: [] };
+    const defaults = { terms: ["hello", "world"] };
     window.voiceToTextDefaults = defaults;
     const prefs = loadPreferences();
     expect(prefs.sonioxTerms).toEqual(["hello", "world"]);
   });
 
-  it("uses voiceToTextDefaults.translationTerms when nothing stored", () => {
-    const translationTerms: TranslationTerm[] = [{ source: "foo", target: "bar" }];
-    const defaults = { terms: [], translationTerms };
-    window.voiceToTextDefaults = defaults;
+  it("does not hydrate a translation-term preference surface", () => {
+    window.voiceToTextDefaults = { terms: ["foo"] };
     const prefs = loadPreferences();
-    expect(prefs.sonioxTranslationTerms).toEqual(translationTerms);
+    expect("sonioxTranslationTerms" in prefs).toBe(false);
   });
 
   it("returns stored sonioxTerms over defaults when present", () => {
-    const defaults = { terms: ["default-term"], translationTerms: [] };
+    const defaults = { terms: ["default-term"] };
     window.voiceToTextDefaults = defaults;
     window.localStorage.setItem("sonioxTerms", JSON.stringify(["stored-term"]));
     const prefs = loadPreferences();
@@ -232,13 +215,6 @@ describe("storage — save helpers persist correct keys", () => {
     saveSonioxTerms(["alpha", "beta"]);
     const stored = window.localStorage.getItem("sonioxTerms");
     expect(JSON.parse(stored!)).toEqual(["alpha", "beta"]);
-  });
-
-  it("saveSonioxTranslationTerms persists the sonioxTranslationTerms key", () => {
-    const pairs: TranslationTerm[] = [{ source: "hello", target: "xin chào" }];
-    saveSonioxTranslationTerms(pairs);
-    const stored = window.localStorage.getItem("sonioxTranslationTerms");
-    expect(JSON.parse(stored!)).toEqual(pairs);
   });
 
   it("saveMicToggleShortcutPreference persists the micToggleShortcut key", () => {
@@ -580,30 +556,19 @@ describe("requestStartupPermissions — returns structured results (IMP-01)", ()
 describe("dialog staged-state isolation", () => {
   it("staged terms are a copy — not a reference — of persisted terms", () => {
     const persisted = ["alpha", "beta"];
-    const staged = { terms: [...persisted], translationTerms: [] };
+    const staged = { terms: [...persisted] };
 
     staged.terms.push("gamma");
     expect(persisted).not.toContain("gamma");
     expect(staged.terms).toContain("gamma");
   });
 
-  it("staged translationTerms are shallow copies — not references", () => {
-    const persisted: TranslationTerm[] = [{ source: "hi", target: "xin chào" }];
-    const staged = {
-      terms: [],
-      translationTerms: persisted.map((t) => ({ ...t })),
-    };
-
-    staged.translationTerms[0].target = "mutated";
-    expect(persisted[0].target).toBe("xin chào");
-  });
-
   it("cancel leaves persisted state unchanged", () => {
-    const persisted = { terms: ["original"], translationTerms: [] };
-    let staged = { terms: [...persisted.terms], translationTerms: [] };
+    const persisted = { terms: ["original"] };
+    let staged = { terms: [...persisted.terms] };
 
     staged.terms = [...staged.terms, "new-term"];
-    staged = { terms: [], translationTerms: [] };
+    staged = { terms: [] };
 
     expect(persisted.terms).not.toContain("new-term");
     expect(persisted.terms).toEqual(["original"]);
@@ -614,29 +579,20 @@ describe("dialog staged-state isolation", () => {
 
 describe("dialog reset-to-defaults", () => {
   it("loads terms from voiceToTextDefaults", () => {
-    const defaults = {
-      terms: ["default-term"],
-      translationTerms: [{ source: "src", target: "tgt" }],
-    };
+    const defaults = { terms: ["default-term"] };
 
     const staged = {
       terms: [...defaults.terms],
-      translationTerms: defaults.translationTerms.map((t) => ({ ...t })),
     };
 
     expect(staged.terms).toEqual(["default-term"]);
-    expect(staged.translationTerms).toEqual([{ source: "src", target: "tgt" }]);
   });
 
   it("staged from defaults is a copy — mutations do not affect defaults", () => {
-    const defaults = {
-      terms: ["keep-me"],
-      translationTerms: [] as TranslationTerm[],
-    };
+    const defaults = { terms: ["keep-me"] };
 
     const staged = {
       terms: [...defaults.terms],
-      translationTerms: defaults.translationTerms.map((t) => ({ ...t })),
     };
 
     staged.terms.push("extra");
@@ -679,47 +635,6 @@ describe("addStagedTerm — deduplication", () => {
   });
 });
 
-// ─── addStagedTranslation deduplication (pure logic) ──────────────────────
-
-describe("addStagedTranslation — deduplication", () => {
-  it("does not add a duplicate translation pair", () => {
-    let translationTerms: TranslationTerm[] = [
-      { source: "hi", target: "xin chào" },
-    ];
-
-    function addStagedTranslation(source: string, target: string): void {
-      const s = source.trim();
-      const t = target.trim();
-      if (!s || !t) return;
-      const isDuplicate = translationTerms.some(
-        (pair) => pair.source === s && pair.target === t,
-      );
-      if (isDuplicate) return;
-      translationTerms = [...translationTerms, { source: s, target: t }];
-    }
-
-    addStagedTranslation("hi", "xin chào");
-    expect(translationTerms).toHaveLength(1);
-    addStagedTranslation("bye", "tạm biệt");
-    expect(translationTerms).toHaveLength(2);
-  });
-
-  it("ignores pairs where either field is empty", () => {
-    let translationTerms: TranslationTerm[] = [];
-
-    function addStagedTranslation(source: string, target: string): void {
-      const s = source.trim();
-      const t = target.trim();
-      if (!s || !t) return;
-      translationTerms = [...translationTerms, { source: s, target: t }];
-    }
-
-    addStagedTranslation("", "target");
-    addStagedTranslation("source", "");
-    expect(translationTerms).toHaveLength(0);
-  });
-});
-
 // ─── index.html — semantic structure ─────────────────────────────────────
 
 describe("index.html — semantic structure", () => {
@@ -738,7 +653,7 @@ describe("index.html — semantic structure", () => {
       </section>
       <div id="settings-dialog-backdrop" class="dialog-backdrop" role="presentation">
         <div id="settings-dialog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-hidden="true">
-          <h2 id="dialog-title">Vocabulary &amp; Translation</h2>
+          <h2 id="dialog-title">Vocabulary</h2>
           <button id="dialog-close-btn" type="button" aria-label="Close dialog"></button>
         </div>
       </div>
