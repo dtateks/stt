@@ -78,7 +78,16 @@ function createBridge(): VoiceToTextBridge {
     updateGeminiKey: vi.fn(async () => {}),
     updateOpenaiCompatibleKey: vi.fn(async () => {}),
     updateSonioxKey: vi.fn(async () => {}),
-    listModels: vi.fn(async () => ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]),
+    listModels: vi.fn(async (provider: string) => {
+      if (provider === "gemini") {
+        return ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-pro"];
+      }
+      if (provider === "openai_compatible") {
+        return ["gpt-4.1-mini", "gpt-4o-mini"];
+      }
+
+      return ["grok-4-1-fast-non-reasoning", "grok-4-fast-reasoning"];
+    }),
     listSonioxModels: vi.fn(async () => ["stt-rt-v4", "stt-rt-v3", "stt-rt"]),
     resetCredentials: vi.fn(async () => {}),
     onToggleMic: vi.fn(() => () => {}),
@@ -125,7 +134,7 @@ describe("main provider defaults", () => {
     window.localStorage.clear();
   });
 
-  it("switching to Gemini fetches models from endpoint and shows default", async () => {
+  it("switching to Gemini prefers the configured default model from the fetched list", async () => {
     await bootMain();
 
     const providerSelect = document.getElementById("pref-llm-provider") as HTMLSelectElement;
@@ -142,14 +151,47 @@ describe("main provider defaults", () => {
     // Provider should be saved
     expect(window.localStorage.getItem("llmProvider")).toBe('"gemini"');
     
-    // Model select should have the first model from the API response
-    expect(modelSelect.value).toBe("gemini-2.5-flash");
+    // Model select should prefer the configured default when it exists in fetched models
+    expect(modelSelect.value).toBe("gemini-2.5-flash-lite");
     
-    // Model should be saved when user explicitly selects it
+    // Model should be auto-saved from fetched list when no prior selection exists
+    expect(window.localStorage.getItem("llmModelsByProvider")).toBe(
+      '{"gemini":"gemini-2.5-flash-lite"}',
+    );
+
+    // Model should update when user explicitly selects it
     modelSelect.value = "gemini-1.5-pro";
     modelSelect.dispatchEvent(new Event("change"));
     await Promise.resolve();
-    expect(window.localStorage.getItem("llmModel")).toBe('"gemini-1.5-pro"');
+    expect(window.localStorage.getItem("llmModelsByProvider")).toBe(
+      '{"gemini":"gemini-1.5-pro"}',
+    );
+  });
+
+  it("fetching xAI models prefers the configured default from the fetched list", async () => {
+    await bootMain();
+
+    const providerSelect = document.getElementById("pref-llm-provider") as HTMLSelectElement;
+    const bridge = window.voiceToText;
+
+    providerSelect.value = "gemini";
+    providerSelect.dispatchEvent(new Event("change"));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    providerSelect.value = "xai";
+    providerSelect.dispatchEvent(new Event("change"));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const storedModels = JSON.parse(window.localStorage.getItem("llmModelsByProvider") ?? "{}");
+
+    expect(bridge.listModels).toHaveBeenCalledWith("xai", undefined);
+    expect(storedModels).toMatchObject({
+      xai: "grok-4-1-fast-non-reasoning",
+    });
   });
 
   it("loads Soniox realtime models and persists selected Soniox model", async () => {
@@ -171,5 +213,46 @@ describe("main provider defaults", () => {
     await Promise.resolve();
 
     expect(window.localStorage.getItem("sonioxModel")).toBe('"stt-rt-v3"');
+  });
+
+  it("reuses persisted fetched model selections when still available", async () => {
+    await bootMain();
+
+    window.localStorage.setItem("llmModelsByProvider", '{"gemini":"gemini-1.5-pro"}');
+    window.localStorage.setItem("sonioxModel", '"stt-rt-v3"');
+
+    const providerSelect = document.getElementById("pref-llm-provider") as HTMLSelectElement;
+    const llmModelSelect = document.getElementById("pref-llm-model") as HTMLSelectElement;
+    const sonioxModelSelect = document.getElementById("pref-soniox-model") as HTMLSelectElement;
+    const sonioxModelFetchBtn = document.getElementById("pref-soniox-model-fetch") as HTMLButtonElement;
+
+    providerSelect.value = "gemini";
+    providerSelect.dispatchEvent(new Event("change"));
+    sonioxModelFetchBtn.click();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(llmModelSelect.value).toBe("gemini-1.5-pro");
+    expect(sonioxModelSelect.value).toBe("stt-rt-v3");
+  });
+
+  it("does not auto-select an OpenAI-compatible model", async () => {
+    await bootMain();
+
+    const providerSelect = document.getElementById("pref-llm-provider") as HTMLSelectElement;
+    const modelSelect = document.getElementById("pref-llm-model") as HTMLSelectElement;
+
+    providerSelect.value = "openai_compatible";
+    providerSelect.dispatchEvent(new Event("change"));
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(modelSelect.value).toBe("");
+    expect(modelSelect.options[0]?.textContent).toBe("Choose a model");
+    expect(window.localStorage.getItem("llmModelsByProvider")).toBeNull();
   });
 });

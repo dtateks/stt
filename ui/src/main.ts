@@ -174,8 +174,8 @@ const OPENAI_COMPATIBLE_PROVIDER: LlmProvider = "openai_compatible";
 const XAI_PROVIDER: LlmProvider = "xai";
 const GEMINI_PROVIDER: LlmProvider = "gemini";
 const DEFAULT_XAI_MODEL = "grok-4-1-fast-non-reasoning";
-const DEFAULT_OPENAI_COMPATIBLE_MODEL = "gpt-4o-mini";
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_SONIOX_MODEL = "stt-rt-v4";
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
 const SETUP_BUTTON_LABEL = "Get Started";
 const SETUP_BUTTON_SAVING_LABEL = "Saving…";
@@ -188,9 +188,7 @@ let modelStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let providerKeyStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let defaultStopWord = "thank you";
 let defaultLlmProvider: LlmProvider = XAI_PROVIDER;
-let defaultLlmModel = DEFAULT_XAI_MODEL;
 let defaultLlmBaseUrl = DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
-let defaultSonioxModel = "stt-rt-v4";
 
 // ─── Initialization ───────────────────────────────────────────────────────
 
@@ -478,9 +476,10 @@ function bindPrefs(): void {
   });
 
   llmModelSelect.addEventListener("change", () => {
+    const provider = llmProviderSelect.value as LlmProvider;
     const model = llmModelSelect.value;
     if (model) {
-      saveLlmModelPreference(model);
+      saveLlmModelPreference(provider, model);
       setAiStatus("Model saved.", false);
     }
   });
@@ -538,9 +537,7 @@ async function hydrateRuntimeDefaults(
     const config = await bridge.getConfig();
     defaultStopWord = config.voice.stop_word || defaultStopWord;
     defaultLlmProvider = config.llm.provider || defaultLlmProvider;
-    defaultLlmModel = config.llm.model || providerDefaultModel(defaultLlmProvider);
     defaultLlmBaseUrl = config.llm.base_url || DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
-    defaultSonioxModel = config.soniox.model || defaultSonioxModel;
   } catch {
     // Keep baked defaults when config fetch fails.
   }
@@ -560,16 +557,6 @@ function syncProviderKeyLabel(): void {
       ? "Gemini API key" 
       : "OpenAI-compatible API key";
   providerKeyLabel.textContent = labelText;
-}
-
-function providerDefaultModel(provider: LlmProvider): string {
-  if (provider === OPENAI_COMPATIBLE_PROVIDER) {
-    return DEFAULT_OPENAI_COMPATIBLE_MODEL;
-  }
-  if (provider === GEMINI_PROVIDER) {
-    return DEFAULT_GEMINI_MODEL;
-  }
-  return DEFAULT_XAI_MODEL;
 }
 
 function handleStopWordSave(): void {
@@ -649,8 +636,10 @@ async function fetchSonioxModels(): Promise<void> {
 
   try {
     const models = await window.voiceToText.listSonioxModels();
-    const currentModel = loadSonioxModelPreference(defaultSonioxModel);
-    populateSonioxModelSelect(models, currentModel);
+    const savedModel = loadSonioxModelPreference();
+    const selectedModel = selectFetchedModel(models, savedModel, DEFAULT_SONIOX_MODEL) ?? models[0];
+    populateSonioxModelSelect(models, selectedModel);
+    saveSonioxModelPreference(selectedModel);
     setSonioxModelStatus(`Loaded ${models.length} Soniox models.`, false);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -709,8 +698,12 @@ async function fetchModels(): Promise<void> {
 
   try {
     const models = await window.voiceToText.listModels(provider, baseUrl);
-    const currentModel = loadLlmModelPreference(providerDefaultModel(provider));
-    populateModelSelect(models, currentModel);
+    const savedModel = loadLlmModelPreference(provider);
+    const selectedModel = selectFetchedModel(models, savedModel, defaultModelForProvider(provider));
+    populateModelSelect(models, selectedModel);
+    if (selectedModel) {
+      saveLlmModelPreference(provider, selectedModel);
+    }
     setModelStatus(`Loaded ${models.length} models.`, false);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -722,7 +715,31 @@ async function fetchModels(): Promise<void> {
   }
 }
 
-function populateModelSelect(models: string[], selectedModel: string): void {
+function selectFetchedModel(
+  models: string[],
+  savedModel: string | null,
+  preferredDefaultModel: string | null,
+): string | null {
+  if (models.length === 0) {
+    throw new Error("No models returned from provider.");
+  }
+
+  if (savedModel && models.includes(savedModel)) {
+    return savedModel;
+  }
+
+  if (preferredDefaultModel && models.includes(preferredDefaultModel)) {
+    return preferredDefaultModel;
+  }
+
+  if (preferredDefaultModel === null) {
+    return null;
+  }
+
+  return models[0];
+}
+
+function populateModelSelect(models: string[], selectedModel: string | null): void {
   llmModelSelect.innerHTML = "";
 
   if (models.length === 0) {
@@ -735,6 +752,15 @@ function populateModelSelect(models: string[], selectedModel: string): void {
     return;
   }
 
+  if (selectedModel === null) {
+    const placeholderOption = document.createElement("option");
+    placeholderOption.value = "";
+    placeholderOption.textContent = "Choose a model";
+    placeholderOption.disabled = true;
+    placeholderOption.selected = true;
+    llmModelSelect.appendChild(placeholderOption);
+  }
+
   for (const model of models) {
     const option = document.createElement("option");
     option.value = model;
@@ -744,6 +770,17 @@ function populateModelSelect(models: string[], selectedModel: string): void {
     }
     llmModelSelect.appendChild(option);
   }
+}
+
+function defaultModelForProvider(provider: LlmProvider): string | null {
+  if (provider === XAI_PROVIDER) {
+    return DEFAULT_XAI_MODEL;
+  }
+  if (provider === GEMINI_PROVIDER) {
+    return DEFAULT_GEMINI_MODEL;
+  }
+
+  return null;
 }
 
 function setModelLoading(loading: boolean): void {
