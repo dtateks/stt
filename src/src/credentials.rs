@@ -92,13 +92,13 @@ pub fn save_credentials(
     let mut current = read_store(app)?;
     current.xai_key = xai_key;
     current.soniox_key = soniox_key;
-    write_store(app, &current)
+    write_store_with_readback_verification(app, &current)
 }
 
 pub fn save_xai_key(app: &AppHandle, xai_key: String) -> Result<(), String> {
     let mut current = read_store(app)?;
     current.xai_key = xai_key;
-    write_store(app, &current)
+    write_store_with_readback_verification(app, &current)
 }
 
 pub fn save_openai_compatible_key(
@@ -107,19 +107,19 @@ pub fn save_openai_compatible_key(
 ) -> Result<(), String> {
     let mut current = read_store(app)?;
     current.openai_compatible_key = openai_compatible_key;
-    write_store(app, &current)
+    write_store_with_readback_verification(app, &current)
 }
 
 pub fn save_gemini_key(app: &AppHandle, gemini_key: String) -> Result<(), String> {
     let mut current = read_store(app)?;
     current.gemini_key = gemini_key;
-    write_store(app, &current)
+    write_store_with_readback_verification(app, &current)
 }
 
 pub fn save_soniox_key(app: &AppHandle, soniox_key: String) -> Result<(), String> {
     let mut current = read_store(app)?;
     current.soniox_key = soniox_key;
-    write_store(app, &current)
+    write_store_with_readback_verification(app, &current)
 }
 
 pub fn clear_credentials(app: &AppHandle) -> Result<(), String> {
@@ -178,6 +178,27 @@ fn write_store(app: &AppHandle, credentials: &Credentials) -> Result<(), String>
     fs::write(file_path, serialized).map_err(|error| error.to_string())
 }
 
+fn write_store_with_readback_verification(
+    app: &AppHandle,
+    credentials: &Credentials,
+) -> Result<(), String> {
+    write_store(app, credentials)?;
+
+    let persisted = read_store(app)?;
+    verify_persisted_credentials_match_expected(&persisted, credentials)
+}
+
+fn verify_persisted_credentials_match_expected(
+    persisted: &Credentials,
+    expected: &Credentials,
+) -> Result<(), String> {
+    if persisted == expected {
+        return Ok(());
+    }
+
+    Err("Stored credentials could not be verified after save".to_string())
+}
+
 fn get_credentials_path(app: &AppHandle) -> Result<PathBuf, String> {
     let credentials_directory = get_credentials_directory_path(app)?;
     Ok(credentials_directory.join("credentials.json"))
@@ -206,4 +227,45 @@ fn first_non_empty(candidates: [&str; 3]) -> String {
         .copied()
         .unwrap_or_default()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{verify_persisted_credentials_match_expected, Credentials};
+
+    #[test]
+    fn persisted_credentials_verification_accepts_exact_round_trip() {
+        let expected = Credentials {
+            xai_key: "xai".to_string(),
+            gemini_key: "gemini".to_string(),
+            openai_compatible_key: "openai".to_string(),
+            soniox_key: "soniox".to_string(),
+        };
+
+        assert_eq!(
+            verify_persisted_credentials_match_expected(&expected, &expected),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn persisted_credentials_verification_rejects_mismatch() {
+        let expected = Credentials {
+            xai_key: "xai".to_string(),
+            gemini_key: String::new(),
+            openai_compatible_key: String::new(),
+            soniox_key: "soniox".to_string(),
+        };
+        let persisted = Credentials {
+            xai_key: "xai".to_string(),
+            gemini_key: String::new(),
+            openai_compatible_key: String::new(),
+            soniox_key: String::new(),
+        };
+
+        let error = verify_persisted_credentials_match_expected(&persisted, &expected)
+            .expect_err("mismatched credentials should fail verification");
+
+        assert!(error.contains("Stored credentials could not be verified after save"));
+    }
 }

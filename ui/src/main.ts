@@ -169,6 +169,8 @@ const DEFAULT_SONIOX_MODEL = "stt-rt-v4";
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
 const SETUP_BUTTON_LABEL = "Get Started";
 const SETUP_BUTTON_SAVING_LABEL = "Saving…";
+const MISSING_SONIOX_KEY_SETUP_MESSAGE = "Soniox API key is missing. Add your key to continue.";
+const CREDENTIAL_VERIFICATION_FAILED_MESSAGE = "Saved credentials could not be verified. Soniox API key still appears to be missing.";
 
 let aiStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let stopWordStatusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -199,6 +201,8 @@ async function init(): Promise<void> {
     applySetupError(`Startup bridge failed: ${message}`, setupError, sonioxInput);
     return;
   }
+
+  bindCredentialScreenRevalidation();
 
   const shortcutSyncError = await syncStoredMicToggleShortcut(bridge);
   await hydrateRuntimeDefaults(bridge);
@@ -349,10 +353,17 @@ async function handleSetupSubmit(): Promise<void> {
 
   try {
     await window.voiceToText.saveCredentials(xaiKey, sonioxKey);
+    const verificationError = await verifySavedSonioxCredential(window.voiceToText);
+    if (verificationError) {
+      applySetupError(verificationError, setupError, sonioxInput);
+      return;
+    }
+
     showPrefsScreen();
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     applySetupError(`Failed to save credentials: ${msg}`, setupError, sonioxInput);
+  } finally {
     setSetupSaving(false);
   }
 }
@@ -397,6 +408,55 @@ function loadPrefsUI(): void {
   // Real models are fetched from endpoint in fetchModels()
   showModelPlaceholder();
   showSonioxModelPlaceholder();
+}
+
+function bindCredentialScreenRevalidation(): void {
+  window.onfocus = () => {
+    void revalidateCredentialScreenState();
+  };
+
+  document.onvisibilitychange = () => {
+    if (document.visibilityState === "visible") {
+      void revalidateCredentialScreenState();
+    }
+  };
+}
+
+async function verifySavedSonioxCredential(
+  bridge: Pick<typeof window.voiceToText, "hasSonioxKey">,
+): Promise<string | null> {
+  const keyCheck = await checkHasSonioxKey(bridge);
+  if (keyCheck.error) {
+    return `Saved credentials could not be verified: ${keyCheck.error}`;
+  }
+
+  if (!keyCheck.hasKey) {
+    return CREDENTIAL_VERIFICATION_FAILED_MESSAGE;
+  }
+
+  return null;
+}
+
+async function revalidateCredentialScreenState(): Promise<void> {
+  const keyCheck = await checkHasSonioxKey(window.voiceToText);
+  if (keyCheck.error) {
+    return;
+  }
+
+  if (keyCheck.hasKey) {
+    if (setupScreen.classList.contains("is-active")) {
+      clearSetupError(setupError, sonioxInput);
+      showPrefsScreen();
+    }
+    return;
+  }
+
+  if (!prefsScreen.classList.contains("is-active")) {
+    return;
+  }
+
+  showSetupScreen();
+  applySetupError(MISSING_SONIOX_KEY_SETUP_MESSAGE, setupError, sonioxInput);
 }
 
 function bindPrefs(): void {
