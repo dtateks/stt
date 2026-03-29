@@ -19,10 +19,12 @@ const KEYS = {
   stopWord: "stopWord",
   reminderBeepEnabled: "reminderBeepEnabled",
   llmProvider: "llmProvider",
-  llmModel: "llmModel",
+  llmModelsByProvider: "llmModelsByProvider",
   llmBaseUrl: "llmBaseUrl",
   sonioxModel: "sonioxModel",
 } as const;
+
+type LlmModelsByProvider = Partial<Record<LlmProvider, string>>;
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -161,18 +163,27 @@ export function saveLlmProviderPreference(provider: LlmProvider): boolean {
   return writeJson(KEYS.llmProvider, provider);
 }
 
-export function loadLlmModelPreference(defaultModel: string): string {
-  const storedModel = readJson<string>(KEYS.llmModel, defaultModel);
+export function loadLlmModelPreference(provider: LlmProvider): string | null {
+  const storedModels = readJson<LlmModelsByProvider>(KEYS.llmModelsByProvider, {});
+  if (storedModels === null || typeof storedModels !== "object") {
+    return null;
+  }
+
+  const storedModel = storedModels[provider];
   if (typeof storedModel !== "string") {
-    return defaultModel;
+    return null;
   }
 
   const trimmedModel = storedModel.trim();
-  return trimmedModel || defaultModel;
+  return trimmedModel.length > 0 ? trimmedModel : null;
 }
 
-export function saveLlmModelPreference(model: string): boolean {
-  return writeJson(KEYS.llmModel, model);
+export function saveLlmModelPreference(provider: LlmProvider, model: string): boolean {
+  const currentModels = readJson<LlmModelsByProvider>(KEYS.llmModelsByProvider, {});
+  const nextModels: LlmModelsByProvider =
+    currentModels !== null && typeof currentModels === "object" ? { ...currentModels } : {};
+  nextModels[provider] = model;
+  return writeJson(KEYS.llmModelsByProvider, nextModels);
 }
 
 export function loadLlmBaseUrlPreference(defaultBaseUrl: string): string {
@@ -189,14 +200,14 @@ export function saveLlmBaseUrlPreference(baseUrl: string): boolean {
   return writeJson(KEYS.llmBaseUrl, baseUrl);
 }
 
-export function loadSonioxModelPreference(defaultModel: string): string {
-  const storedModel = readJson<string>(KEYS.sonioxModel, defaultModel);
+export function loadSonioxModelPreference(): string | null {
+  const storedModel = readJson<string | null>(KEYS.sonioxModel, null);
   if (typeof storedModel !== "string") {
-    return defaultModel;
+    return null;
   }
 
   const trimmedModel = storedModel.trim();
-  return trimmedModel || defaultModel;
+  return trimmedModel.length > 0 ? trimmedModel : null;
 }
 
 export function saveSonioxModelPreference(model: string): boolean {

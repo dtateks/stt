@@ -329,9 +329,10 @@ describe("storage — stop word and llm/reminder helper keys", () => {
     expect(saveLlmProviderPreference("gemini")).toBe(true);
     expect(loadLlmProviderPreference(DEFAULT_LLM_PROVIDER)).toBe("gemini");
 
-    expect(loadLlmModelPreference("grok")).toBe("grok");
-    expect(saveLlmModelPreference("gpt-4o-mini")).toBe(true);
-    expect(loadLlmModelPreference("grok")).toBe("gpt-4o-mini");
+    expect(loadLlmModelPreference("xai")).toBeNull();
+    expect(saveLlmModelPreference("xai", "grok-4")).toBe(true);
+    expect(loadLlmModelPreference("xai")).toBe("grok-4");
+    expect(loadLlmModelPreference("gemini")).toBeNull();
 
     expect(loadLlmBaseUrlPreference("https://api.openai.com/v1")).toBe("https://api.openai.com/v1");
     expect(saveLlmBaseUrlPreference("https://openrouter.ai/api/v1")).toBe(true);
@@ -339,9 +340,9 @@ describe("storage — stop word and llm/reminder helper keys", () => {
   });
 
   it("loads and saves Soniox realtime model preference", () => {
-    expect(loadSonioxModelPreference("stt-rt-v4")).toBe("stt-rt-v4");
+    expect(loadSonioxModelPreference()).toBeNull();
     expect(saveSonioxModelPreference("stt-rt-v3")).toBe(true);
-    expect(loadSonioxModelPreference("stt-rt-v4")).toBe("stt-rt-v3");
+    expect(loadSonioxModelPreference()).toBe("stt-rt-v3");
   });
 });
 
