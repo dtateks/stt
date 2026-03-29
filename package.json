@@ -11,7 +11,8 @@
     "test": "npm run test:ui && cargo test --manifest-path src/Cargo.toml",
     "test:ui": "vitest run",
     "build": "TAURI_APP_PATH=src tauri build",
-    "build:dmg": "TAURI_APP_PATH=src tauri build --bundles dmg"
+    "build:dmg": "TAURI_APP_PATH=src tauri build --bundles dmg",
+    "release": "bash scripts/release.sh"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
