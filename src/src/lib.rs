@@ -28,6 +28,7 @@ pub mod credentials;
 pub mod llm_service;
 pub mod permissions;
 pub mod shell_credentials;
+pub mod soniox_auth;
 pub mod text_inserter;
 
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -249,6 +250,22 @@ where
     Ok(())
 }
 
+pub fn run_main_window_show_sequence<UnminimizeMainWindow, ShowMainWindow, FocusMainWindow>(
+    mut unminimize_main_window: UnminimizeMainWindow,
+    mut show_main_window: ShowMainWindow,
+    mut focus_main_window: FocusMainWindow,
+) -> tauri::Result<()>
+where
+    UnminimizeMainWindow: FnMut() -> tauri::Result<()>,
+    ShowMainWindow: FnMut() -> tauri::Result<()>,
+    FocusMainWindow: FnMut() -> tauri::Result<()>,
+{
+    unminimize_main_window()?;
+    show_main_window()?;
+    focus_main_window()?;
+    Ok(())
+}
+
 pub fn run_main_close_request_sequence<PreventClose, HideMainWindow>(
     prevent_close: PreventClose,
     hide_main_window: HideMainWindow,
@@ -290,8 +307,23 @@ pub(crate) fn show_bar_window_with_runtime_invariants(
         },
         || {
             panel.order_front_regardless();
+            // NonactivatingPanel prevents app activation, but the panel must
+            // become key window so the first click/hover reaches HUD controls
+            // immediately — without this, macOS consumes the first click just
+            // to make the panel key.
+            panel.make_key_window();
             Ok(())
         },
+    )
+}
+
+pub(crate) fn show_main_window_with_runtime_invariants(
+    main_window: &WebviewWindow,
+) -> tauri::Result<()> {
+    run_main_window_show_sequence(
+        || main_window.unminimize(),
+        || main_window.show(),
+        || main_window.set_focus(),
     )
 }
 
@@ -535,6 +567,11 @@ fn setup_global_shortcut(app: &tauri::App) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = show_main_window_with_runtime_invariants(&main_window);
+            }
+        }))
         .plugin(tauri_nspanel::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(MicToggleShortcutState::default())
@@ -546,7 +583,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
-            commands::get_soniox_key,
+            commands::has_soniox_key,
+            commands::create_soniox_temporary_key,
             commands::has_xai_key,
             commands::has_openai_compatible_key,
             commands::save_credentials,

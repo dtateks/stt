@@ -1,7 +1,8 @@
 fn main() {
     let app_manifest = tauri_build::AppManifest::new().commands(&[
         "get_config",
-        "get_soniox_key",
+        "has_soniox_key",
+        "create_soniox_temporary_key",
         "has_xai_key",
         "has_openai_compatible_key",
         "save_credentials",

@@ -16,6 +16,8 @@ const SHORT_INSERTION_DELAY_MS: u64 = 200;
 const LONG_INSERTION_DELAY_MS: u64 = 700;
 const POST_INSERTION_DELAY_MS: u64 = 100;
 const LONG_INSERTION_TEXT_THRESHOLD: usize = 200;
+const SYSTEM_EVENTS_RETRY_DELAY_MS: u64 = 75;
+const SYSTEM_EVENTS_RETRY_ATTEMPTS: usize = 2;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InsertTextResult {
@@ -178,6 +180,16 @@ fn validate_clipboard_snapshot(snapshot: &ClipboardSnapshot) -> Result<(), Strin
     Ok(())
 }
 
+fn validate_pasteboard_change_count(change_count: isize) -> Result<(), String> {
+    if change_count >= 0 {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Clipboard clear returned invalid change count: {change_count}"
+    ))
+}
+
 fn perform_insertion(text: &str, enter_mode: bool) -> Result<(), String> {
     write_plain_text_clipboard(text)?;
     run_system_events_osascript(
@@ -225,7 +237,36 @@ fn run_osascript(script: &str) -> Result<(), String> {
 }
 
 fn run_system_events_osascript(script: &str) -> Result<(), String> {
-    run_osascript(script).map_err(|error| format_system_events_error_message(&error))
+    run_system_events_osascript_with(script, run_osascript, || {
+        thread::sleep(Duration::from_millis(SYSTEM_EVENTS_RETRY_DELAY_MS));
+    })
+}
+
+fn run_system_events_osascript_with<RunScript, SleepBeforeRetry>(
+    script: &str,
+    mut run_script: RunScript,
+    mut sleep_before_retry: SleepBeforeRetry,
+) -> Result<(), String>
+where
+    RunScript: FnMut(&str) -> Result<(), String>,
+    SleepBeforeRetry: FnMut(),
+{
+    for attempt in 0..SYSTEM_EVENTS_RETRY_ATTEMPTS {
+        match run_script(script) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if is_system_events_automation_denied(&error)
+                    || attempt + 1 == SYSTEM_EVENTS_RETRY_ATTEMPTS
+                {
+                    return Err(format_system_events_error_message(&error));
+                }
+
+                sleep_before_retry();
+            }
+        }
+    }
+
+    Err("AppleScript execution failed".to_string())
 }
 
 fn format_system_events_error_message(error: &str) -> String {
@@ -245,7 +286,8 @@ fn is_system_events_automation_denied(error: &str) -> bool {
 mod tests {
     use super::{
         build_insert_text_result, format_system_events_error_message,
-        is_system_events_automation_denied, validate_clipboard_snapshot,
+        is_system_events_automation_denied, run_system_events_osascript_with,
+        validate_clipboard_snapshot, validate_pasteboard_change_count,
         AUTOMATION_PERMISSION_REQUIRED_MESSAGE,
     };
     #[cfg(target_os = "macos")]
@@ -281,6 +323,79 @@ mod tests {
             format_system_events_error_message("Execution error: foo"),
             "Could not control System Events: Execution error: foo"
         );
+    }
+
+    #[test]
+    fn retries_unexpected_system_events_error_once_before_succeeding() {
+        let mut attempts = 0;
+        let mut sleeps = 0;
+
+        let result = run_system_events_osascript_with(
+            "paste",
+            |_script| {
+                attempts += 1;
+                if attempts == 1 {
+                    return Err("Execution error: foo".to_string());
+                }
+
+                Ok(())
+            },
+            || {
+                sleeps += 1;
+            },
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(attempts, 2);
+        assert_eq!(sleeps, 1);
+    }
+
+    #[test]
+    fn does_not_retry_automation_denial_errors() {
+        let mut attempts = 0;
+        let mut sleeps = 0;
+
+        let result = run_system_events_osascript_with(
+            "paste",
+            |_script| {
+                attempts += 1;
+                Err("Not authorized to send Apple events to System Events. (-1743)".to_string())
+            },
+            || {
+                sleeps += 1;
+            },
+        );
+
+        assert_eq!(
+            result.err().as_deref(),
+            Some(AUTOMATION_PERMISSION_REQUIRED_MESSAGE)
+        );
+        assert_eq!(attempts, 1);
+        assert_eq!(sleeps, 0);
+    }
+
+    #[test]
+    fn preserves_unexpected_system_events_error_after_retry_exhaustion() {
+        let mut attempts = 0;
+        let mut sleeps = 0;
+
+        let result = run_system_events_osascript_with(
+            "paste",
+            |_script| {
+                attempts += 1;
+                Err("Execution error: foo".to_string())
+            },
+            || {
+                sleeps += 1;
+            },
+        );
+
+        assert_eq!(
+            result.err().as_deref(),
+            Some("Could not control System Events: Execution error: foo")
+        );
+        assert_eq!(attempts, 2);
+        assert_eq!(sleeps, 1);
     }
 
     #[test]
@@ -327,6 +442,19 @@ mod tests {
         assert_eq!(
             result.err().as_deref(),
             Some("Original clipboard contained formats that could not be preserved: public.tiff")
+        );
+    }
+
+    #[test]
+    fn accepts_zero_change_count_when_clearing_clipboard() {
+        assert!(validate_pasteboard_change_count(0).is_ok());
+    }
+
+    #[test]
+    fn rejects_negative_change_count_when_clearing_clipboard() {
+        assert_eq!(
+            validate_pasteboard_change_count(-1).err().as_deref(),
+            Some("Clipboard clear returned invalid change count: -1")
         );
     }
 
@@ -458,10 +586,8 @@ fn restore_clipboard(snapshot: &ClipboardSnapshot) -> Result<(), String> {
         obj
     };
 
-    let did_clear: bool = unsafe { msg_send![&*pasteboard, clearContents] };
-    if !did_clear {
-        return Err("Failed to clear clipboard before restore".to_string());
-    }
+    let change_count: isize = unsafe { msg_send![&*pasteboard, clearContents] };
+    validate_pasteboard_change_count(change_count)?;
 
     if !snapshot.had_formats {
         return Ok(());
@@ -512,10 +638,8 @@ fn write_plain_text_clipboard(text: &str) -> Result<(), String> {
         obj
     };
 
-    let did_clear: bool = unsafe { msg_send![&*pasteboard, clearContents] };
-    if !did_clear {
-        return Err("Failed to clear clipboard before insertion".to_string());
-    }
+    let change_count: isize = unsafe { msg_send![&*pasteboard, clearContents] };
+    validate_pasteboard_change_count(change_count)?;
 
     let ns_text = NSString::from_str(text);
     let string_type = NSString::from_str("public.utf8-plain-text");

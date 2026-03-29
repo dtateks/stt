@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::OnceLock;
 
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -6,10 +7,29 @@ use tauri::{AppHandle, Manager};
 use crate::credentials;
 use crate::llm_service;
 use crate::permissions;
+use crate::soniox_auth;
 use crate::text_inserter;
 use crate::BAR_WINDOW_LABEL;
 
 const MAIN_WINDOW_LABEL: &str = "main";
+static CACHED_LLM_CONFIG: OnceLock<Result<llm_service::LlmConfig, String>> = OnceLock::new();
+
+fn cached_llm_config(app: &AppHandle) -> Result<llm_service::LlmConfig, String> {
+    match CACHED_LLM_CONFIG.get_or_init(|| {
+        let config = get_config(app.clone())?;
+        Ok(parse_llm_config_from_app_config(&config))
+    }) {
+        Ok(config) => Ok(config.clone()),
+        Err(error) => Err(error.clone()),
+    }
+}
+
+fn parse_llm_config_from_app_config(config: &Value) -> llm_service::LlmConfig {
+    serde_json::from_value::<llm_service::LlmConfig>(
+        config.get("llm").cloned().unwrap_or(Value::Null),
+    )
+    .unwrap_or_default()
+}
 
 #[tauri::command]
 pub fn get_config(app: AppHandle) -> Result<Value, String> {
@@ -23,10 +43,34 @@ pub fn get_config(app: AppHandle) -> Result<Value, String> {
     serde_json::from_str::<Value>(&raw_config).map_err(|error| error.to_string())
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SonioxTemporaryApiKeyResult {
+    pub api_key: String,
+    pub expires_at: Option<String>,
+    pub expires_in_seconds: Option<u64>,
+}
+
 #[tauri::command]
-pub fn get_soniox_key(app: AppHandle) -> Result<String, String> {
+pub fn has_soniox_key(app: AppHandle) -> Result<bool, String> {
     let credentials = credentials::get_credentials(&app)?;
-    Ok(credentials.soniox_key)
+    Ok(!credentials.soniox_key.trim().is_empty())
+}
+
+#[tauri::command]
+pub async fn create_soniox_temporary_key(app: AppHandle) -> Result<SonioxTemporaryApiKeyResult, String> {
+    let credentials = credentials::get_credentials(&app)?;
+    if credentials.soniox_key.trim().is_empty() {
+        return Err("Soniox API key is missing. Open Settings and add your key.".to_string());
+    }
+
+    let temporary_key = soniox_auth::create_temporary_api_key(credentials.soniox_key).await?;
+
+    Ok(SonioxTemporaryApiKeyResult {
+        api_key: temporary_key.api_key,
+        expires_at: temporary_key.expires_at,
+        expires_in_seconds: temporary_key.expires_in_seconds,
+    })
 }
 
 #[tauri::command]
@@ -144,11 +188,7 @@ pub async fn correct_transcript(
 ) -> Result<String, String> {
     let credentials = credentials::get_credentials(&app)?;
 
-    let config = get_config(app)?;
-    let mut llm_config = serde_json::from_value::<llm_service::LlmConfig>(
-        config.get("llm").cloned().unwrap_or(Value::Null),
-    )
-    .unwrap_or_default();
+    let mut llm_config = cached_llm_config(&app)?;
 
     if let Some(provider) = llm_provider {
         llm_config.provider = Some(provider);
@@ -230,8 +270,7 @@ pub fn show_settings(app: AppHandle) -> Result<(), String> {
         return Err("main window not found".to_string());
     };
 
-    main_window.show().map_err(|error| error.to_string())?;
-    main_window.set_focus().map_err(|error| error.to_string())
+    crate::show_main_window_with_runtime_invariants(&main_window).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

@@ -1,4 +1,5 @@
 use std::time::Duration;
+use std::sync::OnceLock;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,19 @@ const OPENAI_COMPATIBLE_RESPONSE_SHAPE_ERROR: &str =
     "OpenAI-compatible response shape unexpected — could not extract corrected text";
 const GEMINI_RESPONSE_SHAPE_ERROR: &str =
     "Gemini response shape unexpected — could not extract corrected text";
+static SHARED_HTTP_CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
+
+fn shared_http_client() -> Result<&'static Client, String> {
+    match SHARED_HTTP_CLIENT.get_or_init(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+            .build()
+            .map_err(|error| error.to_string())
+    }) {
+        Ok(client) => Ok(client),
+        Err(error) => Err(error.clone()),
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -41,8 +55,20 @@ pub struct SonioxConfig {
     pub num_channels: u16,
     pub audio_format: String,
     pub chunk_size: usize,
+    pub context_general: Vec<SonioxContextGeneralEntry>,
+    pub context_text: String,
+    pub enable_endpoint_detection: bool,
+    pub max_endpoint_delay_ms: Option<u32>,
+    pub max_non_final_tokens_duration_ms: Option<u32>,
     pub language_hints: Vec<String>,
     pub language_hints_strict: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct SonioxContextGeneralEntry {
+    pub key: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -87,10 +113,7 @@ pub async fn list_models(
         format!("{base}/models")
     };
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = shared_http_client()?;
 
     let response = client
         .get(&endpoint)
@@ -147,10 +170,7 @@ pub async fn correct_transcript(
     let provider = resolve_provider(&llm_config)?;
     validate_llm_config(&llm_config, provider)?;
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = shared_http_client()?;
 
     let request_body = build_request_body(transcript, &llm_config, &output_lang);
     let endpoint = completion_endpoint(provider, &llm_config)?;

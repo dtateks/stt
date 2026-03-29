@@ -6,7 +6,8 @@
   "permissions": [
     "core:default",
     "allow-get-config",
-    "allow-get-soniox-key",
+    "allow-has-soniox-key",
+    "allow-create-soniox-temporary-key",
     "allow-has-xai-key",
     "allow-has-openai-compatible-key",
     "allow-save-credentials",
