@@ -132,9 +132,6 @@
     listSonioxModels: () =>
       invoke("list_soniox_models"),
 
-    resetCredentials: () =>
-      invoke("reset_credentials"),
-
     onToggleMic: (callback) => {
       const unlistenPromise = listen("toggle-mic", callback);
       return () => {

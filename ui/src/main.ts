@@ -152,7 +152,6 @@ const dialogSaveBtn = q<HTMLButtonElement>("#dialog-save");
 const dialogCloseBtn = q<HTMLButtonElement>("#dialog-close-btn");
 
 // Action buttons
-const resetKeysBtn = q<HTMLButtonElement>("#action-reset-keys");
 const openSettingsBtn = q<HTMLButtonElement>("#action-open-settings");
 
 // Tab navigation
@@ -1261,21 +1260,6 @@ function bindActionButtons(): void {
     settingsOpenedBy = openSettingsBtn;
     openSettingsDialog();
   });
-
-  resetKeysBtn.addEventListener("click", () => {
-    void handleResetKeys();
-  });
-}
-
-async function handleResetKeys(): Promise<void> {
-  try {
-    await window.voiceToText.resetCredentials();
-    showSetupScreen();
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    showSetupScreen();
-    applySetupError(`Failed to reset credentials: ${msg}`, setupError, sonioxInput);
-  }
 }
 
 // ─── Tab navigation ───────────────────────────────────────────────────────

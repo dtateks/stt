@@ -10,7 +10,7 @@ use voice_to_text_lib::text_inserter::{
     build_insert_text_result, ensure_text_insertion_permission,
 };
 
-const COMMAND_NAMES: [&str; 28] = [
+const COMMAND_NAMES: [&str; 27] = [
     "get_config",
     "has_soniox_key",
     "create_soniox_temporary_key",
@@ -22,7 +22,6 @@ const COMMAND_NAMES: [&str; 28] = [
     "update_soniox_key",
     "list_models",
     "list_soniox_models",
-    "reset_credentials",
     "ensure_microphone_permission",
     "ensure_accessibility_permission",
     "ensure_text_insertion_permission",
