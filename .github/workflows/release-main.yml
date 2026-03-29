@@ -9,8 +9,30 @@ permissions:
   contents: write
 
 jobs:
+  check-existing-release:
+    name: Check for existing release
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Check if a release already targets this commit
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          # Local releases use tag `local-<sha>`
+          if gh release view "local-${short_sha}" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "⏭ Release local-${short_sha} already exists — skipping CI build"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   prepare-release:
     name: Prepare release metadata
+    needs: check-existing-release
+    if: needs.check-existing-release.outputs.skip != 'true'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.release-meta.outputs.tag }}
