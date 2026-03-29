@@ -6,8 +6,27 @@ APP_BUNDLE="src/target/release/bundle/macos/Voice to Text.app"
 SIGN_SCRIPT="scripts/sign-macos-app.sh"
 DEFAULT_REMOTE="origin"
 
-repo_name() {
-	gh repo view --json nameWithOwner -q .nameWithOwner
+repo_slug_from_remote_url() {
+	local remote_url="$1"
+	local slug="$remote_url"
+
+	slug="${slug#git@github.com:}"
+	slug="${slug#https://github.com/}"
+	slug="${slug%.git}"
+
+	if [[ "$slug" == "$remote_url" ]]; then
+		echo "ERROR: unsupported GitHub remote URL: $remote_url" >&2
+		exit 1
+	fi
+
+	printf '%s' "$slug"
+}
+
+repo_slug_from_remote_name() {
+	local remote_name="$1"
+	local remote_url
+	remote_url="$(git remote get-url "$remote_name")"
+	repo_slug_from_remote_url "$remote_url"
 }
 
 ensure_prerequisites() {
@@ -79,24 +98,23 @@ ensure_release_tag_points_at_head() {
 
 publish_local_arm64_release() {
 	local tag="$1"
-	local repo
+	local repo_slug="$2"
 	local release_name="Voice to Text ${tag}"
-	repo="$(repo_name)"
 
-	if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+	if gh release view "$tag" --repo "$repo_slug" >/dev/null 2>&1; then
 		echo "▸ Updating release ${tag}…"
-		gh release upload "$tag" "$ASSET_NAME" --repo "$repo" --clobber
+		gh release upload "$tag" "$ASSET_NAME" --repo "$repo_slug" --clobber
 	else
 		echo "▸ Creating release ${tag}…"
 		gh release create "$tag" \
-			--repo "$repo" \
+			--repo "$repo_slug" \
 			--title "$release_name" \
 			--latest \
 			--generate-notes \
 			"$ASSET_NAME"
 	fi
 
-	echo "✓ Release published: https://github.com/${repo}/releases/tag/${tag}"
+	echo "✓ Release published: https://github.com/${repo_slug}/releases/tag/${tag}"
 }
 
 push_refspecs_with_release_tag() {
@@ -119,6 +137,14 @@ push_refspecs_with_release_tag() {
 	"${push_command[@]}"
 }
 
+push_release_tag_only() {
+	local remote_name="$1"
+	local tag="$2"
+
+	echo "▸ Pushing release tag…"
+	git push --no-verify "$remote_name" "refs/tags/${tag}:refs/tags/${tag}"
+}
+
 refspecs_from_pre_push_input() {
 	local ref_file="$1"
 	local refspecs=()
@@ -133,13 +159,15 @@ refspecs_from_pre_push_input() {
 
 run_manual_release() {
 	local tag
+	local repo_slug
 
 	ensure_prerequisites
 	build_and_package_local_arm64_release
+	repo_slug="$(repo_slug_from_remote_name "$DEFAULT_REMOTE")"
 	tag="$(local_release_tag)"
 	ensure_release_tag_points_at_head "$tag"
 	push_refspecs_with_release_tag "$DEFAULT_REMOTE" "$tag"
-	publish_local_arm64_release "$tag"
+	publish_local_arm64_release "$tag" "$repo_slug"
 	rm -f "$ASSET_NAME"
 }
 
@@ -147,6 +175,7 @@ run_pre_push_release() {
 	local remote_name="$1"
 	local remote_url="$2"
 	local ref_file="$3"
+	local repo_slug
 	local tag
 	local refspecs=()
 	while IFS= read -r refspec; do
@@ -156,11 +185,12 @@ run_pre_push_release() {
 
 	ensure_prerequisites
 	build_and_package_local_arm64_release
+	repo_slug="$(repo_slug_from_remote_url "$remote_url")"
 	tag="$(local_release_tag)"
 	ensure_release_tag_points_at_head "$tag"
-	push_refspecs_with_release_tag "$remote_name" "$tag" "${refspecs[@]}"
+	push_release_tag_only "$remote_name" "$tag"
 
-	if ! publish_local_arm64_release "$tag"; then
+	if ! publish_local_arm64_release "$tag" "$repo_slug"; then
 		echo "WARN: local release publication failed after push; CI fallback will build both architectures." >&2
 	fi
 
