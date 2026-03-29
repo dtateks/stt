@@ -8,7 +8,7 @@ use voice_to_text_lib::credentials::{
     resolve_credentials_with_precedence, Credentials,
 };
 use voice_to_text_lib::llm_service::{
-    extract_corrected_text_from_response, format_gemini_api_error,
+    completion_endpoint, extract_corrected_text_from_response, format_gemini_api_error,
     format_openai_compatible_api_error, format_xai_api_error, resolve_provider,
     validate_llm_config, AppConfig, LlmConfig,
 };
@@ -218,6 +218,21 @@ fn llm_config_validator_accepts_gemini_provider() {
 }
 
 #[test]
+fn completion_endpoint_requires_explicit_gemini_model() {
+    let config = LlmConfig {
+        provider: Some("gemini".to_string()),
+        model: None,
+        temperature: None,
+        base_url: None,
+    };
+
+    let provider = resolve_provider(&config).unwrap();
+    let error = completion_endpoint(provider, &config).unwrap_err();
+
+    assert!(error.contains("Gemini model is not configured"));
+}
+
+#[test]
 fn llm_config_validator_requires_openai_compatible_base_url() {
     let config = LlmConfig {
         provider: Some("openai_compatible".to_string()),
@@ -285,6 +300,7 @@ fn bundled_config_deserializes_into_runtime_contract() {
         Some("https://api.openai.com/v1")
     );
     assert_eq!(parsed.voice.stop_word, "thank you");
+    assert_eq!(parsed.soniox.model, "stt-rt-v4");
     assert_eq!(parsed.soniox.sample_rate, 16000);
     assert_eq!(parsed.soniox.audio_format, "pcm_s16le");
     assert_eq!(parsed.soniox.max_endpoint_delay_ms, Some(500));

@@ -11,9 +11,6 @@ const GEMINI_GENERATE_CONTENT_BASE_URL: &str =
 const GEMINI_MODELS_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/models";
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL: &str = "https://api.openai.com/v1";
 const REQUEST_TIMEOUT_SECONDS: u64 = 15;
-const DEFAULT_XAI_MODEL: &str = "grok-4-1-fast-non-reasoning";
-const DEFAULT_OPENAI_COMPATIBLE_MODEL: &str = "gpt-4o-mini";
-const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-flash";
 const DEFAULT_TEMPERATURE: f64 = 0.1;
 const XAI_PROVIDER: &str = "xai";
 const OPENAI_COMPATIBLE_PROVIDER: &str = "openai_compatible";
@@ -172,7 +169,7 @@ pub async fn correct_transcript(
 
     let client = shared_http_client()?;
 
-    let request_body = build_request_body(transcript, &llm_config, &output_lang);
+    let request_body = build_request_body(transcript, &llm_config, &output_lang)?;
     let endpoint = completion_endpoint(provider, &llm_config)?;
     let request_builder = client.post(endpoint).json(&request_body);
     let request_builder = if provider == GEMINI_PROVIDER {
@@ -241,14 +238,7 @@ pub fn completion_endpoint(provider: &str, llm_config: &LlmConfig) -> Result<Str
         return Ok(XAI_CHAT_COMPLETIONS_URL.to_string());
     }
     if provider == GEMINI_PROVIDER {
-        let model = llm_config
-            .model
-            .clone()
-            .unwrap_or_else(|| default_model_for_provider(provider).to_string());
-        let model = model.trim();
-        if model.is_empty() {
-            return Err("Gemini model is required".to_string());
-        }
+        let model = required_model_for_provider(llm_config, provider)?;
 
         return Ok(format!(
             "{}/{}:generateContent",
@@ -335,7 +325,11 @@ pub fn extract_corrected_text_from_response(
     Ok(corrected_text.to_string())
 }
 
-fn build_request_body(transcript: String, llm_config: &LlmConfig, output_lang: &str) -> Value {
+fn build_request_body(
+    transcript: String,
+    llm_config: &LlmConfig,
+    output_lang: &str,
+) -> Result<Value, String> {
     let provider = resolve_provider(llm_config).unwrap_or(XAI_PROVIDER);
     let system_prompt = system_prompt_for_output_language(output_lang);
     let user_prompt = format!(
@@ -344,7 +338,7 @@ fn build_request_body(transcript: String, llm_config: &LlmConfig, output_lang: &
     );
 
     if provider == GEMINI_PROVIDER {
-        return json!({
+        return Ok(json!({
           "systemInstruction": {
             "parts": [{ "text": system_prompt }]
           },
@@ -357,20 +351,19 @@ fn build_request_body(transcript: String, llm_config: &LlmConfig, output_lang: &
           "generationConfig": {
             "temperature": llm_config.temperature.unwrap_or(DEFAULT_TEMPERATURE)
           }
-        });
+        }));
     }
 
-    json!({
-      "model": llm_config
-        .model
-        .clone()
-        .unwrap_or_else(|| default_model_for_provider(provider).to_string()),
+    let model = required_model_for_provider(llm_config, provider)?;
+
+    Ok(json!({
+      "model": model,
       "temperature": llm_config.temperature.unwrap_or(DEFAULT_TEMPERATURE),
       "messages": [
         { "role": "system", "content": system_prompt },
         { "role": "user", "content": user_prompt }
       ]
-    })
+    }))
 }
 
 fn system_prompt_for_output_language(output_lang: &str) -> &'static str {
@@ -482,15 +475,26 @@ fn extract_gemini_error_status(payload: Value) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn default_model_for_provider(provider: &str) -> &'static str {
-    if provider == GEMINI_PROVIDER {
-        return DEFAULT_GEMINI_MODEL;
-    }
-    if provider == OPENAI_COMPATIBLE_PROVIDER {
-        return DEFAULT_OPENAI_COMPATIBLE_MODEL;
+fn required_model_for_provider(llm_config: &LlmConfig, provider: &str) -> Result<String, String> {
+    let model = llm_config
+        .model
+        .clone()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    if !model.is_empty() {
+        return Ok(model);
     }
 
-    DEFAULT_XAI_MODEL
+    if provider == GEMINI_PROVIDER {
+        return Err("Gemini model is not configured. Refresh models and select one in Settings.".to_string());
+    }
+    if provider == OPENAI_COMPATIBLE_PROVIDER {
+        return Err("OpenAI-compatible model is not configured. Refresh models and select one in Settings.".to_string());
+    }
+
+    Err("xAI model is not configured. Refresh models and select one in Settings.".to_string())
 }
 
 fn provider_display_name(provider: &str) -> &'static str {
@@ -502,4 +506,35 @@ fn provider_display_name(provider: &str) -> &'static str {
     }
 
     "xAI"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_request_body, LlmConfig};
+
+    #[test]
+    fn build_request_body_requires_explicit_model_for_xai() {
+        let config = LlmConfig {
+            provider: Some("xai".to_string()),
+            model: None,
+            temperature: Some(0.1),
+            base_url: None,
+        };
+
+        let error = build_request_body("hello".to_string(), &config, "auto").unwrap_err();
+        assert!(error.contains("xAI model is not configured"));
+    }
+
+    #[test]
+    fn build_request_body_requires_explicit_model_for_openai_compatible() {
+        let config = LlmConfig {
+            provider: Some("openai_compatible".to_string()),
+            model: None,
+            temperature: Some(0.1),
+            base_url: Some("https://api.openai.com/v1".to_string()),
+        };
+
+        let error = build_request_body("hello".to_string(), &config, "auto").unwrap_err();
+        assert!(error.contains("OpenAI-compatible model is not configured"));
+    }
 }
