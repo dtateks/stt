@@ -1,4 +1,6 @@
 use std::sync::Mutex;
+#[cfg(target_os = "macos")]
+use std::time::Duration;
 use tauri::utils::config::WindowConfig;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, WebviewWindow, WebviewWindowBuilder,
@@ -13,11 +15,16 @@ use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 #[cfg(target_os = "macos")]
 use objc2::msg_send;
 #[cfg(target_os = "macos")]
+use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSColor, NSWindowCollectionBehavior};
+use objc2_app_kit::{
+    NSApplicationActivationOptions, NSColor, NSRunningApplication, NSWindowCollectionBehavior,
+    NSWorkspace,
+};
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSNumber, NSString};
+use objc2_foundation::{NSArray, NSNumber, NSString};
 #[cfg(target_os = "macos")]
 use objc2_web_kit::WKWebView;
 
@@ -26,12 +33,15 @@ use tauri_nspanel::{ManagerExt, WebviewWindowExt};
 
 mod commands;
 pub mod credentials;
+mod focus_target;
 pub mod llm_service;
 pub mod permissions;
 pub mod shell_credentials;
 pub mod soniox_auth;
 pub mod soniox_models;
 pub mod text_inserter;
+
+use focus_target::{FrontmostApplicationTarget, TextInsertionTargetState};
 
 const MAIN_WINDOW_LABEL: &str = "main";
 pub(crate) const BAR_WINDOW_LABEL: &str = "bar";
@@ -41,6 +51,8 @@ const BAR_WINDOW_WIDTH: f64 = 600.0;
 const BAR_WINDOW_HEIGHT: f64 = 56.0;
 const BAR_BOTTOM_OFFSET_PX: i32 = 40;
 const BAR_WINDOW_CORNER_RADIUS: f64 = 24.0;
+#[cfg(target_os = "macos")]
+const FOCUS_RESTORE_SETTLE_DELAY_MS: u64 = 50;
 
 struct MicToggleShortcutState {
     active_shortcut: Mutex<String>,
@@ -191,7 +203,9 @@ pub(crate) fn update_mic_toggle_shortcut(
         .active_shortcut
         .lock()
         .map_err(|_| lock_error_message())?;
-    let current_is_registered = app.global_shortcut().is_registered(active_shortcut.as_str());
+    let current_is_registered = app
+        .global_shortcut()
+        .is_registered(active_shortcut.as_str());
 
     apply_mic_toggle_shortcut_update(
         &mut active_shortcut,
@@ -338,6 +352,80 @@ pub(crate) fn show_main_window_with_runtime_invariants(
         || main_window.show(),
         || main_window.set_focus(),
     )
+}
+
+#[cfg(target_os = "macos")]
+fn capture_frontmost_application_target() -> Option<FrontmostApplicationTarget> {
+    let workspace = NSWorkspace::sharedWorkspace();
+    let frontmost_application = workspace.frontmostApplication()?;
+    let process_id = frontmost_application.processIdentifier() as i32;
+    let bundle_identifier = frontmost_application
+        .bundleIdentifier()
+        .map(|identifier| identifier.to_string());
+
+    Some(FrontmostApplicationTarget {
+        process_id,
+        bundle_identifier,
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn capture_frontmost_application_target() -> Option<FrontmostApplicationTarget> {
+    None
+}
+
+pub(crate) fn capture_text_insertion_target(app: &AppHandle) {
+    app.state::<TextInsertionTargetState>()
+        .capture_with(capture_frontmost_application_target);
+}
+
+#[cfg(target_os = "macos")]
+fn reactivate_frontmost_application_target(target: &FrontmostApplicationTarget) -> bool {
+    let application = NSRunningApplication::runningApplicationWithProcessIdentifier(
+        target.process_id,
+    )
+    .or_else(|| running_application_from_bundle_identifier(target.bundle_identifier.as_deref()));
+    let Some(application) = application else {
+        return false;
+    };
+
+    let activation_options = NSApplicationActivationOptions::ActivateAllWindows
+        | NSApplicationActivationOptions::ActivateIgnoringOtherApps;
+
+    let did_send_activation = application.activateWithOptions(activation_options);
+    if did_send_activation {
+        std::thread::sleep(Duration::from_millis(FOCUS_RESTORE_SETTLE_DELAY_MS));
+    }
+
+    did_send_activation
+}
+
+#[cfg(target_os = "macos")]
+fn running_application_from_bundle_identifier(
+    bundle_identifier: Option<&str>,
+) -> Option<Retained<NSRunningApplication>> {
+    let bundle_identifier = bundle_identifier?;
+    let bundle_identifier = NSString::from_str(bundle_identifier);
+    let applications: Retained<NSArray<NSRunningApplication>> =
+        NSRunningApplication::runningApplicationsWithBundleIdentifier(&bundle_identifier);
+    let count: usize = unsafe { msg_send![&*applications, count] };
+    if count == 0 {
+        return None;
+    }
+
+    let application: Option<Retained<NSRunningApplication>> =
+        unsafe { msg_send![&*applications, objectAtIndex: 0] };
+    application
+}
+
+#[cfg(not(target_os = "macos"))]
+fn reactivate_frontmost_application_target(_target: &FrontmostApplicationTarget) -> bool {
+    false
+}
+
+pub(crate) fn reactivate_text_insertion_target(app: &AppHandle) -> bool {
+    app.state::<TextInsertionTargetState>()
+        .reactivate_with(reactivate_frontmost_application_target)
 }
 
 fn reopen_main_window(app: &AppHandle) {
@@ -583,6 +671,90 @@ fn setup_global_shortcut(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn is_running_from_macos_app_bundle_path(executable_path: &std::path::Path) -> bool {
+    let Some(macos_directory) = executable_path.parent() else {
+        return false;
+    };
+    let Some(contents_directory) = macos_directory.parent() else {
+        return false;
+    };
+    let Some(app_bundle_directory) = contents_directory.parent() else {
+        return false;
+    };
+
+    macos_directory.file_name() == Some(std::ffi::OsStr::new("MacOS"))
+        && contents_directory.file_name() == Some(std::ffi::OsStr::new("Contents"))
+        && app_bundle_directory.extension() == Some(std::ffi::OsStr::new("app"))
+}
+
+#[cfg(target_os = "macos")]
+fn run_launch_at_login_setup_flow<
+    ResolveCurrentExecutable,
+    InitializeAutostart,
+    ReadAutostartStatus,
+    EnableAutostart,
+>(
+    resolve_current_executable: ResolveCurrentExecutable,
+    initialize_autostart: InitializeAutostart,
+    read_autostart_status: ReadAutostartStatus,
+    enable_autostart: EnableAutostart,
+) -> Result<(), String>
+where
+    ResolveCurrentExecutable: FnOnce() -> Result<std::path::PathBuf, String>,
+    InitializeAutostart: FnOnce() -> Result<(), String>,
+    ReadAutostartStatus: FnOnce() -> Result<bool, String>,
+    EnableAutostart: FnOnce() -> Result<(), String>,
+{
+    let executable_path = resolve_current_executable()?;
+    if !is_running_from_macos_app_bundle_path(executable_path.as_path()) {
+        return Ok(());
+    }
+
+    initialize_autostart()?;
+    if read_autostart_status()? {
+        return Ok(());
+    }
+
+    enable_autostart()
+}
+
+#[cfg(target_os = "macos")]
+fn setup_launch_at_login(app: &tauri::App) -> Result<(), String> {
+    use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
+
+    run_launch_at_login_setup_flow(
+        || {
+            std::env::current_exe().map_err(|error| {
+                format!("Could not resolve current executable for autostart: {error}")
+            })
+        },
+        || {
+            app.handle()
+                .plugin(tauri_plugin_autostart::init(
+                    MacosLauncher::LaunchAgent,
+                    None,
+                ))
+                .map_err(|error| format!("Could not initialize autostart plugin: {error}"))
+        },
+        || {
+            app.autolaunch()
+                .is_enabled()
+                .map_err(|error| format!("Could not read autostart status: {error}"))
+        },
+        || {
+            app.autolaunch()
+                .enable()
+                .map_err(|error| format!("Could not enable launch-at-login: {error}"))
+        },
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn setup_launch_at_login(_app: &tauri::App) -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -592,7 +764,16 @@ pub fn run() {
         .plugin(tauri_nspanel::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(MicToggleShortcutState::default())
+        .manage(TextInsertionTargetState::default())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            if let Err(error) = setup_launch_at_login(app) {
+                eprintln!("[autostart] {error}");
+                eprintln!("[autostart] Continuing without launch-at-login.");
+            }
+
             build_main_window(app)?;
             build_bar_window(app)?;
             setup_global_shortcut(app)?;
@@ -610,7 +791,6 @@ pub fn run() {
             commands::update_soniox_key,
             commands::list_models,
             commands::list_soniox_models,
-            commands::reset_credentials,
             commands::ensure_microphone_permission,
             commands::ensure_accessibility_permission,
             commands::ensure_text_insertion_permission,
@@ -638,7 +818,9 @@ pub fn run() {
             ..
         } = event
         {
-            run_macos_reopen_window_sequence(has_visible_windows, || reopen_main_window(app_handle));
+            run_macos_reopen_window_sequence(has_visible_windows, || {
+                reopen_main_window(app_handle)
+            });
         }
     });
 }
@@ -793,5 +975,112 @@ mod shortcut_transaction_tests {
             .borrow()
             .iter()
             .any(|item| item == "Control+Alt+Super+M"));
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod autostart_tests {
+    use super::{is_running_from_macos_app_bundle_path, run_launch_at_login_setup_flow};
+    use std::cell::RefCell;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn launch_at_login_only_enables_for_standard_macos_app_bundles() {
+        assert!(is_running_from_macos_app_bundle_path(Path::new(
+            "/Applications/Voice to Text.app/Contents/MacOS/Voice to Text"
+        )));
+        assert!(!is_running_from_macos_app_bundle_path(Path::new(
+            "/Users/dta.teks/dev/stt/src/target/debug/voice_to_text"
+        )));
+        assert!(!is_running_from_macos_app_bundle_path(Path::new(
+            "/Users/dta.teks/dev/stt/Fake.app/cache/voice_to_text"
+        )));
+    }
+
+    #[test]
+    fn launch_at_login_skips_non_bundled_executables_before_initializing_plugin() {
+        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+        let result = run_launch_at_login_setup_flow(
+            || {
+                Ok(PathBuf::from(
+                    "/Users/dta.teks/dev/stt/src/target/debug/voice_to_text",
+                ))
+            },
+            || {
+                executed_steps.borrow_mut().push("init");
+                Ok(())
+            },
+            || {
+                executed_steps.borrow_mut().push("is-enabled");
+                Ok(false)
+            },
+            || {
+                executed_steps.borrow_mut().push("enable");
+                Ok(())
+            },
+        );
+
+        assert!(result.is_ok());
+        assert!(executed_steps.borrow().is_empty());
+    }
+
+    #[test]
+    fn launch_at_login_enables_bundled_apps_only_when_disabled() {
+        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+        let result = run_launch_at_login_setup_flow(
+            || {
+                Ok(PathBuf::from(
+                    "/Applications/Voice to Text.app/Contents/MacOS/Voice to Text",
+                ))
+            },
+            || {
+                executed_steps.borrow_mut().push("init");
+                Ok(())
+            },
+            || {
+                executed_steps.borrow_mut().push("is-enabled");
+                Ok(false)
+            },
+            || {
+                executed_steps.borrow_mut().push("enable");
+                Ok(())
+            },
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(
+            executed_steps.into_inner(),
+            vec!["init", "is-enabled", "enable"]
+        );
+    }
+
+    #[test]
+    fn launch_at_login_skips_enable_when_autostart_is_already_active() {
+        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+        let result = run_launch_at_login_setup_flow(
+            || {
+                Ok(PathBuf::from(
+                    "/Applications/Voice to Text.app/Contents/MacOS/Voice to Text",
+                ))
+            },
+            || {
+                executed_steps.borrow_mut().push("init");
+                Ok(())
+            },
+            || {
+                executed_steps.borrow_mut().push("is-enabled");
+                Ok(true)
+            },
+            || {
+                executed_steps.borrow_mut().push("enable");
+                Ok(())
+            },
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(executed_steps.into_inner(), vec!["init", "is-enabled"]);
     }
 }

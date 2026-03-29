@@ -59,7 +59,9 @@ pub fn has_soniox_key(app: AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn create_soniox_temporary_key(app: AppHandle) -> Result<SonioxTemporaryApiKeyResult, String> {
+pub async fn create_soniox_temporary_key(
+    app: AppHandle,
+) -> Result<SonioxTemporaryApiKeyResult, String> {
     let credentials = credentials::get_credentials(&app)?;
     if credentials.soniox_key.trim().is_empty() {
         return Err("Soniox API key is missing. Open Settings and add your key.".to_string());
@@ -149,11 +151,6 @@ pub async fn list_soniox_models() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn reset_credentials(app: AppHandle) -> Result<(), String> {
-    credentials::clear_credentials(&app)
-}
-
-#[tauri::command]
 pub fn ensure_microphone_permission() -> permissions::MicrophonePermissionResult {
     permissions::ensure_microphone_permission()
 }
@@ -179,8 +176,14 @@ pub fn relaunch_app(app: AppHandle) {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn insert_text(text: String, enter_mode: Option<bool>) -> text_inserter::InsertTextResult {
-    text_inserter::insert_text(text, enter_mode.unwrap_or(false))
+pub fn insert_text(
+    app: AppHandle,
+    text: String,
+    enter_mode: Option<bool>,
+) -> text_inserter::InsertTextResult {
+    text_inserter::insert_text_with_pre_insertion_hook(text, enter_mode.unwrap_or(false), || {
+        let _ = crate::reactivate_text_insertion_target(&app);
+    })
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -254,6 +257,7 @@ pub fn show_bar(app: AppHandle) -> Result<(), String> {
         return Err("bar window not found".to_string());
     };
 
+    crate::capture_text_insertion_target(&app);
     crate::show_bar_window_with_runtime_invariants(&app, &bar_window)
         .map_err(|error| error.to_string())?;
     crate::set_bar_ignores_mouse_events(&app, false).map_err(|error| error.to_string())?;

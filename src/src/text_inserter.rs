@@ -55,6 +55,17 @@ struct ClipboardFormatData {
 }
 
 pub fn insert_text(text: String, enter_mode: bool) -> InsertTextResult {
+    insert_text_with_pre_insertion_hook(text, enter_mode, || {})
+}
+
+pub fn insert_text_with_pre_insertion_hook<BeforeInsertion>(
+    text: String,
+    enter_mode: bool,
+    before_insertion: BeforeInsertion,
+) -> InsertTextResult
+where
+    BeforeInsertion: FnOnce(),
+{
     let accessibility = permissions::ensure_accessibility_permission();
     if !accessibility.granted {
         return InsertTextResult {
@@ -87,6 +98,7 @@ pub fn insert_text(text: String, enter_mode: bool) -> InsertTextResult {
         }
     }
 
+    before_insertion();
     let operation_result = perform_insertion(&text, enter_mode);
     let restore_result = match snapshot {
         Some(snapshot_to_restore) => restore_clipboard(&snapshot_to_restore),
