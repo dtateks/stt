@@ -3,8 +3,8 @@ use std::path::Path;
 
 use serde_json::Value;
 use voice_to_text_lib::{
-    run_bar_close_request_sequence, run_bar_show_sequence, run_main_close_request_sequence,
-    run_main_window_show_sequence,
+    run_bar_close_request_sequence, run_bar_show_sequence, run_macos_reopen_window_sequence,
+    run_main_close_request_sequence, run_main_window_show_sequence,
 };
 
 const CORE_DEFAULT_PERMISSION: &str = "core:default";
@@ -368,6 +368,38 @@ fn runtime_builder_registers_single_instance_plugin_before_other_plugins() {
         single_instance_index < global_shortcut_index,
         "single-instance plugin should be registered before other plugins"
     );
+}
+
+#[test]
+fn runtime_builder_restores_hidden_main_window_on_macos_reopen() {
+    let lib_rs = read_project_file("src/lib.rs");
+
+    assert!(
+        lib_rs.contains("RunEvent::Reopen"),
+        "runtime should handle macOS reopen events"
+    );
+    assert!(
+        lib_rs.contains("run_macos_reopen_window_sequence(has_visible_windows"),
+        "runtime should route macOS reopen events through the visibility gate"
+    );
+    assert!(
+        lib_rs.contains("reopen_main_window(app_handle)"),
+        "macOS reopen handler should restore the hidden main window"
+    );
+}
+
+#[test]
+fn runtime_invariant_macos_reopen_restores_hidden_main_window_only_when_no_windows_are_visible() {
+    let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+    run_macos_reopen_window_sequence(false, || {
+        executed_steps.borrow_mut().push("reopen-main-window");
+    });
+    run_macos_reopen_window_sequence(true, || {
+        executed_steps.borrow_mut().push("should-not-run");
+    });
+
+    assert_eq!(executed_steps.into_inner(), vec!["reopen-main-window"]);
 }
 
 #[test]

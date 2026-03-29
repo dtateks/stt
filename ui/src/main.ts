@@ -154,7 +154,6 @@ const dialogCloseBtn = q<HTMLButtonElement>("#dialog-close-btn");
 // Action buttons
 const resetKeysBtn = q<HTMLButtonElement>("#action-reset-keys");
 const openSettingsBtn = q<HTMLButtonElement>("#action-open-settings");
-const quitBtn = q<HTMLButtonElement>("#action-quit");
 
 // Tab navigation
 const tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".tab-btn"));
@@ -1265,10 +1264,6 @@ function bindActionButtons(): void {
 
   resetKeysBtn.addEventListener("click", () => {
     void handleResetKeys();
-  });
-
-  quitBtn.addEventListener("click", () => {
-    void window.voiceToText.quitApp();
   });
 }
 

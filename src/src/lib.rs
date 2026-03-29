@@ -1,7 +1,8 @@
 use std::sync::Mutex;
 use tauri::utils::config::WindowConfig;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -267,6 +268,17 @@ where
     Ok(())
 }
 
+pub fn run_macos_reopen_window_sequence<ReopenMainWindow>(
+    has_visible_windows: bool,
+    mut reopen_main_window: ReopenMainWindow,
+) where
+    ReopenMainWindow: FnMut(),
+{
+    if !has_visible_windows {
+        reopen_main_window();
+    }
+}
+
 pub fn run_main_close_request_sequence<PreventClose, HideMainWindow>(
     prevent_close: PreventClose,
     hide_main_window: HideMainWindow,
@@ -326,6 +338,12 @@ pub(crate) fn show_main_window_with_runtime_invariants(
         || main_window.show(),
         || main_window.set_focus(),
     )
+}
+
+fn reopen_main_window(app: &AppHandle) {
+    if let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = show_main_window_with_runtime_invariants(&main_window);
+    }
 }
 
 fn get_window_config<'a>(app: &'a tauri::App, label: &str) -> tauri::Result<&'a WindowConfig> {
@@ -567,11 +585,9 @@ fn setup_global_shortcut(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                let _ = show_main_window_with_runtime_invariants(&main_window);
-            }
+            reopen_main_window(app);
         }))
         .plugin(tauri_nspanel::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -612,8 +628,19 @@ pub fn run() {
             commands::get_mic_toggle_shortcut,
             commands::update_mic_toggle_shortcut,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } = event
+        {
+            run_macos_reopen_window_sequence(has_visible_windows, || reopen_main_window(app_handle));
+        }
+    });
 }
 
 #[cfg(all(test, target_os = "macos"))]
