@@ -176,14 +176,8 @@ pub fn relaunch_app(app: AppHandle) {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn insert_text(
-    app: AppHandle,
-    text: String,
-    enter_mode: Option<bool>,
-) -> text_inserter::InsertTextResult {
-    text_inserter::insert_text_with_pre_insertion_hook(text, enter_mode.unwrap_or(false), || {
-        let _ = crate::reactivate_text_insertion_target(&app);
-    })
+pub fn insert_text(text: String, enter_mode: Option<bool>) -> text_inserter::InsertTextResult {
+    text_inserter::insert_text(text, enter_mode.unwrap_or(false))
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -257,7 +251,6 @@ pub fn show_bar(app: AppHandle) -> Result<(), String> {
         return Err("bar window not found".to_string());
     };
 
-    crate::capture_text_insertion_target(&app);
     crate::show_bar_window_with_runtime_invariants(&app, &bar_window)
         .map_err(|error| error.to_string())?;
     crate::set_bar_ignores_mouse_events(&app, false).map_err(|error| error.to_string())?;

@@ -37,7 +37,9 @@ fn soniox_auth_http_client() -> Result<&'static Client, String> {
     }
 }
 
-pub async fn create_temporary_api_key(long_lived_api_key: String) -> Result<SonioxTemporaryKey, String> {
+pub async fn create_temporary_api_key(
+    long_lived_api_key: String,
+) -> Result<SonioxTemporaryKey, String> {
     let client = soniox_auth_http_client()?;
 
     let response = client
@@ -59,7 +61,9 @@ pub async fn create_temporary_api_key(long_lived_api_key: String) -> Result<Soni
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("Soniox temporary key request failed ({status}): {body}"));
+        return Err(format!(
+            "Soniox temporary key request failed ({status}): {body}"
+        ));
     }
 
     let payload = response

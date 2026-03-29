@@ -1,13 +1,27 @@
-use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use serde::Serialize;
 
+#[cfg(target_os = "macos")]
+use objc2::rc::Retained;
+#[cfg(target_os = "macos")]
+use objc2::runtime::AnyObject;
+#[cfg(target_os = "macos")]
+use objc2::AnyThread;
+#[cfg(target_os = "macos")]
+use objc2_foundation::{
+    NSAppleScript, NSAppleScriptErrorBriefMessage, NSAppleScriptErrorMessage,
+    NSAppleScriptErrorNumber, NSDictionary, NSNumber, NSString,
+};
+#[cfg(not(target_os = "macos"))]
+use std::process::Command;
+
 use crate::permissions;
 
 const ACCESSIBILITY_PERMISSION_REQUIRED_CODE: &str = "accessibility-permission-required";
+const ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE: &str = "Accessibility permission is required to insert text. Enable Voice to Text in System Settings → Privacy & Security → Accessibility, then try again.";
 const AUTOMATION_PERMISSION_REQUIRED_CODE: &str = "automation-permission-required";
 const AUTOMATION_CHECK_FAILED_CODE: &str = "automation-check-failed";
 const AUTOMATION_PERMISSION_REQUIRED_MESSAGE: &str = "Automation permission is required to control System Events for paste/Enter. Allow Voice to Text when macOS asks, then try again.";
@@ -149,7 +163,15 @@ pub fn copy_to_clipboard(text: String) -> Result<(), String> {
 }
 
 pub fn ensure_text_insertion_permission() -> TextInsertionPermissionResult {
-    match run_osascript(r#"tell application "System Events" to count processes"#) {
+    build_text_insertion_permission_result(run_osascript(
+        r#"tell application "System Events" to count processes"#,
+    ))
+}
+
+pub fn build_text_insertion_permission_result(
+    automation_probe_result: Result<(), String>,
+) -> TextInsertionPermissionResult {
+    match automation_probe_result {
         Ok(()) => TextInsertionPermissionResult {
             granted: true,
             code: None,
@@ -230,6 +252,60 @@ pub fn check_automation_status() -> bool {
     run_osascript(r#"tell application "System Events" to count processes"#).is_ok()
 }
 
+#[cfg(target_os = "macos")]
+fn run_osascript(script: &str) -> Result<(), String> {
+    let source = NSString::from_str(script);
+    let script = NSAppleScript::initWithSource(NSAppleScript::alloc(), &source)
+        .ok_or_else(|| "AppleScript execution failed".to_string())?;
+
+    let mut error_info: Option<Retained<NSDictionary<NSString, AnyObject>>> = None;
+    let _ = unsafe { script.executeAndReturnError(Some(&mut error_info)) };
+
+    match error_info {
+        Some(error_info) => Err(format_applescript_error(&error_info)),
+        None => Ok(()),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn format_applescript_error(error_info: &NSDictionary<NSString, AnyObject>) -> String {
+    let message =
+        extract_applescript_error_string(error_info, unsafe { NSAppleScriptErrorMessage })
+            .or_else(|| {
+                extract_applescript_error_string(error_info, unsafe {
+                    NSAppleScriptErrorBriefMessage
+                })
+            })
+            .unwrap_or_else(|| "AppleScript execution failed".to_string());
+
+    let Some(error_number) = error_info
+        .objectForKey(unsafe { NSAppleScriptErrorNumber })
+        .and_then(|value| value.downcast_ref::<NSNumber>().map(NSNumber::intValue))
+    else {
+        return message;
+    };
+
+    let error_number_suffix = format!("({error_number})");
+    if message.contains(&error_number_suffix) {
+        return message;
+    }
+
+    format!("{message} {error_number_suffix}")
+}
+
+#[cfg(target_os = "macos")]
+fn extract_applescript_error_string(
+    error_info: &NSDictionary<NSString, AnyObject>,
+    key: &NSString,
+) -> Option<String> {
+    error_info.objectForKey(key).and_then(|value| {
+        value
+            .downcast_ref::<NSString>()
+            .map(|string| string.to_string())
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
 fn run_osascript(script: &str) -> Result<(), String> {
     let output = Command::new("osascript")
         .args(["-e", script])
@@ -286,6 +362,10 @@ fn format_system_events_error_message(error: &str) -> String {
         return AUTOMATION_PERMISSION_REQUIRED_MESSAGE.to_string();
     }
 
+    if is_system_events_accessibility_denied(error) {
+        return ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE.to_string();
+    }
+
     format!("Could not control System Events: {error}")
 }
 
@@ -294,12 +374,23 @@ fn is_system_events_automation_denied(error: &str) -> bool {
     normalized_error.contains("not authorized to send apple events") || error.contains("(-1743)")
 }
 
+fn is_system_events_accessibility_denied(error: &str) -> bool {
+    let normalized_error = error.to_ascii_lowercase();
+
+    normalized_error.contains("assistive access")
+        || normalized_error.contains("not allowed to send keystrokes")
+        || normalized_error.contains("a privilege error has occurred")
+        || (error.contains("(-1719)") && normalized_error.contains("system events"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_insert_text_result, format_system_events_error_message,
+        build_insert_text_result, build_text_insertion_permission_result,
+        format_system_events_error_message, is_system_events_accessibility_denied,
         is_system_events_automation_denied, run_system_events_osascript_with,
         validate_clipboard_snapshot, validate_pasteboard_change_count,
+        ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE, AUTOMATION_PERMISSION_REQUIRED_CODE,
         AUTOMATION_PERMISSION_REQUIRED_MESSAGE,
     };
     #[cfg(target_os = "macos")]
@@ -326,6 +417,63 @@ mod tests {
                 "Not authorized to send Apple events to System Events. (-1743)"
             ),
             AUTOMATION_PERMISSION_REQUIRED_MESSAGE
+        );
+    }
+
+    #[test]
+    fn detects_system_events_accessibility_denial() {
+        assert!(is_system_events_accessibility_denied(
+            "System Events got an error: osascript is not allowed assistive access. (-1728)"
+        ));
+    }
+
+    #[test]
+    fn maps_accessibility_denial_to_actionable_message() {
+        assert_eq!(
+            format_system_events_error_message(
+                "System Events got an error: osascript is not allowed assistive access. (-1728)"
+            ),
+            ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE
+        );
+    }
+
+    #[test]
+    fn maps_exact_execution_error_shape_to_accessibility_message() {
+        assert_eq!(
+            format_system_events_error_message(
+                "36: 68: execution error: System Events got an error: osascript is not allowed assistive access. (-1728)"
+            ),
+            ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE
+        );
+    }
+
+    #[test]
+    fn permission_result_maps_automation_denial_to_expected_code() {
+        let result = build_text_insertion_permission_result(Err(
+            "Not authorized to send Apple events to System Events. (-1743)".to_string(),
+        ));
+
+        assert!(!result.granted);
+        assert_eq!(
+            result.code.as_deref(),
+            Some(AUTOMATION_PERMISSION_REQUIRED_CODE)
+        );
+        assert_eq!(
+            result.message.as_deref(),
+            Some(AUTOMATION_PERMISSION_REQUIRED_MESSAGE)
+        );
+    }
+
+    #[test]
+    fn permission_result_preserves_unexpected_system_events_error() {
+        let result =
+            build_text_insertion_permission_result(Err("Execution error: foo".to_string()));
+
+        assert!(!result.granted);
+        assert_eq!(result.code.as_deref(), Some("automation-check-failed"));
+        assert_eq!(
+            result.message.as_deref(),
+            Some("Could not control System Events: Execution error: foo")
         );
     }
 

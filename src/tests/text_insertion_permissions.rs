@@ -10,7 +10,7 @@ use voice_to_text_lib::permissions::{
     build_accessibility_permission_required_result, build_microphone_denied_result,
 };
 use voice_to_text_lib::text_inserter::{
-    build_insert_text_result, ensure_text_insertion_permission,
+    build_insert_text_result, build_text_insertion_permission_result,
 };
 
 const AUTOMATION_PERMISSION_REQUIRED_MESSAGE: &str = "Automation permission is required to control System Events for paste/Enter. Allow Voice to Text when macOS asks, then try again.";
@@ -19,21 +19,9 @@ static ENVIRONMENT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[test]
 fn automation_denial_mapping_is_case_insensitive() {
-    let _guard = ENVIRONMENT_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let temp_dir = create_temp_test_dir("automation-denial");
-    write_executable_script(
-        &temp_dir.join("osascript"),
-        r#"#!/bin/sh
-printf 'not authorized to send Apple events to System Events.' >&2
-exit 1
-"#,
-    );
-    let _path_override = PathEnvironmentOverride::prepend(&temp_dir);
-
-    let result = ensure_text_insertion_permission();
+    let result = build_text_insertion_permission_result(Err(
+        "not authorized to send Apple events to System Events.".to_string(),
+    ));
 
     assert!(!result.granted);
     assert_eq!(
@@ -48,21 +36,7 @@ exit 1
 
 #[test]
 fn unexpected_system_events_error_is_preserved_for_permission_result() {
-    let _guard = ENVIRONMENT_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    let temp_dir = create_temp_test_dir("unexpected-system-events-error");
-    write_executable_script(
-        &temp_dir.join("osascript"),
-        r#"#!/bin/sh
-printf 'Execution error: foo' >&2
-exit 1
-"#,
-    );
-    let _path_override = PathEnvironmentOverride::prepend(&temp_dir);
-
-    let result = ensure_text_insertion_permission();
+    let result = build_text_insertion_permission_result(Err("Execution error: foo".to_string()));
 
     assert!(!result.granted);
     assert_eq!(result.code.as_deref(), Some("automation-check-failed"));

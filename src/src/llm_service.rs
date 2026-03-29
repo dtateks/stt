@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -488,10 +488,16 @@ fn required_model_for_provider(llm_config: &LlmConfig, provider: &str) -> Result
     }
 
     if provider == GEMINI_PROVIDER {
-        return Err("Gemini model is not configured. Refresh models and select one in Settings.".to_string());
+        return Err(
+            "Gemini model is not configured. Refresh models and select one in Settings."
+                .to_string(),
+        );
     }
     if provider == OPENAI_COMPATIBLE_PROVIDER {
-        return Err("OpenAI-compatible model is not configured. Refresh models and select one in Settings.".to_string());
+        return Err(
+            "OpenAI-compatible model is not configured. Refresh models and select one in Settings."
+                .to_string(),
+        );
     }
 
     Err("xAI model is not configured. Refresh models and select one in Settings.".to_string())

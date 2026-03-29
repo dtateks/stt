@@ -1,6 +1,4 @@
 use std::sync::Mutex;
-#[cfg(target_os = "macos")]
-use std::time::Duration;
 use tauri::utils::config::WindowConfig;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, WebviewWindow, WebviewWindowBuilder,
@@ -15,16 +13,11 @@ use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 #[cfg(target_os = "macos")]
 use objc2::msg_send;
 #[cfg(target_os = "macos")]
-use objc2::rc::Retained;
-#[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{
-    NSApplicationActivationOptions, NSColor, NSRunningApplication, NSWindowCollectionBehavior,
-    NSWorkspace,
-};
+use objc2_app_kit::{NSColor, NSWindowCollectionBehavior};
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSArray, NSNumber, NSString};
+use objc2_foundation::{NSNumber, NSString};
 #[cfg(target_os = "macos")]
 use objc2_web_kit::WKWebView;
 
@@ -33,15 +26,12 @@ use tauri_nspanel::{ManagerExt, WebviewWindowExt};
 
 mod commands;
 pub mod credentials;
-mod focus_target;
 pub mod llm_service;
 pub mod permissions;
 pub mod shell_credentials;
 pub mod soniox_auth;
 pub mod soniox_models;
 pub mod text_inserter;
-
-use focus_target::{FrontmostApplicationTarget, TextInsertionTargetState};
 
 const MAIN_WINDOW_LABEL: &str = "main";
 pub(crate) const BAR_WINDOW_LABEL: &str = "bar";
@@ -51,9 +41,6 @@ const BAR_WINDOW_WIDTH: f64 = 600.0;
 const BAR_WINDOW_HEIGHT: f64 = 56.0;
 const BAR_BOTTOM_OFFSET_PX: i32 = 40;
 const BAR_WINDOW_CORNER_RADIUS: f64 = 24.0;
-#[cfg(target_os = "macos")]
-const FOCUS_RESTORE_SETTLE_DELAY_MS: u64 = 50;
-
 struct MicToggleShortcutState {
     active_shortcut: Mutex<String>,
 }
@@ -352,80 +339,6 @@ pub(crate) fn show_main_window_with_runtime_invariants(
         || main_window.show(),
         || main_window.set_focus(),
     )
-}
-
-#[cfg(target_os = "macos")]
-fn capture_frontmost_application_target() -> Option<FrontmostApplicationTarget> {
-    let workspace = NSWorkspace::sharedWorkspace();
-    let frontmost_application = workspace.frontmostApplication()?;
-    let process_id = frontmost_application.processIdentifier() as i32;
-    let bundle_identifier = frontmost_application
-        .bundleIdentifier()
-        .map(|identifier| identifier.to_string());
-
-    Some(FrontmostApplicationTarget {
-        process_id,
-        bundle_identifier,
-    })
-}
-
-#[cfg(not(target_os = "macos"))]
-fn capture_frontmost_application_target() -> Option<FrontmostApplicationTarget> {
-    None
-}
-
-pub(crate) fn capture_text_insertion_target(app: &AppHandle) {
-    app.state::<TextInsertionTargetState>()
-        .capture_with(capture_frontmost_application_target);
-}
-
-#[cfg(target_os = "macos")]
-fn reactivate_frontmost_application_target(target: &FrontmostApplicationTarget) -> bool {
-    let application = NSRunningApplication::runningApplicationWithProcessIdentifier(
-        target.process_id,
-    )
-    .or_else(|| running_application_from_bundle_identifier(target.bundle_identifier.as_deref()));
-    let Some(application) = application else {
-        return false;
-    };
-
-    let activation_options = NSApplicationActivationOptions::ActivateAllWindows
-        | NSApplicationActivationOptions::ActivateIgnoringOtherApps;
-
-    let did_send_activation = application.activateWithOptions(activation_options);
-    if did_send_activation {
-        std::thread::sleep(Duration::from_millis(FOCUS_RESTORE_SETTLE_DELAY_MS));
-    }
-
-    did_send_activation
-}
-
-#[cfg(target_os = "macos")]
-fn running_application_from_bundle_identifier(
-    bundle_identifier: Option<&str>,
-) -> Option<Retained<NSRunningApplication>> {
-    let bundle_identifier = bundle_identifier?;
-    let bundle_identifier = NSString::from_str(bundle_identifier);
-    let applications: Retained<NSArray<NSRunningApplication>> =
-        NSRunningApplication::runningApplicationsWithBundleIdentifier(&bundle_identifier);
-    let count: usize = unsafe { msg_send![&*applications, count] };
-    if count == 0 {
-        return None;
-    }
-
-    let application: Option<Retained<NSRunningApplication>> =
-        unsafe { msg_send![&*applications, objectAtIndex: 0] };
-    application
-}
-
-#[cfg(not(target_os = "macos"))]
-fn reactivate_frontmost_application_target(_target: &FrontmostApplicationTarget) -> bool {
-    false
-}
-
-pub(crate) fn reactivate_text_insertion_target(app: &AppHandle) -> bool {
-    app.state::<TextInsertionTargetState>()
-        .reactivate_with(reactivate_frontmost_application_target)
 }
 
 fn reopen_main_window(app: &AppHandle) {
@@ -764,7 +677,6 @@ pub fn run() {
         .plugin(tauri_nspanel::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(MicToggleShortcutState::default())
-        .manage(TextInsertionTargetState::default())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
