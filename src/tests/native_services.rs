@@ -286,6 +286,8 @@ fn bundled_config_deserializes_into_runtime_contract() {
     );
     assert_eq!(parsed.voice.stop_word, "thank you");
     assert_eq!(parsed.soniox.sample_rate, 16000);
+    assert_eq!(parsed.soniox.audio_format, "pcm_s16le");
+    assert_eq!(parsed.soniox.max_endpoint_delay_ms, Some(500));
 }
 
 fn project_root() -> PathBuf {

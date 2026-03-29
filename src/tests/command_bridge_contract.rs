@@ -10,9 +10,10 @@ use voice_to_text_lib::text_inserter::{
     build_insert_text_result, ensure_text_insertion_permission,
 };
 
-const COMMAND_NAMES: [&str; 26] = [
+const COMMAND_NAMES: [&str; 27] = [
     "get_config",
-    "get_soniox_key",
+    "has_soniox_key",
+    "create_soniox_temporary_key",
     "has_xai_key",
     "has_openai_compatible_key",
     "save_credentials",
@@ -272,6 +273,14 @@ fn bridge_payload_keys_match_rust_command_signatures() {
     assert!(
         bridge_js.contains("invoke(\"update_xai_key\", { xai_key: xaiKey })"),
         "update_xai_key payload must use snake_case xai_key"
+    );
+    assert!(
+        bridge_js.contains("invoke(\"has_soniox_key\")"),
+        "has_soniox_key bridge call must be present"
+    );
+    assert!(
+        bridge_js.contains("invoke(\"create_soniox_temporary_key\")"),
+        "create_soniox_temporary_key bridge call must be present"
     );
     assert!(
         bridge_js

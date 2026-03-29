@@ -4,6 +4,7 @@ use std::path::Path;
 use serde_json::Value;
 use voice_to_text_lib::{
     run_bar_close_request_sequence, run_bar_show_sequence, run_main_close_request_sequence,
+    run_main_window_show_sequence,
 };
 
 const CORE_DEFAULT_PERMISSION: &str = "core:default";
@@ -11,9 +12,10 @@ const DEFAULT_CAPABILITY: &str = "default";
 const BAR_CAPABILITY: &str = "bar";
 const MAIN_WINDOW_LABEL: &str = "main";
 const BAR_WINDOW_LABEL: &str = "bar";
-const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 26] = [
+const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 27] = [
     "allow-get-config",
-    "allow-get-soniox-key",
+    "allow-has-soniox-key",
+    "allow-create-soniox-temporary-key",
     "allow-has-xai-key",
     "allow-has-openai-compatible-key",
     "allow-save-credentials",
@@ -39,9 +41,10 @@ const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 26] = [
     "allow-get-mic-toggle-shortcut",
     "allow-update-mic-toggle-shortcut",
 ];
-const BAR_REQUIRED_APP_PERMISSIONS: [&str; 13] = [
+const BAR_REQUIRED_APP_PERMISSIONS: [&str; 14] = [
     "allow-get-config",
-    "allow-get-soniox-key",
+    "allow-has-soniox-key",
+    "allow-create-soniox-temporary-key",
     "allow-has-xai-key",
     "allow-has-openai-compatible-key",
     "allow-ensure-microphone-permission",
@@ -302,6 +305,32 @@ fn runtime_invariant_keeps_bar_show_order_configure_position_show_front() {
 }
 
 #[test]
+fn runtime_invariant_main_window_show_unminimizes_before_show_and_focus() {
+    let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+    let result = run_main_window_show_sequence(
+        || {
+            executed_steps.borrow_mut().push("unminimize");
+            Ok(())
+        },
+        || {
+            executed_steps.borrow_mut().push("show");
+            Ok(())
+        },
+        || {
+            executed_steps.borrow_mut().push("focus");
+            Ok(())
+        },
+    );
+
+    assert!(result.is_ok());
+    assert_eq!(
+        executed_steps.into_inner(),
+        vec!["unminimize", "show", "focus"]
+    );
+}
+
+#[test]
 fn runtime_invariant_main_close_request_prevents_exit_and_hides_window() {
     let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
 
@@ -317,6 +346,23 @@ fn runtime_invariant_main_close_request_prevents_exit_and_hides_window() {
 
     assert!(result.is_ok());
     assert_eq!(executed_steps.into_inner(), vec!["prevent-close", "hide"]);
+}
+
+#[test]
+fn runtime_builder_registers_single_instance_plugin_before_other_plugins() {
+    let lib_rs = read_project_file("src/lib.rs");
+
+    let single_instance_index = lib_rs
+        .find("tauri_plugin_single_instance::init")
+        .expect("single-instance plugin should be registered");
+    let global_shortcut_index = lib_rs
+        .find("tauri_plugin_global_shortcut::Builder::new().build()")
+        .expect("global shortcut plugin should be registered");
+
+    assert!(
+        single_instance_index < global_shortcut_index,
+        "single-instance plugin should be registered before other plugins"
+    );
 }
 
 #[test]
