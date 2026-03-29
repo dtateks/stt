@@ -265,6 +265,7 @@ npm test
 - `ui/src/__tests__/shortcut-recorder-logic.test.ts` covers shortcut recorder storage/label regressions.
 - `ui/src/__tests__/main-credential-sync.test.ts` covers setup->prefs verification and focus revalidation.
 - `npm run build` emits only the macOS `.app` bundle; build DMGs explicitly with `npm run build:dmg`.
+- Updater runtime config (`plugins.updater.pubkey` + endpoint) can stay in `src/tauri.conf.json`, but updater archives for releases must be packaged/signature-generated after the app bundle is ad-hoc signed; do not rely on `bundle.createUpdaterArtifacts` for this project.
 - Success state linger is 450ms.
 - Credentials persist under `voice-to-text/credentials.json`; do not rely on removed legacy support dirs.
 - `ui/src/__tests__/setup.ts` must load before storage tests; it replaces Node 25 `localStorage` with a predictable in-memory implementation.
