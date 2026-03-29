@@ -5,7 +5,9 @@ APP_NAME="Voice to Text.app"
 APP_BUNDLE_ID="com.voicetotext.stt"
 APP_HELPER_PATH="Contents/Frameworks/Voice to Text Helper (Renderer).app"
 GITHUB_REPO="dtateks/stt"
-GITHUB_RELEASES_API="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+GITHUB_RELEASES_DOWNLOAD_BASE="https://github.com/$GITHUB_REPO/releases/latest/download"
+RELEASE_ZIP_ARM64="Voice-to-Text-darwin-arm64.zip"
+RELEASE_ZIP_X64="Voice-to-Text-darwin-x64.zip"
 INSTALL_PATH="/Applications/$APP_NAME"
 TEMP_DIR=""
 SOURCE_REPO_DIR=""
@@ -40,37 +42,29 @@ detect_release_arch() {
 resolve_release_zip_url() {
 	local release_arch="$1"
 	local direct_url="${STT_APP_ZIP_URL:-}"
-	local release_metadata
-	local zip_urls
-	local matched_url
+	local release_zip_name
+	local release_zip_url
 
 	if [ -n "$direct_url" ]; then
 		printf '%s' "$direct_url"
 		return 0
 	fi
 
-	if ! release_metadata=$(curl -fsSL -H "Accept: application/vnd.github+json" "$GITHUB_RELEASES_API" 2>/dev/null); then
-		return 1
-	fi
-	zip_urls=$(printf '%s' "$release_metadata" | sed -n 's/.*"browser_download_url":"\([^"]*\.zip\)".*/\1/p' | sed 's#\\/#/#g')
+	case "$release_arch" in
+	arm64)
+		release_zip_name="$RELEASE_ZIP_ARM64"
+		;;
+	x64)
+		release_zip_name="$RELEASE_ZIP_X64"
+		;;
+	*)
+		echo "Error: unsupported release architecture $release_arch"
+		exit 1
+		;;
+	esac
 
-	if [ -z "$zip_urls" ]; then
-		return 1
-	fi
-
-	matched_url=$(printf '%s\n' "$zip_urls" | grep "/.*${release_arch}.*\.zip$" | head -n 1 || true)
-	if [ -n "$matched_url" ]; then
-		printf '%s' "$matched_url"
-		return
-	fi
-
-	matched_url=$(printf '%s\n' "$zip_urls" | grep "/.*universal.*\.zip$" | head -n 1 || true)
-	if [ -n "$matched_url" ]; then
-		printf '%s' "$matched_url"
-		return
-	fi
-
-	printf '%s\n' "$zip_urls" | head -n 1
+	release_zip_url="$GITHUB_RELEASES_DOWNLOAD_BASE/$release_zip_name"
+	printf '%s' "$release_zip_url"
 }
 
 build_app_bundle_from_source() {
@@ -107,18 +101,16 @@ find_downloaded_app_bundle() {
 
 verify_bundle_identity() {
 	local bundle_path="$1"
-	local signature_info
+	local info_plist_path="$bundle_path/Contents/Info.plist"
+	local bundle_identifier
 
-	signature_info=$(codesign -dv --verbose=4 "$bundle_path" 2>&1 || true)
-	case "$signature_info" in
-	*"Identifier=$APP_BUNDLE_ID"*) ;;
-	*)
+	bundle_identifier=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist_path" 2>/dev/null || true)
+	if [ "$bundle_identifier" != "$APP_BUNDLE_ID" ]; then
 		echo "Error: installer payload does not have the expected macOS app identity."
-		echo "codesign output:"
-		echo "$signature_info"
+		echo "Expected CFBundleIdentifier: $APP_BUNDLE_ID"
+		echo "Actual CFBundleIdentifier: ${bundle_identifier:-<missing>}"
 		exit 1
-		;;
-	esac
+	fi
 }
 
 ensure_required_entitlement() {
@@ -184,10 +176,15 @@ UNPACK_DIR="$TEMP_DIR/unpacked"
 ZIP_URL=""
 if ZIP_URL=$(resolve_release_zip_url "$RELEASE_ARCH"); then
 	echo "Downloading latest release for $RELEASE_ARCH..."
-	curl -fL "$ZIP_URL" -o "$ZIP_PATH"
-	mkdir -p "$UNPACK_DIR"
-	ditto -x -k "$ZIP_PATH" "$UNPACK_DIR"
-	APP_BUNDLE=$(find_downloaded_app_bundle "$UNPACK_DIR")
+	if curl -fL "$ZIP_URL" -o "$ZIP_PATH"; then
+		mkdir -p "$UNPACK_DIR"
+		ditto -x -k "$ZIP_PATH" "$UNPACK_DIR"
+		APP_BUNDLE=$(find_downloaded_app_bundle "$UNPACK_DIR")
+	else
+		echo "Release download failed. Building from source instead..."
+		DIST_DIR=$(build_app_bundle_from_source)
+		APP_BUNDLE=$(find_downloaded_app_bundle "$DIST_DIR")
+	fi
 else
 	echo "No downloadable release zip found. Building from source instead..."
 	DIST_DIR=$(build_app_bundle_from_source)

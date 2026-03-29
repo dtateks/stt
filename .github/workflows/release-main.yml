@@ -1,0 +1,103 @@
+name: Release on main push
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-release:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release-meta.outputs.tag }}
+      release_name: ${{ steps.release-meta.outputs.release_name }}
+    steps:
+      - name: Build unique tag for this push
+        id: release-meta
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          tag="main-${GITHUB_RUN_NUMBER}-${short_sha}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_name=Voice to Text $tag" >> "$GITHUB_OUTPUT"
+
+  build-macos:
+    name: Build ${{ matrix.arch }} macOS bundle
+    needs: prepare-release
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+            asset_name: Voice-to-Text-darwin-arm64.zip
+          - arch: x64
+            runner: macos-15-intel
+            asset_name: Voice-to-Text-darwin-x64.zip
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build macOS app bundle
+        run: npm run build
+
+      - name: Package app bundle as stable zip asset
+        run: |
+          app_path="src/target/release/bundle/macos/Voice to Text.app"
+          if [ ! -d "$app_path" ]; then
+            echo "Missing app bundle: $app_path" >&2
+            exit 1
+          fi
+
+          ditto -c -k --keepParent --sequesterRsrc "$app_path" "${{ matrix.asset_name }}"
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs:
+      - prepare-release
+      - build-macos
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create release and upload stable assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: ${{ needs.prepare-release.outputs.release_name }}
+          target_commitish: ${{ github.sha }}
+          prerelease: false
+          make_latest: true
+          generate_release_notes: true
+          files: |
+            release-assets/Voice-to-Text-darwin-arm64.zip
+            release-assets/Voice-to-Text-darwin-x64.zip
