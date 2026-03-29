@@ -3,8 +3,12 @@ set -euo pipefail
 
 ASSET_NAME="Voice-to-Text-darwin-arm64.zip"
 APP_BUNDLE="src/target/release/bundle/macos/Voice to Text.app"
+UPDATER_ARCHIVE_ASSET="Voice-to-Text-darwin-arm64.app.tar.gz"
+UPDATER_SIGNATURE_ASSET="${UPDATER_ARCHIVE_ASSET}.sig"
+UPDATER_MANIFEST_NAME="latest.json"
 SIGN_SCRIPT="scripts/sign-macos-app.sh"
 DEFAULT_REMOTE="origin"
+UPDATER_SIGNING_KEY_PATH="${HOME}/.tauri/stt-updater.key"
 
 repo_slug_from_remote_url() {
 	local remote_url="$1"
@@ -54,6 +58,12 @@ ensure_prerequisites() {
 		echo "ERROR: sign script not executable at: $SIGN_SCRIPT" >&2
 		exit 1
 	fi
+
+	if [[ ! -f "$UPDATER_SIGNING_KEY_PATH" ]]; then
+		echo "ERROR: updater signing key not found at: $UPDATER_SIGNING_KEY_PATH" >&2
+		echo "Generate it with: npx tauri signer generate -w \"$UPDATER_SIGNING_KEY_PATH\" -p \"\"" >&2
+		exit 1
+	fi
 }
 
 build_and_package_local_arm64_release() {
@@ -67,6 +77,15 @@ build_and_package_local_arm64_release() {
 
 	echo "▸ Signing macOS app bundle…"
 	"./$SIGN_SCRIPT" "$APP_BUNDLE"
+
+	echo "▸ Packaging updater archive…"
+	rm -f "$UPDATER_ARCHIVE_ASSET" "$UPDATER_SIGNATURE_ASSET"
+	COPYFILE_DISABLE=1 tar -czf "$UPDATER_ARCHIVE_ASSET" -C "$(dirname "$APP_BUNDLE")" "$(basename "$APP_BUNDLE")"
+
+	echo "▸ Signing updater archive…"
+	TAURI_SIGNING_PRIVATE_KEY_PATH="$UPDATER_SIGNING_KEY_PATH" \
+		TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+		npx tauri signer sign "$UPDATER_ARCHIVE_ASSET"
 
 	echo "▸ Packaging zip…"
 	rm -f "$ASSET_NAME"
@@ -100,10 +119,23 @@ publish_local_arm64_release() {
 	local tag="$1"
 	local repo_slug="$2"
 	local release_name="Voice to Text ${tag}"
+	local release_assets=("$ASSET_NAME")
+
+	if [[ -f "$UPDATER_ARCHIVE_ASSET" ]]; then
+		release_assets+=("$UPDATER_ARCHIVE_ASSET")
+	fi
+
+	if [[ -f "$UPDATER_SIGNATURE_ASSET" ]]; then
+		release_assets+=("$UPDATER_SIGNATURE_ASSET")
+	fi
+
+	if [[ -f "$UPDATER_MANIFEST_NAME" ]]; then
+		release_assets+=("$UPDATER_MANIFEST_NAME")
+	fi
 
 	if gh release view "$tag" --repo "$repo_slug" >/dev/null 2>&1; then
 		echo "▸ Updating release ${tag}…"
-		gh release upload "$tag" "$ASSET_NAME" --repo "$repo_slug" --clobber
+		gh release upload "$tag" "${release_assets[@]}" --repo "$repo_slug" --clobber
 	else
 		echo "▸ Creating release ${tag}…"
 		gh release create "$tag" \
@@ -111,10 +143,51 @@ publish_local_arm64_release() {
 			--title "$release_name" \
 			--latest \
 			--generate-notes \
-			"$ASSET_NAME"
+			"${release_assets[@]}"
 	fi
 
 	echo "✓ Release published: https://github.com/${repo_slug}/releases/tag/${tag}"
+}
+
+tauri_app_version() {
+	node -e 'const fs=require("node:fs"); const config=JSON.parse(fs.readFileSync("src/tauri.conf.json", "utf8")); process.stdout.write(String(config.version));'
+}
+
+generate_updater_manifest() {
+	local tag="$1"
+	local repo_slug="$2"
+
+	if [[ ! -f "$UPDATER_ARCHIVE_ASSET" || ! -f "$UPDATER_SIGNATURE_ASSET" ]]; then
+		echo "WARN: updater artifacts not found — skipping ${UPDATER_MANIFEST_NAME} generation" >&2
+		rm -f "$UPDATER_MANIFEST_NAME"
+		return 0
+	fi
+
+	local version
+	local signature
+	local pub_date
+	local archive_url
+
+	version="$(tauri_app_version)"
+	signature="$(tr -d '\r\n' <"$UPDATER_SIGNATURE_ASSET")"
+	pub_date="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+	archive_url="https://github.com/${repo_slug}/releases/download/${tag}/${UPDATER_ARCHIVE_ASSET}"
+
+	cat >"$UPDATER_MANIFEST_NAME" <<EOF
+{
+  "version": "${version}",
+  "notes": "",
+  "pub_date": "${pub_date}",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "${signature}",
+      "url": "${archive_url}"
+    }
+  }
+}
+EOF
+
+	echo "▸ Generated ${UPDATER_MANIFEST_NAME} for ${tag} (darwin-aarch64)"
 }
 
 push_refspecs_with_release_tag() {
@@ -166,9 +239,10 @@ run_manual_release() {
 	repo_slug="$(repo_slug_from_remote_name "$DEFAULT_REMOTE")"
 	tag="$(local_release_tag)"
 	ensure_release_tag_points_at_head "$tag"
+	generate_updater_manifest "$tag" "$repo_slug"
 	push_refspecs_with_release_tag "$DEFAULT_REMOTE" "$tag"
 	publish_local_arm64_release "$tag" "$repo_slug"
-	rm -f "$ASSET_NAME"
+	rm -f "$ASSET_NAME" "$UPDATER_ARCHIVE_ASSET" "$UPDATER_SIGNATURE_ASSET" "$UPDATER_MANIFEST_NAME"
 }
 
 run_pre_push_release() {
@@ -188,13 +262,14 @@ run_pre_push_release() {
 	repo_slug="$(repo_slug_from_remote_url "$remote_url")"
 	tag="$(local_release_tag)"
 	ensure_release_tag_points_at_head "$tag"
+	generate_updater_manifest "$tag" "$repo_slug"
 	push_release_tag_only "$remote_name" "$tag"
 
 	if ! publish_local_arm64_release "$tag" "$repo_slug"; then
 		echo "WARN: local release publication failed after push; CI fallback will build both architectures." >&2
 	fi
 
-	rm -f "$ASSET_NAME"
+	rm -f "$ASSET_NAME" "$UPDATER_ARCHIVE_ASSET" "$UPDATER_SIGNATURE_ASSET" "$UPDATER_MANIFEST_NAME"
 	echo "✓ pre-push release flow completed for $remote_url"
 }
 

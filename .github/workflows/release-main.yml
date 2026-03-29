@@ -104,12 +104,39 @@ jobs:
 
           ditto -c -k --keepParent --sequesterRsrc "$app_path" "${{ matrix.asset_name }}"
 
+      - name: Package updater artifacts
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          updater_archive_asset="Voice-to-Text-darwin-${{ matrix.arch }}.app.tar.gz"
+          updater_signature_asset="${updater_archive_asset}.sig"
+          bundle_dir="src/target/release/bundle/macos"
+          app_name="Voice to Text.app"
+
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "Missing TAURI_SIGNING_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+
+          COPYFILE_DISABLE=1 tar -czf "$updater_archive_asset" -C "$bundle_dir" "$app_name"
+          npx tauri signer sign "$updater_archive_asset"
+
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.asset_name }}
           if-no-files-found: error
+
+      - name: Upload updater artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-${{ matrix.arch }}
+          path: |
+            Voice-to-Text-darwin-${{ matrix.arch }}.app.tar.gz
+            Voice-to-Text-darwin-${{ matrix.arch }}.app.tar.gz.sig
+          if-no-files-found: ignore
 
   publish-release:
     name: Publish GitHub Release
@@ -119,11 +146,92 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
+
+      - name: Generate merged updater manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          release_dir="release-assets"
+          mkdir -p "$release_dir"
+
+          resolve_asset() {
+            local output_var="$1"
+            shift
+            local candidate
+
+            for candidate in "$@"; do
+              if [ -f "$release_dir/$candidate" ]; then
+                printf -v "$output_var" '%s' "$candidate"
+                return 0
+              fi
+
+              if gh release download "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --pattern "$candidate" --dir "$release_dir" --clobber >/dev/null 2>&1; then
+                if [ -f "$release_dir/$candidate" ]; then
+                  printf -v "$output_var" '%s' "$candidate"
+                  return 0
+                fi
+              fi
+            done
+
+            printf -v "$output_var" '%s' ''
+            return 1
+          }
+
+          arm64_archive_asset=""
+          arm64_signature_asset=""
+          x64_archive_asset=""
+          x64_signature_asset=""
+
+          resolve_asset arm64_archive_asset \
+            "Voice-to-Text-darwin-arm64.app.tar.gz" \
+            "Voice to Text.app.tar.gz" || true
+          resolve_asset arm64_signature_asset \
+            "Voice-to-Text-darwin-arm64.app.tar.gz.sig" \
+            "Voice to Text.app.tar.gz.sig" || true
+          resolve_asset x64_archive_asset \
+            "Voice-to-Text-darwin-x64.app.tar.gz" || true
+          resolve_asset x64_signature_asset \
+            "Voice-to-Text-darwin-x64.app.tar.gz.sig" || true
+
+          arm64_signature=""
+          x64_signature=""
+
+          if [ -n "$arm64_signature_asset" ]; then
+            arm64_signature="$(tr -d '\r\n' < "$release_dir/$arm64_signature_asset")"
+          fi
+
+          if [ -n "$x64_signature_asset" ]; then
+            x64_signature="$(tr -d '\r\n' < "$release_dir/$x64_signature_asset")"
+          fi
+
+          if [ -z "$arm64_signature" ] && [ -z "$x64_signature" ]; then
+            echo "No updater signatures found; skipping latest.json generation."
+            exit 0
+          fi
+
+          version="$(node -e 'const fs=require("node:fs"); const config=JSON.parse(fs.readFileSync("src/tauri.conf.json", "utf8")); process.stdout.write(String(config.version));')"
+          pub_date="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          RELEASE_TAG="$RELEASE_TAG" \
+          RELEASE_REPOSITORY="$RELEASE_REPOSITORY" \
+          RELEASE_DIR="$release_dir" \
+          VERSION="$version" \
+          PUB_DATE="$pub_date" \
+          ARM64_ARCHIVE_ASSET="$arm64_archive_asset" \
+          ARM64_SIGNATURE="$arm64_signature" \
+          X64_ARCHIVE_ASSET="$x64_archive_asset" \
+          X64_SIGNATURE="$x64_signature" \
+          node -e 'const fs=require("node:fs"); const path=require("node:path"); const releaseTag=process.env.RELEASE_TAG; const repo=process.env.RELEASE_REPOSITORY; const releaseDir=process.env.RELEASE_DIR; const version=process.env.VERSION; const pubDate=process.env.PUB_DATE; const arm64Archive=process.env.ARM64_ARCHIVE_ASSET || ""; const arm64Signature=process.env.ARM64_SIGNATURE || ""; const x64Archive=process.env.X64_ARCHIVE_ASSET || ""; const x64Signature=process.env.X64_SIGNATURE || ""; const platforms={}; if (arm64Archive && arm64Signature) { platforms["darwin-aarch64"] = { signature: arm64Signature, url: `https://github.com/${repo}/releases/download/${releaseTag}/${arm64Archive.replace(/ /g, "%20")}` }; } if (x64Archive && x64Signature) { platforms["darwin-x86_64"] = { signature: x64Signature, url: `https://github.com/${repo}/releases/download/${releaseTag}/${x64Archive.replace(/ /g, "%20")}` }; } const manifest={ version, notes: "", pub_date: pubDate, platforms }; fs.writeFileSync(path.join(releaseDir, "latest.json"), JSON.stringify(manifest, null, 2) + "\n");'
 
       - name: Create release and upload stable assets
         uses: softprops/action-gh-release@v2
@@ -135,4 +243,8 @@ jobs:
           make_latest: true
           generate_release_notes: true
           overwrite_files: true
-          files: release-assets/*.zip
+          files: |
+            release-assets/*.zip
+            release-assets/*.app.tar.gz
+            release-assets/*.app.tar.gz.sig
+            release-assets/latest.json
