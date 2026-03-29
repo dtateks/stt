@@ -36,7 +36,7 @@ pub mod text_inserter;
 const MAIN_WINDOW_LABEL: &str = "main";
 pub(crate) const BAR_WINDOW_LABEL: &str = "bar";
 const TOGGLE_MIC_EVENT: &str = "toggle-mic";
-pub(crate) const DEFAULT_MIC_TOGGLE_SHORTCUT: &str = "Control+Alt+Super+V";
+pub(crate) const DEFAULT_MIC_TOGGLE_SHORTCUT: &str = "Control+Alt+V";
 const AUTOSTART_LAUNCH_FLAG: &str = "--launch-at-login";
 const BAR_WINDOW_WIDTH: f64 = 600.0;
 const BAR_WINDOW_HEIGHT: f64 = 56.0;
@@ -60,7 +60,7 @@ fn lock_error_message() -> String {
 
 fn parse_error_message(shortcut: &str, error: &str) -> String {
     format!(
-        "Invalid global shortcut `{shortcut}`. Use an accelerator like `Control+Alt+Super+V`. Details: {error}"
+        "Invalid global shortcut `{shortcut}`. Use an accelerator like `Control+Option+V`. Details: {error}"
     )
 }
 
@@ -797,10 +797,10 @@ mod shortcut_transaction_tests {
 
     #[test]
     fn keeps_current_registration_when_new_registration_fails() {
-        let registered = RefCell::new(vec!["Control+Alt+Super+V".to_string()]);
+        let registered = RefCell::new(vec!["Control+Alt+V".to_string()]);
 
         let result = apply_shortcut_update_transaction(
-            "Control+Alt+Super+V",
+            "Control+Alt+V",
             "Control+Alt+Super+M",
             true,
             |shortcut| registered.borrow().iter().any(|item| item == shortcut),
@@ -821,15 +821,15 @@ mod shortcut_transaction_tests {
         assert!(registered
             .borrow()
             .iter()
-            .any(|item| item == "Control+Alt+Super+V"));
+            .any(|item| item == "Control+Alt+V"));
     }
 
     #[test]
     fn replaces_old_shortcut_with_new_shortcut() {
-        let registered = RefCell::new(vec!["Control+Alt+Super+V".to_string()]);
+        let registered = RefCell::new(vec!["Control+Alt+V".to_string()]);
 
         let result = apply_shortcut_update_transaction(
-            "Control+Alt+Super+V",
+            "Control+Alt+V",
             "Control+Alt+Super+M",
             true,
             |shortcut| registered.borrow().iter().any(|item| item == shortcut),
@@ -849,7 +849,7 @@ mod shortcut_transaction_tests {
         assert!(!registered
             .borrow()
             .iter()
-            .any(|item| item == "Control+Alt+Super+V"));
+            .any(|item| item == "Control+Alt+V"));
         assert!(registered
             .borrow()
             .iter()
@@ -858,8 +858,8 @@ mod shortcut_transaction_tests {
 
     #[test]
     fn update_lifecycle_keeps_only_selected_shortcut_active() {
-        let registered = RefCell::new(vec!["Control+Alt+Super+V".to_string()]);
-        let mut active_shortcut = "Control+Alt+Super+V".to_string();
+        let registered = RefCell::new(vec!["Control+Alt+V".to_string()]);
+        let mut active_shortcut = "Control+Alt+V".to_string();
 
         let result = apply_mic_toggle_shortcut_update(
             &mut active_shortcut,
@@ -886,12 +886,12 @@ mod shortcut_transaction_tests {
     #[test]
     fn rolls_back_to_previous_shortcut_when_unregister_old_fails() {
         let registered = RefCell::new(vec![
-            "Control+Alt+Super+V".to_string(),
+            "Control+Alt+V".to_string(),
             "Control+Alt+Super+M".to_string(),
         ]);
 
         let result = apply_shortcut_update_transaction(
-            "Control+Alt+Super+V",
+            "Control+Alt+V",
             "Control+Alt+Super+M",
             true,
             |shortcut| registered.borrow().iter().any(|item| item == shortcut),
@@ -902,7 +902,7 @@ mod shortcut_transaction_tests {
                 Ok(())
             },
             |shortcut| {
-                if shortcut == "Control+Alt+Super+V" {
+                if shortcut == "Control+Alt+V" {
                     return Err("failed to unregister old".to_string());
                 }
                 registered.borrow_mut().retain(|item| item != shortcut);
@@ -914,7 +914,7 @@ mod shortcut_transaction_tests {
         assert!(registered
             .borrow()
             .iter()
-            .any(|item| item == "Control+Alt+Super+V"));
+            .any(|item| item == "Control+Alt+V"));
         assert!(!registered
             .borrow()
             .iter()

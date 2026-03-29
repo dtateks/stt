@@ -5,8 +5,8 @@
 
 import type { LlmProvider, OutputLang, UserPreferences } from "./types.ts";
 
-export const DEFAULT_MIC_TOGGLE_SHORTCUT = "Control+Alt+Super+V";
-export const DEFAULT_REMINDER_BEEP_ENABLED = true;
+export const DEFAULT_MIC_TOGGLE_SHORTCUT = "Control+Alt+V";
+export const DEFAULT_REMINDER_BEEP_ENABLED = false;
 export const DEFAULT_LLM_PROVIDER: LlmProvider = "xai";
 
 const KEYS = {
