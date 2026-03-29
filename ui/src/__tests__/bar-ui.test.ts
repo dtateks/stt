@@ -21,7 +21,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import type { BarState, TranscriptResult } from "../types.ts";
+import type { BarState } from "../types.ts";
 
 // ─── IMP-01: Production imports from bar-render.ts ────────────────────────────
 
@@ -233,11 +233,23 @@ describe("applyTranscript — transcript content updates", () => {
     expect(getTranscriptInterim().textContent).toBe("typing...");
   });
 
-  it("ignores update when state is not LISTENING", () => {
-    const nonListeningStates: BarState[] = [
-      "HIDDEN", "CONNECTING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
-    ];
-    for (const state of nonListeningStates) {
+  it("updates transcript during active post-stop states", () => {
+    const activeStates: BarState[] = ["PROCESSING", "INSERTING", "SUCCESS"];
+    for (const state of activeStates) {
+      const hud = getHud();
+      hud.dataset.state = state;
+      getTranscriptFinal().textContent = "original";
+      applyTranscript(
+        { finalText: `frozen-${state}`, interimText: "" },
+        hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      );
+      expect(getTranscriptFinal().textContent).toBe(`frozen-${state}`);
+    }
+  });
+
+  it("ignores update in non-transcript states", () => {
+    const nonTranscriptStates: BarState[] = ["HIDDEN", "CONNECTING", "ERROR"];
+    for (const state of nonTranscriptStates) {
       const hud = getHud();
       hud.dataset.state = state;
       getTranscriptFinal().textContent = "original";
@@ -490,6 +502,7 @@ describe("waveform RAF lifecycle — controller.onStateChange behaviour contract
       }
     }
     expect(rafId).toBe(42);
+    expect(rafSpy).toHaveBeenCalledTimes(1);
 
     // Each non-LISTENING state should cancel RAF
     const stoppedStates: BarState[] = [

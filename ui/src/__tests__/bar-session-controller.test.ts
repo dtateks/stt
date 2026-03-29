@@ -62,6 +62,11 @@ const storage = vi.hoisted(() => ({
     sonioxTranslationTerms: [{ source: "one", target: "1" }],
     skipLlm: false,
   })),
+  loadCustomStopWordPreference: vi.fn((defaultStopWord: string) => defaultStopWord),
+  loadLlmBaseUrlPreference: vi.fn((defaultBaseUrl: string) => defaultBaseUrl),
+  loadLlmModelPreference: vi.fn((defaultModel: string) => defaultModel),
+  loadLlmProviderPreference: vi.fn((defaultProvider: "xai" | "openai_compatible" | "gemini") => defaultProvider),
+  loadReminderBeepEnabledPreference: vi.fn(() => true),
 }));
 
 vi.mock("../soniox-client.ts", () => ({
@@ -70,6 +75,11 @@ vi.mock("../soniox-client.ts", () => ({
 
 vi.mock("../storage.ts", () => ({
   loadPreferences: storage.loadPreferences,
+  loadCustomStopWordPreference: storage.loadCustomStopWordPreference,
+  loadLlmBaseUrlPreference: storage.loadLlmBaseUrlPreference,
+  loadLlmModelPreference: storage.loadLlmModelPreference,
+  loadLlmProviderPreference: storage.loadLlmProviderPreference,
+  loadReminderBeepEnabledPreference: storage.loadReminderBeepEnabledPreference,
 }));
 
 import { BarSessionController } from "../bar-session-controller.ts";
@@ -94,23 +104,31 @@ function createBridge(): {
   mocks: {
     setMicState: ReturnType<typeof vi.fn<(isActive: boolean) => Promise<void>>>;
     insertText: ReturnType<typeof vi.fn<VoiceToTextBridge["insertText"]>>;
-    correctTranscript: ReturnType<typeof vi.fn<VoiceToTextBridge["correctTranscript"]>>;
-    getSonioxKey: ReturnType<typeof vi.fn<VoiceToTextBridge["getSonioxKey"]>>;
-    hasXaiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasXaiKey"]>>;
-    getConfig: ReturnType<typeof vi.fn<VoiceToTextBridge["getConfig"]>>;
+     correctTranscript: ReturnType<typeof vi.fn<VoiceToTextBridge["correctTranscript"]>>;
+     getSonioxKey: ReturnType<typeof vi.fn<VoiceToTextBridge["getSonioxKey"]>>;
+      hasXaiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasXaiKey"]>>;
+      hasGeminiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasGeminiKey"]>>;
+      hasOpenaiCompatibleKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasOpenaiCompatibleKey"]>>;
+     getConfig: ReturnType<typeof vi.fn<VoiceToTextBridge["getConfig"]>>;
     ensureMicrophonePermission: ReturnType<typeof vi.fn<VoiceToTextBridge["ensureMicrophonePermission"]>>;
     ensureAccessibilityPermission: ReturnType<typeof vi.fn<VoiceToTextBridge["ensureAccessibilityPermission"]>>;
     ensureTextInsertionPermission: ReturnType<typeof vi.fn<VoiceToTextBridge["ensureTextInsertionPermission"]>>;
-    saveCredentials: ReturnType<typeof vi.fn<VoiceToTextBridge["saveCredentials"]>>;
-    updateXaiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["updateXaiKey"]>>;
-    resetCredentials: ReturnType<typeof vi.fn<VoiceToTextBridge["resetCredentials"]>>;
+    checkPermissionsStatus: ReturnType<typeof vi.fn<VoiceToTextBridge["checkPermissionsStatus"]>>;
+     saveCredentials: ReturnType<typeof vi.fn<VoiceToTextBridge["saveCredentials"]>>;
+      updateXaiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["updateXaiKey"]>>;
+      updateGeminiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["updateGeminiKey"]>>;
+      updateOpenaiCompatibleKey: ReturnType<typeof vi.fn<VoiceToTextBridge["updateOpenaiCompatibleKey"]>>;
+     resetCredentials: ReturnType<typeof vi.fn<VoiceToTextBridge["resetCredentials"]>>;
     onToggleMic: ReturnType<typeof vi.fn<VoiceToTextBridge["onToggleMic"]>>;
     copyToClipboard: ReturnType<typeof vi.fn<VoiceToTextBridge["copyToClipboard"]>>;
     quitApp: ReturnType<typeof vi.fn<VoiceToTextBridge["quitApp"]>>;
+    relaunchApp: ReturnType<typeof vi.fn<VoiceToTextBridge["relaunchApp"]>>;
     showBar: ReturnType<typeof vi.fn<VoiceToTextBridge["showBar"]>>;
     hideBar: ReturnType<typeof vi.fn<VoiceToTextBridge["hideBar"]>>;
     setMouseEvents: ReturnType<typeof vi.fn<VoiceToTextBridge["setMouseEvents"]>>;
     showSettings: ReturnType<typeof vi.fn<VoiceToTextBridge["showSettings"]>>;
+    getMicToggleShortcut: ReturnType<typeof vi.fn<VoiceToTextBridge["getMicToggleShortcut"]>>;
+    updateMicToggleShortcut: ReturnType<typeof vi.fn<VoiceToTextBridge["updateMicToggleShortcut"]>>;
   };
 } {
   const mocks = {
@@ -119,20 +137,30 @@ function createBridge(): {
     correctTranscript: vi.fn(async (transcript: string) => transcript),
     getSonioxKey: vi.fn(async () => "soniox-key"),
     hasXaiKey: vi.fn(async () => false),
+    hasGeminiKey: vi.fn(async () => false),
+    hasOpenaiCompatibleKey: vi.fn(async () => false),
     getConfig: vi.fn(async () => DEFAULT_CONFIG),
     ensureMicrophonePermission: vi.fn(async () => createPermissionResult(true)),
     ensureAccessibilityPermission: vi.fn(async () => createPermissionResult(true)),
     ensureTextInsertionPermission: vi.fn(async () => createPermissionResult(true)),
+    checkPermissionsStatus: vi.fn(async () => ({ microphone: true, accessibility: true, automation: true })),
     saveCredentials: vi.fn(async () => {}),
     updateXaiKey: vi.fn(async () => {}),
+    updateGeminiKey: vi.fn(async () => {}),
+    updateOpenaiCompatibleKey: vi.fn(async () => {}),
+    updateSonioxKey: vi.fn(async () => {}),
+    listModels: vi.fn(async () => []),
     resetCredentials: vi.fn(async () => {}),
     onToggleMic: vi.fn((_callback: () => void) => () => {}),
     copyToClipboard: vi.fn(async (_text: string) => {}),
     quitApp: vi.fn(async () => {}),
+    relaunchApp: vi.fn(async () => {}),
     showBar: vi.fn(async () => {}),
     hideBar: vi.fn(async () => {}),
     setMouseEvents: vi.fn(async (_ignore: boolean) => {}),
     showSettings: vi.fn(async () => {}),
+    getMicToggleShortcut: vi.fn(async () => "Control+Alt+Super+V"),
+    updateMicToggleShortcut: vi.fn(async (shortcut: string) => shortcut),
   };
 
   const bridge: VoiceToTextBridge = {
@@ -141,20 +169,30 @@ function createBridge(): {
     correctTranscript: mocks.correctTranscript,
     getSonioxKey: mocks.getSonioxKey,
     hasXaiKey: mocks.hasXaiKey,
+    hasGeminiKey: mocks.hasGeminiKey,
+    hasOpenaiCompatibleKey: mocks.hasOpenaiCompatibleKey,
     getConfig: mocks.getConfig,
     ensureMicrophonePermission: mocks.ensureMicrophonePermission,
     ensureAccessibilityPermission: mocks.ensureAccessibilityPermission,
     ensureTextInsertionPermission: mocks.ensureTextInsertionPermission,
+    checkPermissionsStatus: mocks.checkPermissionsStatus,
     saveCredentials: mocks.saveCredentials,
     updateXaiKey: mocks.updateXaiKey,
+    updateGeminiKey: mocks.updateGeminiKey,
+    updateOpenaiCompatibleKey: mocks.updateOpenaiCompatibleKey,
+    updateSonioxKey: mocks.updateSonioxKey,
+    listModels: mocks.listModels,
     resetCredentials: mocks.resetCredentials,
     onToggleMic: mocks.onToggleMic,
     copyToClipboard: mocks.copyToClipboard,
     quitApp: mocks.quitApp,
+    relaunchApp: mocks.relaunchApp,
     showBar: mocks.showBar,
     hideBar: mocks.hideBar,
     setMouseEvents: mocks.setMouseEvents,
     showSettings: mocks.showSettings,
+    getMicToggleShortcut: mocks.getMicToggleShortcut,
+    updateMicToggleShortcut: mocks.updateMicToggleShortcut,
   };
 
   return { bridge, mocks };
@@ -169,6 +207,18 @@ describe("BarSessionController", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    storage.loadCustomStopWordPreference.mockImplementation((defaultStopWord: string) => defaultStopWord);
+    storage.loadLlmBaseUrlPreference.mockImplementation((defaultBaseUrl: string) => defaultBaseUrl);
+    storage.loadLlmModelPreference.mockImplementation((defaultModel: string) => defaultModel);
+    storage.loadLlmProviderPreference.mockImplementation((defaultProvider: "xai" | "openai_compatible" | "gemini") => defaultProvider);
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: false,
+    });
+    storage.loadReminderBeepEnabledPreference.mockReturnValue(true);
     soniox.instance.onTranscript = null;
     soniox.instance.onError = null;
   });
@@ -214,7 +264,7 @@ describe("BarSessionController", () => {
     expect(controller.getCurrentState()).toBe("HIDDEN");
   });
 
-  it("re-applies interactive mouse events when startup enters ERROR", async () => {
+  it("hides the HUD immediately when startup accessibility permission is denied", async () => {
     const { bridge, mocks } = createBridge();
     mocks.ensureAccessibilityPermission.mockResolvedValueOnce(
       createPermissionResult(false),
@@ -225,12 +275,14 @@ describe("BarSessionController", () => {
     await controller.init();
     await controller.handleToggle();
 
-    expect(controller.getCurrentState()).toBe("ERROR");
+    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(controller.getOverlayMode()).toBe("PASSIVE");
+    expect(mocks.hideBar).toHaveBeenCalledTimes(1);
     expect(mocks.setMouseEvents).toHaveBeenNthCalledWith(1, false);
-    expect(mocks.setMouseEvents).toHaveBeenNthCalledWith(2, false);
+    expect(mocks.setMouseEvents).toHaveBeenLastCalledWith(true);
   });
 
-  it("retries enabling interactive mouse events after first toggle failure", async () => {
+  it("retries enabling passive mouse events after first toggle failure", async () => {
     const { bridge, mocks } = createBridge();
     mocks.ensureAccessibilityPermission.mockResolvedValueOnce(
       createPermissionResult(false),
@@ -244,9 +296,9 @@ describe("BarSessionController", () => {
     await controller.init();
     await controller.handleToggle();
 
-    expect(controller.getCurrentState()).toBe("ERROR");
+    expect(controller.getCurrentState()).toBe("HIDDEN");
     expect(mocks.setMouseEvents).toHaveBeenNthCalledWith(1, false);
-    expect(mocks.setMouseEvents).toHaveBeenNthCalledWith(2, false);
+    expect(mocks.setMouseEvents).toHaveBeenLastCalledWith(true);
   });
 
   it("still hides the HUD when close cleanup hits a stop-audio error", async () => {
@@ -263,12 +315,80 @@ describe("BarSessionController", () => {
     await controller.init();
     await controller.handleToggle();
 
-    expect(controller.getCurrentState()).toBe("ERROR");
+    expect(controller.getCurrentState()).toBe("HIDDEN");
 
     await controller.handleClose();
 
     expect(controller.getCurrentState()).toBe("HIDDEN");
-    expect(mocks.hideBar).toHaveBeenCalledTimes(1);
+    expect(mocks.hideBar).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts listening on the first retry after microphone permission is granted", async () => {
+    const { bridge, mocks } = createBridge();
+    mocks.ensureMicrophonePermission
+      .mockResolvedValueOnce(createPermissionResult(false))
+      .mockResolvedValueOnce(createPermissionResult(true));
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(controller.getOverlayMode()).toBe("PASSIVE");
+    expect(soniox.instance.start).not.toHaveBeenCalled();
+
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(controller.getOverlayMode()).toBe("INTERACTIVE");
+    expect(soniox.instance.start).toHaveBeenCalledTimes(1);
+    expect(mocks.setMicState).toHaveBeenCalledWith(true);
+  });
+
+  it("starts listening on the first retry after accessibility permission is granted", async () => {
+    const { bridge, mocks } = createBridge();
+    mocks.ensureAccessibilityPermission
+      .mockResolvedValueOnce(createPermissionResult(false))
+      .mockResolvedValueOnce(createPermissionResult(true));
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(controller.getOverlayMode()).toBe("PASSIVE");
+    expect(soniox.instance.start).not.toHaveBeenCalled();
+
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(controller.getOverlayMode()).toBe("INTERACTIVE");
+    expect(soniox.instance.start).toHaveBeenCalledTimes(1);
+    expect(mocks.setMicState).toHaveBeenCalledWith(true);
+  });
+
+  it("keeps startup missing-key failures visible in ERROR", async () => {
+    const { bridge, mocks } = createBridge();
+    mocks.getSonioxKey.mockResolvedValueOnce("");
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const errorMessages: Array<string | null> = [];
+    controller.onErrorMessageChange = (message) => errorMessages.push(message);
+
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("ERROR");
+    expect(controller.getOverlayMode()).toBe("INTERACTIVE");
+    expect(mocks.hideBar).not.toHaveBeenCalled();
+    expect(errorMessages[errorMessages.length - 1]).toBe(
+      "Soniox API key is missing. Open Settings and add your key."
+    );
   });
 
   it("stops immediately when transcript only contains the stop word", async () => {
@@ -288,6 +408,222 @@ describe("BarSessionController", () => {
     expect(mocks.insertText).not.toHaveBeenCalled();
     expect(soniox.instance.resetTranscript).toHaveBeenCalled();
     expect(controller.getCurrentState()).toBe("HIDDEN");
+  });
+
+  it("keeps HUD interactive while visible and reverts passive only on hide", async () => {
+    const { bridge, mocks } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(controller.getOverlayMode()).toBe("INTERACTIVE");
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flushMicrotasks();
+
+    expect(controller.getOverlayMode()).toBe("INTERACTIVE");
+
+    await controller.handleClose();
+
+    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(controller.getOverlayMode()).toBe("PASSIVE");
+    expect(mocks.setMouseEvents).toHaveBeenLastCalledWith(true);
+  });
+
+  it("uses customized stop word from dedicated storage helper", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadCustomStopWordPreference.mockReturnValue("done now");
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: true,
+    });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "send update",
+      interimText: "done now",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.insertText).toHaveBeenCalledWith("send update", { enterMode: true });
+  });
+
+  it("keeps frozen command transcript while stop-word finalization is running", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: true,
+    });
+    const insertDeferred = createDeferred<{ success: boolean }>();
+    mocks.insertText.mockImplementationOnce(async () => insertDeferred.promise);
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const transcriptChanges: TranscriptResult[] = [];
+    controller.onTranscriptChange = (result) => transcriptChanges.push(result);
+
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "send update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+
+    soniox.instance.onTranscript?.({
+      finalText: "OVERWRITE",
+      interimText: "incoming",
+    });
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("INSERTING");
+    expect(transcriptChanges).toEqual([{ finalText: "send update", interimText: "" }]);
+
+    insertDeferred.resolve({ success: true });
+    await flushMicrotasks();
+  });
+
+  it("skips hasXaiKey lookup when skipLlm preference is enabled", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: true,
+    });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "send report",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+
+    expect(mocks.hasXaiKey).not.toHaveBeenCalled();
+    expect(mocks.correctTranscript).not.toHaveBeenCalled();
+  });
+
+  it("uses OpenAI-compatible provider settings for correction", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: false,
+    });
+    storage.loadLlmProviderPreference.mockReturnValue("openai_compatible");
+    storage.loadLlmModelPreference.mockReturnValue("gpt-4o-mini");
+    storage.loadLlmBaseUrlPreference.mockReturnValue("https://openrouter.example/v1");
+    mocks.hasOpenaiCompatibleKey.mockResolvedValueOnce(true);
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "ship update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.hasOpenaiCompatibleKey).toHaveBeenCalledTimes(1);
+    expect(mocks.hasXaiKey).not.toHaveBeenCalled();
+    expect(mocks.correctTranscript).toHaveBeenCalledWith("ship update", "auto", {
+      provider: "openai_compatible",
+      model: "gpt-4o-mini",
+      baseUrl: "https://openrouter.example/v1",
+    });
+  });
+
+  it("uses Gemini provider settings for correction", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: false,
+    });
+    storage.loadLlmProviderPreference.mockReturnValue("gemini");
+    storage.loadLlmModelPreference.mockReturnValue("gemini-2.5-flash");
+    mocks.hasGeminiKey.mockResolvedValueOnce(true);
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "ship update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.hasGeminiKey).toHaveBeenCalledTimes(1);
+    expect(mocks.hasXaiKey).not.toHaveBeenCalled();
+    expect(mocks.hasOpenaiCompatibleKey).not.toHaveBeenCalled();
+    expect(mocks.correctTranscript).toHaveBeenCalledWith("ship update", "auto", {
+      provider: "gemini",
+      model: "gemini-2.5-flash",
+      baseUrl: "https://api.openai.com/v1",
+    });
+  });
+
+  it("falls back to the Gemini default model when no model is stored", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: false,
+    });
+    storage.loadLlmProviderPreference.mockReturnValue("gemini");
+    storage.loadLlmModelPreference.mockImplementation((defaultModel: string) => defaultModel);
+    mocks.hasGeminiKey.mockResolvedValueOnce(true);
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "ship update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.correctTranscript).toHaveBeenCalledWith("ship update", "auto", {
+      provider: "gemini",
+      model: "gemini-2.5-flash",
+      baseUrl: "https://api.openai.com/v1",
+    });
   });
 
   it("recovers from mid-session stream interruption and returns to LISTENING", async () => {
@@ -379,5 +715,20 @@ describe("BarSessionController", () => {
       warnSpy.mockRestore();
       (globalThis as typeof globalThis & { AudioContext: typeof AudioContext }).AudioContext = originalAudioContext;
     }
+  });
+
+  it("does not schedule reminder beep when preference is disabled", async () => {
+    const { bridge } = createBridge();
+    storage.loadReminderBeepEnabledPreference.mockReturnValue(false);
+    window.voiceToText = bridge;
+
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(setIntervalSpy).not.toHaveBeenCalled();
   });
 });

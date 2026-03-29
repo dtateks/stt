@@ -10,6 +10,8 @@ function createBridge(): VoiceToTextBridge {
     correctTranscript: vi.fn(async () => ""),
     getSonioxKey: vi.fn(async () => ""),
     hasXaiKey: vi.fn(async () => false),
+    hasGeminiKey: vi.fn(async () => false),
+    hasOpenaiCompatibleKey: vi.fn(async () => false),
     getConfig: vi.fn(async () => ({
       soniox: {
         ws_url: "",
@@ -20,7 +22,7 @@ function createBridge(): VoiceToTextBridge {
         chunk_size: 4096,
       },
       llm: {
-        provider: "xai",
+        provider: "xai" as const,
         model: "grok",
         temperature: 0,
       },
@@ -33,6 +35,10 @@ function createBridge(): VoiceToTextBridge {
     ensureTextInsertionPermission: vi.fn(async () => ({ granted: true })),
     saveCredentials: vi.fn(async () => {}),
     updateXaiKey: vi.fn(async () => {}),
+    updateGeminiKey: vi.fn(async () => {}),
+    updateOpenaiCompatibleKey: vi.fn(async () => {}),
+    updateSonioxKey: vi.fn(async () => {}),
+    listModels: vi.fn(async () => []),
     resetCredentials: vi.fn(async () => {}),
     onToggleMic: vi.fn(() => () => {}),
     copyToClipboard: vi.fn(async () => {}),
@@ -41,6 +47,10 @@ function createBridge(): VoiceToTextBridge {
     hideBar: vi.fn(async () => {}),
     setMouseEvents: vi.fn(async () => {}),
     showSettings: vi.fn(async () => {}),
+    checkPermissionsStatus: vi.fn(async () => ({ microphone: true, accessibility: true, automation: true })),
+    relaunchApp: vi.fn(async () => {}),
+    getMicToggleShortcut: vi.fn(async () => "Control+Alt+Super+V"),
+    updateMicToggleShortcut: vi.fn(async (shortcut: string) => shortcut),
   };
 }
 

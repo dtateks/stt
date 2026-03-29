@@ -26,9 +26,29 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  DEFAULT_LLM_PROVIDER,
+  DEFAULT_MIC_TOGGLE_SHORTCUT,
+  DEFAULT_REMINDER_BEEP_ENABLED,
   loadPreferences,
+  loadCustomStopWordPreference,
+  loadLlmBaseUrlPreference,
+  loadLlmCorrectionEnabledPreference,
+  loadLlmModelPreference,
+  loadLlmProviderPreference,
+  loadMicToggleShortcutPreference,
+  loadReminderBeepEnabledPreference,
+  resetCustomStopWordPreference,
+  resetMicToggleShortcutPreference,
+  saveCustomStopWordPreference,
   saveEnterMode,
+  saveLlmBaseUrlPreference,
+  saveLlmCorrectionEnabledPreference,
+  saveLlmModelPreference,
+  saveLlmProviderPreference,
+  saveMicToggleShortcutPreference,
   saveOutputLang,
+  saveReminderBeepEnabledPreference,
+  saveSkipLlm,
   saveSonioxTerms,
   saveSonioxTranslationTerms,
 } from "../storage.ts";
@@ -62,6 +82,11 @@ describe("storage — readJson fallback behavior", () => {
   it("returns default outputLang ('auto') when key is absent", () => {
     const prefs = loadPreferences();
     expect(prefs.outputLang).toBe("auto");
+  });
+
+  it("defaults skipLlm to true when key is absent", () => {
+    const prefs = loadPreferences();
+    expect(prefs.skipLlm).toBe(true);
   });
 
   it("returns the fallback when stored value is corrupt JSON", () => {
@@ -212,6 +237,103 @@ describe("storage — save helpers persist correct keys", () => {
     saveSonioxTranslationTerms(pairs);
     const stored = window.localStorage.getItem("sonioxTranslationTerms");
     expect(JSON.parse(stored!)).toEqual(pairs);
+  });
+
+  it("saveMicToggleShortcutPreference persists the micToggleShortcut key", () => {
+    saveMicToggleShortcutPreference("Control+Alt+Super+M");
+    expect(window.localStorage.getItem("micToggleShortcut")).toBe('"Control+Alt+Super+M"');
+  });
+});
+
+describe("storage — mic shortcut helpers", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("loadMicToggleShortcutPreference falls back to default when key is missing", () => {
+    expect(loadMicToggleShortcutPreference()).toBe(DEFAULT_MIC_TOGGLE_SHORTCUT);
+  });
+
+  it("loadMicToggleShortcutPreference returns stored shortcut", () => {
+    window.localStorage.setItem("micToggleShortcut", '"Control+Alt+Super+M"');
+    expect(loadMicToggleShortcutPreference()).toBe("Control+Alt+Super+M");
+  });
+
+  it("loadMicToggleShortcutPreference ignores empty stored value", () => {
+    window.localStorage.setItem("micToggleShortcut", '"   "');
+    expect(loadMicToggleShortcutPreference()).toBe(DEFAULT_MIC_TOGGLE_SHORTCUT);
+  });
+
+  it("resetMicToggleShortcutPreference removes the stored shortcut", () => {
+    window.localStorage.setItem("micToggleShortcut", '"Control+Alt+Super+M"');
+    expect(resetMicToggleShortcutPreference()).toBe(true);
+    expect(window.localStorage.getItem("micToggleShortcut")).toBeNull();
+  });
+
+  it("resetMicToggleShortcutPreference returns false when storage remove fails", () => {
+    vi.spyOn(window.localStorage, "removeItem").mockImplementationOnce(() => {
+      throw new DOMException("QuotaExceededError");
+    });
+
+    expect(resetMicToggleShortcutPreference()).toBe(false);
+  });
+});
+
+describe("storage — stop word and llm/reminder helper keys", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("loads and saves custom stop word preference", () => {
+    expect(loadCustomStopWordPreference("thank you")).toBe("thank you");
+    expect(saveCustomStopWordPreference("done now")).toBe(true);
+    expect(loadCustomStopWordPreference("thank you")).toBe("done now");
+  });
+
+  it("resets custom stop word preference", () => {
+    saveCustomStopWordPreference("done now");
+    expect(resetCustomStopWordPreference()).toBe(true);
+    expect(loadCustomStopWordPreference("thank you")).toBe("thank you");
+  });
+
+  it("loads and saves llm correction toggle through skipLlm", () => {
+    expect(loadLlmCorrectionEnabledPreference()).toBe(false);
+    expect(saveLlmCorrectionEnabledPreference(true)).toBe(true);
+    expect(loadLlmCorrectionEnabledPreference()).toBe(true);
+    expect(saveSkipLlm(true)).toBe(true);
+    expect(loadLlmCorrectionEnabledPreference()).toBe(false);
+  });
+
+  it("loads and saves reminder beep toggle", () => {
+    expect(loadReminderBeepEnabledPreference()).toBe(DEFAULT_REMINDER_BEEP_ENABLED);
+    expect(saveReminderBeepEnabledPreference(false)).toBe(true);
+    expect(loadReminderBeepEnabledPreference()).toBe(false);
+  });
+
+  it("loads and saves llm provider/model/base url preferences", () => {
+    expect(loadLlmProviderPreference(DEFAULT_LLM_PROVIDER)).toBe("xai");
+    expect(saveLlmProviderPreference("openai_compatible")).toBe(true);
+    expect(loadLlmProviderPreference(DEFAULT_LLM_PROVIDER)).toBe("openai_compatible");
+    expect(saveLlmProviderPreference("gemini")).toBe(true);
+    expect(loadLlmProviderPreference(DEFAULT_LLM_PROVIDER)).toBe("gemini");
+
+    expect(loadLlmModelPreference("grok")).toBe("grok");
+    expect(saveLlmModelPreference("gpt-4o-mini")).toBe(true);
+    expect(loadLlmModelPreference("grok")).toBe("gpt-4o-mini");
+
+    expect(loadLlmBaseUrlPreference("https://api.openai.com/v1")).toBe("https://api.openai.com/v1");
+    expect(saveLlmBaseUrlPreference("https://openrouter.ai/api/v1")).toBe(true);
+    expect(loadLlmBaseUrlPreference("https://api.openai.com/v1")).toBe("https://openrouter.ai/api/v1");
   });
 });
 

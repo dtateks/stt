@@ -5,6 +5,7 @@
  *   - stop-word normalization and detection (stop-word.ts)
  *   - bar state-machine transitions (bar-state-machine.ts)
  *   - connection-error handling and recovery paths (CRIT-01 / IMP-03)
+ *   - shortcut display label conversion (shortcut-display.ts)
  *
  * Run with: vitest
  *
@@ -14,6 +15,10 @@
 import { describe, it, expect } from "vitest";
 import { normalizeText, detectStopWord, stripStopWord } from "../stop-word.ts";
 import { transition, isActiveState } from "../bar-state-machine.ts";
+import {
+  canonicalToMacosLabel,
+  shortcutCanonicalToDisplay,
+} from "../shortcut-display.ts";
 
 // ─── Stop-word: normalizeText ─────────────────────────────────────────────
 
@@ -326,5 +331,67 @@ describe("connection error recovery — state sequences", () => {
     const r = transition("ERROR", "TOGGLE");
     expect(r.next).toBe("HIDDEN");
     expect(r.shouldHide).toBe(true);
+  });
+});
+
+// ─── Shortcut display labels (shortcut-display.ts) ───────────────────────
+
+describe("canonicalToMacosLabel", () => {
+  it("maps Alt → Option", () => {
+    expect(canonicalToMacosLabel("Alt")).toBe("Option");
+  });
+
+  it("maps Super → Command", () => {
+    expect(canonicalToMacosLabel("Super")).toBe("Command");
+  });
+
+  it("passes Control through unchanged", () => {
+    expect(canonicalToMacosLabel("Control")).toBe("Control");
+  });
+
+  it("passes Shift through unchanged", () => {
+    expect(canonicalToMacosLabel("Shift")).toBe("Shift");
+  });
+
+  it("passes letter keys through unchanged", () => {
+    expect(canonicalToMacosLabel("K")).toBe("K");
+    expect(canonicalToMacosLabel("Space")).toBe("Space");
+  });
+});
+
+describe("shortcutCanonicalToDisplay — macOS label regression", () => {
+  it("converts Control+Alt+Super+K to Control+Option+Command+K", () => {
+    expect(shortcutCanonicalToDisplay("Control+Alt+Super+K")).toBe(
+      "Control+Option+Command+K",
+    );
+  });
+
+  it("converts Alt+Shift+Space to Option+Shift+Space", () => {
+    expect(shortcutCanonicalToDisplay("Alt+Shift+Space")).toBe(
+      "Option+Shift+Space",
+    );
+  });
+
+  it("converts Super+K to Command+K", () => {
+    expect(shortcutCanonicalToDisplay("Super+K")).toBe("Command+K");
+  });
+
+  it("passes Control+Shift+K through unchanged", () => {
+    expect(shortcutCanonicalToDisplay("Control+Shift+K")).toBe(
+      "Control+Shift+K",
+    );
+  });
+
+  it("handles single token without + separator", () => {
+    expect(shortcutCanonicalToDisplay("Super")).toBe("Command");
+    expect(shortcutCanonicalToDisplay("Alt")).toBe("Option");
+  });
+
+  it("does not mutate the canonical runtime shortcut string", () => {
+    const canonical = "Control+Alt+Super+K";
+    const display = shortcutCanonicalToDisplay(canonical);
+
+    expect(canonical).toBe("Control+Alt+Super+K");
+    expect(display).toBe("Control+Option+Command+K");
   });
 });
