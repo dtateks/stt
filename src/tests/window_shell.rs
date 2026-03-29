@@ -8,23 +8,47 @@ use voice_to_text_lib::{
 
 const CORE_DEFAULT_PERMISSION: &str = "core:default";
 const DEFAULT_CAPABILITY: &str = "default";
+const BAR_CAPABILITY: &str = "bar";
 const MAIN_WINDOW_LABEL: &str = "main";
 const BAR_WINDOW_LABEL: &str = "bar";
-const REQUIRED_APP_PERMISSIONS: [&str; 18] = [
+const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 26] = [
     "allow-get-config",
     "allow-get-soniox-key",
     "allow-has-xai-key",
+    "allow-has-openai-compatible-key",
     "allow-save-credentials",
     "allow-update-xai-key",
+    "allow-update-openai-compatible-key",
+    "allow-update-soniox-key",
+    "allow-list-models",
     "allow-reset-credentials",
     "allow-ensure-microphone-permission",
     "allow-ensure-accessibility-permission",
     "allow-ensure-text-insertion-permission",
+    "allow-check-permissions-status",
     "allow-insert-text",
     "allow-correct-transcript",
     "allow-set-mic-state",
     "allow-copy-to-clipboard",
     "allow-quit-app",
+    "allow-relaunch-app",
+    "allow-show-bar",
+    "allow-hide-bar",
+    "allow-set-mouse-events",
+    "allow-show-settings",
+    "allow-get-mic-toggle-shortcut",
+    "allow-update-mic-toggle-shortcut",
+];
+const BAR_REQUIRED_APP_PERMISSIONS: [&str; 13] = [
+    "allow-get-config",
+    "allow-get-soniox-key",
+    "allow-has-xai-key",
+    "allow-has-openai-compatible-key",
+    "allow-ensure-microphone-permission",
+    "allow-ensure-accessibility-permission",
+    "allow-insert-text",
+    "allow-correct-transcript",
+    "allow-set-mic-state",
     "allow-show-bar",
     "allow-hide-bar",
     "allow-set-mouse-events",
@@ -114,6 +138,12 @@ fn tauri_config_keeps_window_and_packaging_runtime_invariants() {
             .any(|capability| capability.as_str() == Some(DEFAULT_CAPABILITY)),
         "default capability must remain active"
     );
+    assert!(
+        capabilities
+            .iter()
+            .any(|capability| capability.as_str() == Some(BAR_CAPABILITY)),
+        "bar capability must remain active"
+    );
 
     let bundle = config.get("bundle").expect("bundle config should exist");
     let macos_bundle = bundle.get("macOS").expect("bundle.macOS should exist");
@@ -132,7 +162,7 @@ fn default_capability_grants_required_app_command_permissions() {
         .and_then(Value::as_array)
         .expect("capability windows should be an array");
     let window_labels: Vec<&str> = windows.iter().filter_map(Value::as_str).collect();
-    assert_eq!(window_labels, vec![MAIN_WINDOW_LABEL, BAR_WINDOW_LABEL]);
+    assert_eq!(window_labels, vec![MAIN_WINDOW_LABEL]);
 
     let permissions = capability
         .get("permissions")
@@ -145,12 +175,51 @@ fn default_capability_grants_required_app_command_permissions() {
         "core permission should remain granted to renderer windows"
     );
 
-    for permission in REQUIRED_APP_PERMISSIONS {
+    for permission in MAIN_REQUIRED_APP_PERMISSIONS {
         assert!(
             permission_ids.contains(&permission),
             "required app command permission `{permission}` should be granted"
         );
     }
+}
+
+#[test]
+fn bar_capability_keeps_hud_permissions_least_privilege() {
+    let capability = read_json("capabilities/bar.json");
+
+    let windows = capability
+        .get("windows")
+        .and_then(Value::as_array)
+        .expect("capability windows should be an array");
+    let window_labels: Vec<&str> = windows.iter().filter_map(Value::as_str).collect();
+    assert_eq!(window_labels, vec![BAR_WINDOW_LABEL]);
+
+    let permissions = capability
+        .get("permissions")
+        .and_then(Value::as_array)
+        .expect("capability permissions should be an array");
+    let permission_ids: Vec<&str> = permissions.iter().filter_map(Value::as_str).collect();
+
+    assert!(
+        permission_ids.contains(&CORE_DEFAULT_PERMISSION),
+        "core permission should remain granted to bar window"
+    );
+
+    for permission in BAR_REQUIRED_APP_PERMISSIONS {
+        assert!(
+            permission_ids.contains(&permission),
+            "required bar permission `{permission}` should be granted"
+        );
+    }
+
+    assert!(
+        !permission_ids.contains(&"allow-list-models"),
+        "bar window must not receive model management permissions"
+    );
+    assert!(
+        !permission_ids.contains(&"allow-update-soniox-key"),
+        "bar window must not receive Soniox credential mutation permissions"
+    );
 }
 
 #[test]
@@ -283,16 +352,16 @@ fn runtime_builder_no_longer_registers_tray_icon() {
 }
 
 #[test]
-fn runtime_commands_use_native_mouse_event_toggle_path() {
+fn runtime_commands_use_panel_mouse_event_toggle_path() {
     let commands_rs = read_project_file("src/commands.rs");
 
     assert!(
-        commands_rs.contains("set_bar_ignores_mouse_events_native(&app, &bar_window, false)"),
-        "show_bar should use native mouse-event toggle helper"
+        commands_rs.contains("set_bar_ignores_mouse_events(&app, false)"),
+        "show_bar should use panel mouse-event toggle helper"
     );
     assert!(
-        commands_rs.contains("set_bar_ignores_mouse_events_native(&app, &bar_window, ignore)"),
-        "set_mouse_events should use native mouse-event toggle helper"
+        commands_rs.contains("set_bar_ignores_mouse_events(&app, ignore)"),
+        "set_mouse_events should use panel mouse-event toggle helper"
     );
 }
 

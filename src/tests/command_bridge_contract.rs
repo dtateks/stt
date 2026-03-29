@@ -4,30 +4,39 @@ use std::path::Path;
 use serde_json::json;
 use voice_to_text_lib::permissions::{
     build_accessibility_permission_required_result, build_microphone_denied_result,
+    PermissionsStatus,
 };
 use voice_to_text_lib::text_inserter::{
     build_insert_text_result, ensure_text_insertion_permission,
 };
 
-const COMMAND_NAMES: [&str; 18] = [
+const COMMAND_NAMES: [&str; 26] = [
     "get_config",
     "get_soniox_key",
     "has_xai_key",
+    "has_openai_compatible_key",
     "save_credentials",
     "update_xai_key",
+    "update_openai_compatible_key",
+    "update_soniox_key",
+    "list_models",
     "reset_credentials",
     "ensure_microphone_permission",
     "ensure_accessibility_permission",
     "ensure_text_insertion_permission",
+    "check_permissions_status",
     "insert_text",
     "correct_transcript",
     "set_mic_state",
     "copy_to_clipboard",
     "quit_app",
+    "relaunch_app",
     "show_bar",
     "hide_bar",
     "set_mouse_events",
     "show_settings",
+    "get_mic_toggle_shortcut",
+    "update_mic_toggle_shortcut",
 ];
 
 fn read_file(relative_path: &str) -> String {
@@ -244,6 +253,18 @@ fn bridge_payload_keys_match_rust_command_signatures() {
         "correct_transcript payload must use output_lang"
     );
     assert!(
+        bridge_js.contains("llm_provider: llmOptions?.provider"),
+        "correct_transcript payload must pass optional llm_provider"
+    );
+    assert!(
+        bridge_js.contains("llm_model: llmOptions?.model"),
+        "correct_transcript payload must pass optional llm_model"
+    );
+    assert!(
+        bridge_js.contains("llm_base_url: llmOptions?.baseUrl"),
+        "correct_transcript payload must pass optional llm_base_url"
+    );
+    assert!(
         bridge_js
             .contains("invoke(\"save_credentials\", { xai_key: xaiKey, soniox_key: sonioxKey })"),
         "save_credentials payload must use snake_case keys"
@@ -251,6 +272,41 @@ fn bridge_payload_keys_match_rust_command_signatures() {
     assert!(
         bridge_js.contains("invoke(\"update_xai_key\", { xai_key: xaiKey })"),
         "update_xai_key payload must use snake_case xai_key"
+    );
+    assert!(
+        bridge_js
+            .contains("invoke(\"has_openai_compatible_key\", { provider: \"openai_compatible\" })"),
+        "has_openai_compatible_key bridge call must pass explicit provider"
+    );
+    assert!(
+        bridge_js.contains("invoke(\"has_openai_compatible_key\", { provider: \"gemini\" })"),
+        "gemini key check must route through has_openai_compatible_key with provider override"
+    );
+    assert!(
+        bridge_js.contains("invoke(\"update_openai_compatible_key\", {"),
+        "update_openai_compatible_key bridge call must be present"
+    );
+    assert!(
+        bridge_js.contains("openai_compatible_key: openaiCompatibleKey")
+            && bridge_js.contains("provider: \"openai_compatible\""),
+        "update_openai_compatible_key payload must include provider-scoped openai key"
+    );
+    assert!(
+        bridge_js.contains("openai_compatible_key: geminiKey")
+            && bridge_js.contains("provider: \"gemini\""),
+        "gemini key update must use provider-scoped update_openai_compatible_key payload"
+    );
+    assert!(
+        bridge_js.contains("invoke(\"update_soniox_key\", { soniox_key: sonioxKey })"),
+        "update_soniox_key payload must use snake_case soniox_key"
+    );
+    assert!(
+        bridge_js.contains("invoke(\"list_models\""),
+        "list_models bridge call must be present"
+    );
+    assert!(
+        bridge_js.contains("invoke(\"update_mic_toggle_shortcut\", { shortcut })"),
+        "update_mic_toggle_shortcut payload must pass shortcut field"
     );
 }
 
@@ -279,6 +335,22 @@ fn commands_with_multiword_args_opt_into_snake_case_deserialization() {
         "update_xai_key must opt into snake_case arg deserialization"
     );
     assert!(
+        commands_rs.contains(
+            "#[tauri::command(rename_all = \"snake_case\")]\npub fn update_openai_compatible_key"
+        ),
+        "update_openai_compatible_key must opt into snake_case arg deserialization"
+    );
+    assert!(
+        commands_rs
+            .contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn update_soniox_key"),
+        "update_soniox_key must opt into snake_case arg deserialization"
+    );
+    assert!(
+        commands_rs
+            .contains("#[tauri::command(rename_all = \"snake_case\")]\npub async fn list_models"),
+        "list_models must opt into snake_case arg deserialization"
+    );
+    assert!(
         commands_rs.contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn insert_text"),
         "insert_text must opt into snake_case arg deserialization"
     );
@@ -292,5 +364,23 @@ fn commands_with_multiword_args_opt_into_snake_case_deserialization() {
         commands_rs
             .contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn set_mic_state"),
         "set_mic_state must opt into snake_case arg deserialization"
+    );
+}
+
+#[test]
+fn permissions_status_serializes_with_expected_shape() {
+    let status = PermissionsStatus {
+        microphone: true,
+        accessibility: false,
+        automation: true,
+    };
+    let value = serde_json::to_value(status).expect("PermissionsStatus should serialize");
+    assert_eq!(
+        value,
+        json!({
+            "microphone": true,
+            "accessibility": false,
+            "automation": true,
+        })
     );
 }
