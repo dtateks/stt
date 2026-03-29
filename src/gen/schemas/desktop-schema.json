@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the check_permissions_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-check-permissions-status",
+          "markdownDescription": "Enables the check_permissions_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the copy_to_clipboard command without any pre-configured scope.",
           "type": "string",
           "const": "allow-copy-to-clipboard",
@@ -213,10 +219,22 @@
           "markdownDescription": "Enables the get_config command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_mic_toggle_shortcut command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-mic-toggle-shortcut",
+          "markdownDescription": "Enables the get_mic_toggle_shortcut command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_soniox_key command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-soniox-key",
           "markdownDescription": "Enables the get_soniox_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the has_openai_compatible_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-has-openai-compatible-key",
+          "markdownDescription": "Enables the has_openai_compatible_key command without any pre-configured scope."
         },
         {
           "description": "Enables the has_xai_key command without any pre-configured scope.",
@@ -237,10 +255,22 @@
           "markdownDescription": "Enables the insert_text command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_models command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-models",
+          "markdownDescription": "Enables the list_models command without any pre-configured scope."
+        },
+        {
           "description": "Enables the quit_app command without any pre-configured scope.",
           "type": "string",
           "const": "allow-quit-app",
           "markdownDescription": "Enables the quit_app command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the relaunch_app command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-relaunch-app",
+          "markdownDescription": "Enables the relaunch_app command without any pre-configured scope."
         },
         {
           "description": "Enables the reset_credentials command without any pre-configured scope.",
@@ -279,10 +309,34 @@
           "markdownDescription": "Enables the show_settings command without any pre-configured scope."
         },
         {
+          "description": "Enables the update_mic_toggle_shortcut command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-mic-toggle-shortcut",
+          "markdownDescription": "Enables the update_mic_toggle_shortcut command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_openai_compatible_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-openai-compatible-key",
+          "markdownDescription": "Enables the update_openai_compatible_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_soniox_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-soniox-key",
+          "markdownDescription": "Enables the update_soniox_key command without any pre-configured scope."
+        },
+        {
           "description": "Enables the update_xai_key command without any pre-configured scope.",
           "type": "string",
           "const": "allow-update-xai-key",
           "markdownDescription": "Enables the update_xai_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the check_permissions_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-check-permissions-status",
+          "markdownDescription": "Denies the check_permissions_status command without any pre-configured scope."
         },
         {
           "description": "Denies the copy_to_clipboard command without any pre-configured scope.",
@@ -321,10 +375,22 @@
           "markdownDescription": "Denies the get_config command without any pre-configured scope."
         },
         {
+          "description": "Denies the get_mic_toggle_shortcut command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-mic-toggle-shortcut",
+          "markdownDescription": "Denies the get_mic_toggle_shortcut command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_soniox_key command without any pre-configured scope.",
           "type": "string",
           "const": "deny-get-soniox-key",
           "markdownDescription": "Denies the get_soniox_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the has_openai_compatible_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-has-openai-compatible-key",
+          "markdownDescription": "Denies the has_openai_compatible_key command without any pre-configured scope."
         },
         {
           "description": "Denies the has_xai_key command without any pre-configured scope.",
@@ -345,10 +411,22 @@
           "markdownDescription": "Denies the insert_text command without any pre-configured scope."
         },
         {
+          "description": "Denies the list_models command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-models",
+          "markdownDescription": "Denies the list_models command without any pre-configured scope."
+        },
+        {
           "description": "Denies the quit_app command without any pre-configured scope.",
           "type": "string",
           "const": "deny-quit-app",
           "markdownDescription": "Denies the quit_app command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the relaunch_app command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-relaunch-app",
+          "markdownDescription": "Denies the relaunch_app command without any pre-configured scope."
         },
         {
           "description": "Denies the reset_credentials command without any pre-configured scope.",
@@ -385,6 +463,24 @@
           "type": "string",
           "const": "deny-show-settings",
           "markdownDescription": "Denies the show_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_mic_toggle_shortcut command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-mic-toggle-shortcut",
+          "markdownDescription": "Denies the update_mic_toggle_shortcut command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_openai_compatible_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-openai-compatible-key",
+          "markdownDescription": "Denies the update_openai_compatible_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_soniox_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-soniox-key",
+          "markdownDescription": "Denies the update_soniox_key command without any pre-configured scope."
         },
         {
           "description": "Denies the update_xai_key command without any pre-configured scope.",
