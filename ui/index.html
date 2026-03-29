@@ -13,25 +13,19 @@
       class="screen"
       aria-label="Setup — API credentials"
     >
-      <header class="app-header">
-        <div class="app-wordmark">
-          <div class="app-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <main class="setup-body">
+        <div class="setup-hero">
+          <div class="setup-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <title>Microphone</title>
               <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
               <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
               <line x1="12" x2="12" y1="19" y2="22"/>
             </svg>
           </div>
-          <span class="app-name">Voice to Text</span>
-        </div>
-      </header>
-
-      <main class="setup-body">
-        <div class="setup-intro">
-          <h1 class="setup-title">Connect your API keys</h1>
+          <h1 class="setup-title">Voice to Text</h1>
           <p class="setup-subtitle">
-            Voice to Text needs a Soniox key for speech recognition.
-            The xAI key is optional and enables LLM transcript correction.
+            Enter your API keys to get started.
           </p>
         </div>
 
@@ -58,7 +52,7 @@
               aria-describedby="soniox-key-hint"
             />
             <span id="soniox-key-hint" class="form-hint">
-              Required for speech-to-text transcription.
+              Required for speech-to-text.
             </span>
           </div>
 
@@ -77,25 +71,24 @@
               aria-describedby="xai-key-hint"
             />
             <span id="xai-key-hint" class="form-hint">
-              Optional. Enables LLM-powered transcript correction.
+              Enables AI transcript correction.
             </span>
           </div>
         </div>
 
         <button id="setup-submit" class="btn-primary" type="button">
-          Continue
+          Get Started
         </button>
 
         <div class="storage-note" role="note">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10Z"/>
             <path d="M12 16v-4M12 8h.01"/>
           </svg>
           <p>
-            Keys are stored locally in your app data at
-            <code>voice-to-text/credentials.json</code>. Environment variables
-            <code>SONIOX_API_KEY</code> and <code>XAI_API_KEY</code> are also
-            supported as fallbacks.
+            Keys are stored locally in
+            <code>voice-to-text/credentials.json</code>.
+            Environment variables are also supported.
           </p>
         </div>
       </main>
@@ -107,10 +100,12 @@
       class="screen"
       aria-label="Preferences"
     >
+      <!-- ── Compact header ──────────────────────────────────────────────── -->
       <header class="app-header">
         <div class="app-wordmark">
           <div class="app-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <title>Microphone</title>
               <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
               <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
               <line x1="12" x2="12" y1="19" y2="22"/>
@@ -120,71 +115,258 @@
         </div>
       </header>
 
+      <!-- ── Permission banner (shown when macOS permissions are missing) ── -->
+      <div
+        id="prefs-permission-banner"
+        class="permission-banner is-hidden"
+        role="status"
+        aria-live="polite"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        <span id="prefs-permission-text">Some permissions are missing. Enable in System Settings → Privacy &amp; Security.</span>
+      </div>
+
+      <!-- ── Tab navigation ──────────────────────────────────────────────── -->
+      <nav class="tab-bar" role="tablist" aria-label="Settings sections">
+        <button
+          class="tab-btn is-active"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="tab-general"
+          data-tab="tab-general"
+        >General</button>
+        <button
+          class="tab-btn"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="tab-ai"
+          data-tab="tab-ai"
+        >AI</button>
+      </nav>
+
+      <!-- ── Tab panels ──────────────────────────────────────────────────── -->
       <main class="prefs-body">
-        <!-- Transcription prefs -->
-        <div class="prefs-section">
-          <h3 class="prefs-section-label">Transcription</h3>
 
-          <div class="pref-row">
-            <div class="pref-label-group">
-              <label class="pref-label" for="pref-enter-mode">Send Enter after insert</label>
-              <span class="pref-desc">
-                Automatically press Return after pasting transcribed text
-              </span>
+        <!-- ── General tab ───────────────────────────────────────────────── -->
+        <div
+          id="tab-general"
+          class="tab-panel is-active"
+          role="tabpanel"
+          aria-label="General settings"
+        >
+          <!-- Keyboard shortcut -->
+          <div class="setting-group">
+            <div class="setting-group-header">
+              <span class="setting-group-title">Keyboard shortcut</span>
+              <span class="setting-group-desc">Press this combo anywhere to start/stop dictation</span>
             </div>
-            <label class="toggle-switch" aria-label="Send Enter after insert">
-              <input id="pref-enter-mode" type="checkbox" />
-              <span class="toggle-track" aria-hidden="true"></span>
-            </label>
+            <div class="shortcut-control">
+              <button
+                id="pref-mic-shortcut"
+                type="button"
+                class="shortcut-recorder"
+                aria-label="Global mic toggle shortcut — click to record"
+              ></button>
+              <div class="shortcut-actions">
+                <button id="pref-mic-shortcut-save" class="btn-sm" type="button">Save</button>
+                <button id="pref-mic-shortcut-reset" class="btn-sm btn-sm--ghost" type="button">Reset</button>
+              </div>
+            </div>
+            <div id="pref-mic-shortcut-status" class="pref-status-line" aria-live="polite"></div>
           </div>
 
-          <div class="pref-row">
-            <div class="pref-label-group">
-              <label class="pref-label" for="pref-output-lang">Correction language</label>
-              <span class="pref-desc">
-                Target language for LLM transcript correction
-              </span>
+          <!-- Stop word -->
+          <div class="setting-group">
+            <div class="setting-group-header">
+              <span class="setting-group-title">Stop word</span>
+              <span class="setting-group-desc">Say this phrase to stop recording and insert text</span>
             </div>
-            <select id="pref-output-lang" class="pref-select" aria-label="Correction language">
-              <option value="auto">Auto-detect</option>
-              <option value="english">English</option>
-              <option value="vietnamese">Vietnamese</option>
-            </select>
+            <div class="shortcut-control">
+              <input
+                id="pref-stop-word"
+                type="text"
+                class="shortcut-input"
+                aria-label="Custom stop word"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <div class="shortcut-actions">
+                <button id="pref-stop-word-save" class="btn-sm" type="button">Save</button>
+                <button id="pref-stop-word-reset" class="btn-sm btn-sm--ghost" type="button">Reset</button>
+              </div>
+            </div>
+            <div id="pref-stop-word-status" class="pref-status-line" aria-live="polite"></div>
+          </div>
+
+          <!-- Toggles -->
+          <div class="toggle-group">
+            <div class="toggle-row">
+              <div class="toggle-content">
+                <label class="toggle-label" for="pref-enter-mode">Auto-enter after insert</label>
+                <span class="toggle-desc">Press Return automatically after pasting</span>
+              </div>
+              <label class="toggle-switch" aria-label="Send Enter after insert">
+                <input id="pref-enter-mode" type="checkbox" />
+                <span class="toggle-track" aria-hidden="true"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-content">
+                <label class="toggle-label" for="pref-reminder-beep">Reminder beep</label>
+                <span class="toggle-desc">Periodic sound while listening</span>
+              </div>
+              <label class="toggle-switch" aria-label="Reminder beep">
+                <input id="pref-reminder-beep" type="checkbox" />
+                <span class="toggle-track" aria-hidden="true"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Soniox API key -->
+          <div class="setting-group">
+            <div class="setting-group-header">
+              <span class="setting-group-title">Soniox API key</span>
+              <span class="setting-group-desc">Speech-to-text engine credentials</span>
+            </div>
+            <div class="key-control">
+              <input
+                id="pref-soniox-key"
+                type="password"
+                class="field-input"
+                placeholder="sk-soniox-…"
+                aria-label="Soniox API key"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button id="pref-soniox-key-save" class="btn-sm" type="button">Save</button>
+            </div>
+            <div id="pref-soniox-key-status" class="pref-status-line" aria-live="polite"></div>
           </div>
         </div>
 
-        <!-- Actions -->
-        <div class="prefs-section">
-          <h3 class="prefs-section-label">Vocabulary</h3>
-          <div class="action-list">
-            <button id="action-open-settings" class="action-row" type="button">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-              </svg>
-              Manage terms &amp; translations
-            </button>
+        <!-- ── AI tab ────────────────────────────────────────────────────── -->
+        <div
+          id="tab-ai"
+          class="tab-panel"
+          role="tabpanel"
+          aria-label="AI correction settings"
+        >
+          <!-- Master toggle -->
+          <div class="toggle-group">
+            <div class="toggle-row toggle-row--featured">
+              <div class="toggle-content">
+                <label class="toggle-label" for="pref-llm-correction">AI correction</label>
+                <span class="toggle-desc">Post-process transcript with an LLM before insertion</span>
+              </div>
+              <label class="toggle-switch" aria-label="LLM correction">
+                <input id="pref-llm-correction" type="checkbox" />
+                <span class="toggle-track" aria-hidden="true"></span>
+              </label>
+            </div>
           </div>
-        </div>
 
-        <!-- Danger zone -->
-        <div class="prefs-section">
-          <h3 class="prefs-section-label">Account</h3>
-          <div class="action-list">
-            <button id="action-reset-keys" class="action-row is-danger" type="button">
+          <!-- Provider settings — disabled when AI correction is off -->
+          <fieldset id="ai-settings-fieldset" class="ai-fieldset" disabled>
+            <div class="setting-group">
+              <label class="field-label" for="pref-llm-provider">Provider</label>
+              <select id="pref-llm-provider" class="field-select" aria-label="LLM provider">
+                <option value="xai">xAI</option>
+                <option value="gemini">Gemini</option>
+                <option value="openai_compatible">OpenAI-compatible</option>
+              </select>
+            </div>
+
+            <!-- Provider API key — inline with provider selection -->
+            <div id="pref-provider-key-group" class="setting-group">
+              <label class="field-label" id="pref-provider-key-label" for="pref-provider-key">API key</label>
+              <div class="key-control">
+                <input
+                  id="pref-provider-key"
+                  type="password"
+                  class="field-input"
+                  aria-label="Provider API key"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button id="pref-provider-key-save" class="btn-sm" type="button">Save</button>
+              </div>
+              <div id="pref-provider-key-status" class="pref-status-line" aria-live="polite"></div>
+            </div>
+
+            <div id="pref-llm-base-url-row" class="setting-group">
+              <label class="field-label" for="pref-llm-base-url">Base URL</label>
+              <input
+                id="pref-llm-base-url"
+                type="text"
+                class="field-input"
+                aria-label="LLM base URL"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </div>
+
+            <!-- Model — select dropdown, populated from API -->
+            <div class="setting-group">
+              <label class="field-label" for="pref-llm-model">Model</label>
+              <div class="model-control">
+                <select id="pref-llm-model" class="field-select" aria-label="LLM model">
+                  <!-- Populated dynamically from provider API -->
+                </select>
+                <button id="pref-llm-model-fetch" class="btn-sm" type="button" aria-label="Refresh model list">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M9 12H3V6M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.34 2.66L3 6"/>
+                  </svg>
+                </button>
+              </div>
+              <div id="pref-llm-model-status" class="pref-status-line" aria-live="polite"></div>
+            </div>
+
+            <div class="setting-group">
+              <label class="field-label" for="pref-output-lang">Output language</label>
+              <select id="pref-output-lang" class="field-select" aria-label="Correction language">
+                <option value="auto">Auto-detect</option>
+                <option value="english">English</option>
+                <option value="vietnamese">Vietnamese</option>
+              </select>
+            </div>
+          </fieldset>
+
+          <div id="ai-status" class="pref-status-line" aria-live="polite"></div>
+
+          <!-- Danger zone -->
+          <div class="danger-zone">
+            <button id="action-reset-keys" class="btn-danger-action" type="button">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                 <path d="M9 12H3V6M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.34 2.66L3 6"/>
               </svg>
-              Reset API keys
-            </button>
-            <button id="action-quit" class="action-row is-danger" type="button">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
-              </svg>
-              Quit Voice to Text
+              Reset all API keys &amp; return to setup
             </button>
           </div>
         </div>
       </main>
+
+      <!-- ── Bottom toolbar ──────────────────────────────────────────────── -->
+      <footer class="bottom-bar">
+        <button id="action-open-settings" class="bottom-action" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+          Vocabulary
+          <span id="vocab-count" class="vocab-badge" aria-label="vocabulary term count"></span>
+        </button>
+        <button id="action-quit" class="bottom-action bottom-action--danger" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+          </svg>
+          Quit
+        </button>
+      </footer>
     </section>
 
     <!-- ── Advanced settings dialog ──────────────────────────────────────── -->
@@ -234,7 +416,7 @@
                 autocomplete="off"
                 spellcheck="false"
               />
-              <button id="terms-add-btn" class="btn-secondary" type="button">
+              <button id="terms-add-btn" class="btn-sm" type="button">
                 Add
               </button>
             </div>
@@ -268,7 +450,7 @@
                 autocomplete="off"
                 spellcheck="false"
               />
-              <button id="translation-add-btn" class="btn-secondary" type="button">
+              <button id="translation-add-btn" class="btn-sm" type="button">
                 Add
               </button>
             </div>

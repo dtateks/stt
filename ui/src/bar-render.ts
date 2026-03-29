@@ -64,7 +64,14 @@ export function applyTranscript(
   transcriptInterimEl: HTMLElement,
   transcriptPromptEl: HTMLElement,
 ): void {
-  if (hud.dataset.state !== "LISTENING") return;
+  const state = hud.dataset.state;
+  const isTranscriptVisibleState =
+    state === "LISTENING" ||
+    state === "PROCESSING" ||
+    state === "INSERTING" ||
+    state === "SUCCESS";
+
+  if (!isTranscriptVisibleState) return;
   transcriptFinalEl.textContent = result.finalText;
   transcriptInterimEl.textContent = result.interimText;
   syncPromptVisibility(hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);

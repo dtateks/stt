@@ -9,6 +9,14 @@ export interface InsertTextOptions {
   enterMode?: boolean;
 }
 
+export type LlmProvider = "xai" | "openai_compatible" | "gemini";
+
+export interface LlmRequestOptions {
+  provider?: LlmProvider;
+  model?: string;
+  baseUrl?: string;
+}
+
 export interface InsertTextResult {
   success: boolean;
   error?: string;
@@ -36,9 +44,10 @@ export interface SonioxConfig {
 }
 
 export interface LlmConfig {
-  provider: string;
+  provider: LlmProvider;
   model: string;
   temperature: number;
+  base_url?: string;
 }
 
 export interface VoiceConfig {
@@ -56,26 +65,46 @@ export interface TranslationTerm {
   target: string;
 }
 
+export interface PermissionsStatus {
+  microphone: boolean;
+  accessibility: boolean;
+  automation: boolean;
+}
+
 export interface VoiceToTextBridge {
   setMicState(isActive: boolean): Promise<void>;
   insertText(text: string, opts?: InsertTextOptions): Promise<InsertTextResult>;
-  correctTranscript(transcript: string, outputLang?: string): Promise<string>;
+  correctTranscript(
+    transcript: string,
+    outputLang?: string,
+    llmOptions?: LlmRequestOptions,
+  ): Promise<string>;
   getSonioxKey(): Promise<string>;
   hasXaiKey(): Promise<boolean>;
+  hasGeminiKey(): Promise<boolean>;
+  hasOpenaiCompatibleKey(): Promise<boolean>;
   getConfig(): Promise<AppConfig>;
   ensureMicrophonePermission(): Promise<PermissionResult>;
   ensureAccessibilityPermission(): Promise<PermissionResult>;
   ensureTextInsertionPermission(): Promise<PermissionResult>;
+  checkPermissionsStatus(): Promise<PermissionsStatus>;
   saveCredentials(xaiKey: string, sonioxKey: string): Promise<void>;
   updateXaiKey(xaiKey: string): Promise<void>;
+  updateGeminiKey(geminiKey: string): Promise<void>;
+  updateOpenaiCompatibleKey(openaiCompatibleKey: string): Promise<void>;
+  updateSonioxKey(sonioxKey: string): Promise<void>;
+  listModels(provider?: string, baseUrl?: string): Promise<string[]>;
   resetCredentials(): Promise<void>;
   onToggleMic(callback: () => void): () => void;
   copyToClipboard(text: string): Promise<void>;
   quitApp(): Promise<void>;
+  relaunchApp(): Promise<void>;
   showBar(): Promise<void>;
   hideBar(): Promise<void>;
   setMouseEvents(ignore: boolean): Promise<void>;
   showSettings(): Promise<void>;
+  getMicToggleShortcut(): Promise<string>;
+  updateMicToggleShortcut(shortcut: string): Promise<string>;
 }
 
 export interface VoiceToTextDefaults {

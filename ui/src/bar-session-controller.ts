@@ -13,27 +13,38 @@
  * INTERACTIVE — cursor events enabled so buttons are reachable by pointer.
  *
  * Mode is owned here as explicit app state, not inferred from DOM hover.
- * The bar enters INTERACTIVE on session start and reverts to PASSIVE after
- * OVERLAY_IDLE_MS of no pointer activity (reset by pointermove/pointerdown).
+ * The bar stays INTERACTIVE for the full visible lifecycle and only reverts
+ * to PASSIVE after hide/stop.
  */
 
-import type { BarState, AppConfig, TranscriptResult } from "./types.ts";
+import type { BarState, AppConfig, LlmRequestOptions, TranscriptResult } from "./types.ts";
 import { transition, type BarEvent } from "./bar-state-machine.ts";
 import { detectStopWord, stripStopWord } from "./stop-word.ts";
 import { SonioxClient } from "./soniox-client.ts";
-import { loadPreferences } from "./storage.ts";
+import {
+  loadCustomStopWordPreference,
+  loadLlmBaseUrlPreference,
+  loadLlmModelPreference,
+  loadLlmProviderPreference,
+  loadPreferences,
+  loadReminderBeepEnabledPreference,
+} from "./storage.ts";
 
 const REMINDER_INTERVAL_MS   = 60_000;
-const SUCCESS_AUTO_RETURN_MS  = 1_500;
+const SUCCESS_AUTO_RETURN_MS  = 450;
 const ERROR_AUTO_RETURN_MS    = 2_000;
-/** Revert to passive (click-through) after this many ms of pointer inactivity. */
-const OVERLAY_IDLE_MS         = 4_000;
-const STARTUP_PERMISSION_ERROR_MESSAGE = "Microphone permission is required. Open Settings to allow access.";
 const STARTUP_MISSING_KEY_ERROR_MESSAGE = "Soniox API key is missing. Open Settings and add your key.";
 const STREAM_INTERRUPTED_ERROR_MESSAGE = "Connection interrupted. Retrying…";
 const STREAM_RESTART_FAILED_ERROR_MESSAGE = "Could not reconnect to Soniox. Check your key/network, then retry.";
 const INSERT_FAILED_ERROR_MESSAGE = "Could not insert text. Check accessibility permission, then retry.";
 const SESSION_START_FAILED_PREFIX = "Could not start listening";
+const XAI_PROVIDER = "xai";
+const GEMINI_PROVIDER = "gemini";
+const OPENAI_COMPATIBLE_PROVIDER = "openai_compatible";
+const DEFAULT_XAI_MODEL = "grok-4-1-fast-non-reasoning";
+const DEFAULT_OPENAI_COMPATIBLE_MODEL = "gpt-4o-mini";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
 
 export type OverlayMode = "PASSIVE" | "INTERACTIVE";
 
@@ -49,11 +60,10 @@ export class BarSessionController {
   private reminderTimer: ReturnType<typeof setInterval> | null = null;
   private unlistenToggle: (() => void) | null = null;
   private startAttemptId = 0;
+  private isFinalizingAfterStopWord = false;
 
   // Overlay interaction mode
   private overlayMode: OverlayMode = "PASSIVE";
-  private overlayIdleTimer: ReturnType<typeof setTimeout> | null = null;
-  private boundPointerActivity: (() => void) | null = null;
   private currentErrorMessage: string | null = null;
 
   onStateChange:        StateChangeCallback       | null = null;
@@ -78,7 +88,6 @@ export class BarSessionController {
 
   destroy(): void {
     this.unlistenToggle?.();
-    this.stopOverlayInteractive();
     void this.stopSession();
   }
 
@@ -110,37 +119,19 @@ export class BarSessionController {
 
   // ─── Overlay interaction mode ─────────────────────────────────────────────
 
-  /**
-   * Enter INTERACTIVE mode: disable native click-through so buttons are
-   * reachable. Starts an idle timer that reverts to PASSIVE automatically.
-   * Pointer activity on the document resets the timer.
-   */
+  /** Enter INTERACTIVE mode: disable native click-through while HUD is visible. */
   private async enterOverlayInteractive(): Promise<void> {
     await window.voiceToText.setMouseEvents(false).catch((error: unknown) => {
       console.error("[session] setMouseEvents(false) failed", error);
     });
 
-    if (this.overlayMode === "INTERACTIVE") {
-      // Already interactive — just reset the idle timer.
-      this.resetOverlayIdleTimer();
-      return;
-    }
+    if (this.overlayMode === "INTERACTIVE") return;
 
     this.overlayMode = "INTERACTIVE";
     this.onOverlayModeChange?.(this.overlayMode);
-
-    // Track pointer activity to reset the idle countdown.
-    this.boundPointerActivity = () => { this.resetOverlayIdleTimer(); };
-    document.addEventListener("pointermove", this.boundPointerActivity, { passive: true });
-    document.addEventListener("pointerdown", this.boundPointerActivity, { passive: true });
-
-    this.resetOverlayIdleTimer();
   }
 
-  /**
-   * Revert to PASSIVE mode: restore native click-through.
-   * Called automatically by the idle timer, or explicitly on session end.
-   */
+  /** Revert to PASSIVE mode: restore native click-through when HUD hides/stops. */
   private async revertOverlayPassive(): Promise<void> {
     if (this.overlayMode === "PASSIVE") return;
 
@@ -149,40 +140,10 @@ export class BarSessionController {
     this.onOverlayModeChange?.(this.overlayMode);
   }
 
-  private resetOverlayIdleTimer(): void {
-    if (this.state === "ERROR") {
-      this.clearOverlayIdleTimer();
-      return;
-    }
-
-    if (this.overlayIdleTimer !== null) {
-      clearTimeout(this.overlayIdleTimer);
-    }
-    this.overlayIdleTimer = setTimeout(() => {
-      void this.revertOverlayPassive();
-    }, OVERLAY_IDLE_MS);
-  }
-
-  private clearOverlayIdleTimer(): void {
-    if (this.overlayIdleTimer !== null) {
-      clearTimeout(this.overlayIdleTimer);
-      this.overlayIdleTimer = null;
-    }
-  }
-
-  /** Full cleanup of overlay interactive state — called on session end. */
-  private stopOverlayInteractive(): void {
-    this.clearOverlayIdleTimer();
-    if (this.boundPointerActivity) {
-      document.removeEventListener("pointermove", this.boundPointerActivity);
-      document.removeEventListener("pointerdown", this.boundPointerActivity);
-      this.boundPointerActivity = null;
-    }
-  }
-
   // ─── Session lifecycle ────────────────────────────────────────────────────
 
   private async startSession(startAttemptId: number): Promise<void> {
+    this.isFinalizingAfterStopWord = false;
     await this.applyEvent("TOGGLE"); // HIDDEN → CONNECTING
     if (!this.isStartAttemptCurrent(startAttemptId)) return;
 
@@ -196,8 +157,7 @@ export class BarSessionController {
       const perm = await window.voiceToText.ensureMicrophonePermission();
       if (!this.isStartAttemptCurrent(startAttemptId)) return;
       if (!perm.granted) {
-        await this.applyEvent("PERMISSION_DENIED");
-        await this.handleStartupError(STARTUP_PERMISSION_ERROR_MESSAGE);
+        await this.handleStartupPermissionDenied("PERMISSION_DENIED");
         return;
       }
 
@@ -206,10 +166,7 @@ export class BarSessionController {
       const accessibility = await window.voiceToText.ensureAccessibilityPermission();
       if (!this.isStartAttemptCurrent(startAttemptId)) return;
       if (!accessibility.granted) {
-        await this.applyEvent("CONNECTION_ERROR");
-        await this.handleStartupError(
-          "Accessibility permission is required to insert text. Enable Voice to Text in System Settings → Privacy & Security → Accessibility, then retry."
-        );
+        await this.handleStartupPermissionDenied("CONNECTION_ERROR");
         return;
       }
 
@@ -228,15 +185,19 @@ export class BarSessionController {
       };
 
       this.client.onTranscript = (result) => {
-        this.onTranscriptChange?.(result);
-
         if (this.state !== "LISTENING") return;
         if (!this.config) return;
+        if (this.isFinalizingAfterStopWord) return;
 
-        const stopWord = this.config.voice.stop_word;
-        if (detectStopWord(result.finalText, stopWord)) {
-          void this.handleStopWordDetected(result.finalText, stopWord);
+        const stopWord = loadCustomStopWordPreference(this.config.voice.stop_word);
+        const liveTranscript = combineTranscriptText(result.finalText, result.interimText);
+        if (detectStopWord(liveTranscript, stopWord)) {
+          this.isFinalizingAfterStopWord = true;
+          void this.handleStopWordDetected(liveTranscript, stopWord);
+          return;
         }
+
+        this.onTranscriptChange?.(result);
       };
 
       this.client.onError = (error) => {
@@ -277,6 +238,7 @@ export class BarSessionController {
 
   private async stopSession(): Promise<void> {
     this.invalidateStartAttempt();
+    this.isFinalizingAfterStopWord = false;
     await this.stopAudioPipeline().catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed", error);
     });
@@ -286,8 +248,7 @@ export class BarSessionController {
     await window.voiceToText.hideBar().catch((error: unknown) => {
       console.error("[session] hideBar failed", error);
     });
-    // Restore pass-through and tear down overlay interaction.
-    this.stopOverlayInteractive();
+    // Restore pass-through only when the HUD has been hidden/stopped.
     await this.revertOverlayPassive().catch((error: unknown) => {
       console.error("[session] revertOverlayPassive failed", error);
     });
@@ -304,6 +265,11 @@ export class BarSessionController {
       console.error("[session] stopAudioPipeline failed during startup error", error);
     });
     this.setErrorMessage(message);
+  }
+
+  private async handleStartupPermissionDenied(event: BarEvent): Promise<void> {
+    await this.applyEvent(event);
+    await this.stopSession();
   }
 
   /**
@@ -350,16 +316,19 @@ export class BarSessionController {
   // ─── Transcript pipeline ──────────────────────────────────────────────────
 
   private async handleStopWordDetected(
-    rawFinal: string,
+    rawTranscript: string,
     stopWord: string
   ): Promise<void> {
-    const commandText = stripStopWord(rawFinal, stopWord);
+    const commandText = stripStopWord(rawTranscript, stopWord);
     this.client.resetTranscript();
 
     if (!commandText.trim()) {
+      this.isFinalizingAfterStopWord = false;
       await this.stopSession();
       return;
     }
+
+    this.onTranscriptChange?.({ finalText: commandText, interimText: "" });
 
     await this.applyEvent("STOP_WORD_DETECTED"); // LISTENING → PROCESSING
     this.stopReminderBeep();
@@ -367,17 +336,29 @@ export class BarSessionController {
     const prefs = loadPreferences();
     let correctedText = commandText;
 
-    const hasXai = await window.voiceToText.hasXaiKey();
-    if (hasXai && !prefs.skipLlm) {
-      try {
-        correctedText = await window.voiceToText.correctTranscript(
-          commandText,
-          prefs.outputLang
-        );
+    if (!prefs.skipLlm) {
+      const llmOptions = this.resolveLlmRequestOptions();
+      const hasProviderKey =
+        llmOptions.provider === OPENAI_COMPATIBLE_PROVIDER
+          ? await window.voiceToText.hasOpenaiCompatibleKey()
+          : llmOptions.provider === GEMINI_PROVIDER
+            ? await window.voiceToText.hasGeminiKey()
+            : await window.voiceToText.hasXaiKey();
+
+      if (!hasProviderKey) {
         await this.applyEvent("LLM_DONE"); // PROCESSING → INSERTING
-      } catch (error) {
-        console.error("[llm] correction failed, using raw text", error);
-        await this.applyEvent("LLM_ERROR"); // PROCESSING → INSERTING (raw)
+      } else {
+        try {
+          correctedText = await window.voiceToText.correctTranscript(
+            commandText,
+            prefs.outputLang,
+            llmOptions,
+          );
+          await this.applyEvent("LLM_DONE"); // PROCESSING → INSERTING
+        } catch (error) {
+          console.error("[llm] correction failed, using raw text", error);
+          await this.applyEvent("LLM_ERROR"); // PROCESSING → INSERTING (raw)
+        }
       }
     } else {
       await this.applyEvent("LLM_DONE"); // PROCESSING → INSERTING
@@ -393,6 +374,7 @@ export class BarSessionController {
         setTimeout(resolve, SUCCESS_AUTO_RETURN_MS)
       );
       await this.applyEvent("AUTO_RETURN"); // SUCCESS → LISTENING
+      this.isFinalizingAfterStopWord = false;
       this.client.resetTranscript();
       this.startReminderBeep();
     } else {
@@ -407,11 +389,33 @@ export class BarSessionController {
 
   private startReminderBeep(): void {
     this.stopReminderBeep();
+
+    if (!loadReminderBeepEnabledPreference()) {
+      return;
+    }
+
     this.reminderTimer = setInterval(() => {
       if (this.state === "LISTENING") {
         playReminderBeep();
       }
     }, REMINDER_INTERVAL_MS);
+  }
+
+  private resolveLlmRequestOptions(): LlmRequestOptions {
+    const config = this.config;
+    const provider = loadLlmProviderPreference(
+      config?.llm.provider ?? XAI_PROVIDER,
+    );
+    const model = loadLlmModelPreference(configuredDefaultModelForProvider(config, provider));
+    const baseUrl = loadLlmBaseUrlPreference(
+      config?.llm.base_url ?? DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+    );
+
+    return {
+      provider,
+      model,
+      baseUrl,
+    };
   }
 
   private stopReminderBeep(): void {
@@ -427,13 +431,13 @@ export class BarSessionController {
     const result = transition(this.state, event);
     this.state = result.next;
 
-    if (this.state === "ERROR") {
-      await this.enterOverlayInteractive();
-      this.clearOverlayIdleTimer();
-    } else {
+    if (this.state === "HIDDEN") {
+      await this.revertOverlayPassive();
       this.clearErrorMessage();
-      if (this.overlayMode === "INTERACTIVE" && this.overlayIdleTimer === null) {
-        this.resetOverlayIdleTimer();
+    } else {
+      await this.enterOverlayInteractive();
+      if (this.state !== "ERROR") {
+        this.clearErrorMessage();
       }
     }
 
@@ -467,6 +471,10 @@ export class BarSessionController {
 
 // ─── Utility ─────────────────────────────────────────────────────────────────
 
+function combineTranscriptText(finalText: string, interimText: string): string {
+  return `${finalText} ${interimText}`.trim();
+}
+
 function playReminderBeep(): void {
   try {
     const ctx = new AudioContext();
@@ -499,4 +507,23 @@ function formatErrorMessage(error: unknown): string {
   }
 
   return "Unknown error";
+}
+
+function defaultModelForProvider(provider: string): string {
+  if (provider === OPENAI_COMPATIBLE_PROVIDER) {
+    return DEFAULT_OPENAI_COMPATIBLE_MODEL;
+  }
+  if (provider === GEMINI_PROVIDER) {
+    return DEFAULT_GEMINI_MODEL;
+  }
+
+  return DEFAULT_XAI_MODEL;
+}
+
+function configuredDefaultModelForProvider(config: AppConfig | null, provider: string): string {
+  if (config?.llm.provider === provider && config.llm.model.trim().length > 0) {
+    return config.llm.model;
+  }
+
+  return defaultModelForProvider(provider);
 }

@@ -66,10 +66,13 @@
         enter_mode: opts?.enterMode ?? false,
       }),
 
-    correctTranscript: (transcript, outputLang) =>
+    correctTranscript: (transcript, outputLang, llmOptions) =>
       invoke("correct_transcript", {
         transcript,
         output_lang: outputLang ?? "auto",
+        llm_provider: llmOptions?.provider,
+        llm_model: llmOptions?.model,
+        llm_base_url: llmOptions?.baseUrl,
       }),
 
     getSonioxKey: () =>
@@ -77,6 +80,12 @@
 
     hasXaiKey: () =>
       invoke("has_xai_key"),
+
+    hasGeminiKey: () =>
+      invoke("has_openai_compatible_key", { provider: "gemini" }),
+
+    hasOpenaiCompatibleKey: () =>
+      invoke("has_openai_compatible_key", { provider: "openai_compatible" }),
 
     getConfig: () =>
       invoke("get_config"),
@@ -90,11 +99,32 @@
     ensureTextInsertionPermission: () =>
       invoke("ensure_text_insertion_permission"),
 
+    checkPermissionsStatus: () =>
+      invoke("check_permissions_status"),
+
     saveCredentials: (xaiKey, sonioxKey) =>
       invoke("save_credentials", { xai_key: xaiKey, soniox_key: sonioxKey }),
 
     updateXaiKey: (xaiKey) =>
       invoke("update_xai_key", { xai_key: xaiKey }),
+
+    updateOpenaiCompatibleKey: (openaiCompatibleKey) =>
+      invoke("update_openai_compatible_key", {
+        openai_compatible_key: openaiCompatibleKey,
+        provider: "openai_compatible",
+      }),
+
+    updateGeminiKey: (geminiKey) =>
+      invoke("update_openai_compatible_key", {
+        openai_compatible_key: geminiKey,
+        provider: "gemini",
+      }),
+
+    updateSonioxKey: (sonioxKey) =>
+      invoke("update_soniox_key", { soniox_key: sonioxKey }),
+
+    listModels: (provider, baseUrl) =>
+      invoke("list_models", { provider: provider ?? null, base_url: baseUrl ?? null }),
 
     resetCredentials: () =>
       invoke("reset_credentials"),
@@ -112,6 +142,9 @@
     quitApp: () =>
       invoke("quit_app"),
 
+    relaunchApp: () =>
+      invoke("relaunch_app"),
+
     showBar: () =>
       invoke("show_bar"),
 
@@ -123,6 +156,12 @@
 
     showSettings: () =>
       invoke("show_settings"),
+
+    getMicToggleShortcut: () =>
+      invoke("get_mic_toggle_shortcut"),
+
+    updateMicToggleShortcut: (shortcut) =>
+      invoke("update_mic_toggle_shortcut", { shortcut }),
   };
 
   /**

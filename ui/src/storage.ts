@@ -3,7 +3,11 @@
  * All localStorage reads/writes are centralised here.
  */
 
-import type { OutputLang, TranslationTerm, UserPreferences } from "./types.ts";
+import type { LlmProvider, OutputLang, TranslationTerm, UserPreferences } from "./types.ts";
+
+export const DEFAULT_MIC_TOGGLE_SHORTCUT = "Control+Alt+Super+V";
+export const DEFAULT_REMINDER_BEEP_ENABLED = true;
+export const DEFAULT_LLM_PROVIDER: LlmProvider = "xai";
 
 const KEYS = {
   enterMode: "enterMode",
@@ -11,6 +15,12 @@ const KEYS = {
   sonioxTerms: "sonioxTerms",
   sonioxTranslationTerms: "sonioxTranslationTerms",
   skipLlm: "skipLlm",
+  micToggleShortcut: "micToggleShortcut",
+  stopWord: "stopWord",
+  reminderBeepEnabled: "reminderBeepEnabled",
+  llmProvider: "llmProvider",
+  llmModel: "llmModel",
+  llmBaseUrl: "llmBaseUrl",
 } as const;
 
 function readJson<T>(key: string, fallback: T): T {
@@ -45,7 +55,7 @@ export function loadPreferences(): UserPreferences {
       KEYS.sonioxTranslationTerms,
       defaults.translationTerms
     ),
-    skipLlm: readJson<boolean>(KEYS.skipLlm, false),
+    skipLlm: readJson<boolean>(KEYS.skipLlm, true),
   };
 }
 
@@ -63,4 +73,117 @@ export function saveSonioxTerms(terms: string[]): boolean {
 
 export function saveSonioxTranslationTerms(terms: TranslationTerm[]): boolean {
   return writeJson(KEYS.sonioxTranslationTerms, terms);
+}
+
+export function saveSkipLlm(value: boolean): boolean {
+  return writeJson(KEYS.skipLlm, value);
+}
+
+export function loadMicToggleShortcutPreference(): string {
+  const storedShortcut = readJson<string>(
+    KEYS.micToggleShortcut,
+    DEFAULT_MIC_TOGGLE_SHORTCUT,
+  );
+  if (typeof storedShortcut !== "string") {
+    return DEFAULT_MIC_TOGGLE_SHORTCUT;
+  }
+  const trimmedShortcut = storedShortcut.trim();
+  return trimmedShortcut || DEFAULT_MIC_TOGGLE_SHORTCUT;
+}
+
+export function saveMicToggleShortcutPreference(shortcut: string): boolean {
+  return writeJson(KEYS.micToggleShortcut, shortcut);
+}
+
+export function resetMicToggleShortcutPreference(): boolean {
+  try {
+    window.localStorage.removeItem(KEYS.micToggleShortcut);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function loadCustomStopWordPreference(defaultStopWord: string): string {
+  const storedStopWord = readJson<string>(KEYS.stopWord, defaultStopWord);
+  if (typeof storedStopWord !== "string") {
+    return defaultStopWord;
+  }
+
+  const trimmedStopWord = storedStopWord.trim();
+  return trimmedStopWord || defaultStopWord;
+}
+
+export function saveCustomStopWordPreference(stopWord: string): boolean {
+  return writeJson(KEYS.stopWord, stopWord);
+}
+
+export function resetCustomStopWordPreference(): boolean {
+  try {
+    window.localStorage.removeItem(KEYS.stopWord);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function loadLlmCorrectionEnabledPreference(): boolean {
+  const skipLlm = readJson<boolean>(KEYS.skipLlm, true);
+  return !skipLlm;
+}
+
+export function saveLlmCorrectionEnabledPreference(enabled: boolean): boolean {
+  return saveSkipLlm(!enabled);
+}
+
+export function loadReminderBeepEnabledPreference(): boolean {
+  return readJson<boolean>(KEYS.reminderBeepEnabled, DEFAULT_REMINDER_BEEP_ENABLED);
+}
+
+export function saveReminderBeepEnabledPreference(enabled: boolean): boolean {
+  return writeJson(KEYS.reminderBeepEnabled, enabled);
+}
+
+export function loadLlmProviderPreference(defaultProvider: LlmProvider): LlmProvider {
+  const storedProvider = readJson<string>(KEYS.llmProvider, defaultProvider);
+  if (storedProvider === "gemini") {
+    return "gemini";
+  }
+  if (storedProvider === "openai_compatible") {
+    return "openai_compatible";
+  }
+
+  return "xai";
+}
+
+export function saveLlmProviderPreference(provider: LlmProvider): boolean {
+  return writeJson(KEYS.llmProvider, provider);
+}
+
+export function loadLlmModelPreference(defaultModel: string): string {
+  const storedModel = readJson<string>(KEYS.llmModel, defaultModel);
+  if (typeof storedModel !== "string") {
+    return defaultModel;
+  }
+
+  const trimmedModel = storedModel.trim();
+  return trimmedModel || defaultModel;
+}
+
+export function saveLlmModelPreference(model: string): boolean {
+  return writeJson(KEYS.llmModel, model);
+}
+
+export function loadLlmBaseUrlPreference(defaultBaseUrl: string): string {
+  const storedBaseUrl = readJson<string>(KEYS.llmBaseUrl, defaultBaseUrl);
+  if (typeof storedBaseUrl !== "string") {
+    return defaultBaseUrl;
+  }
+
+  const trimmedBaseUrl = storedBaseUrl.trim();
+  return trimmedBaseUrl || defaultBaseUrl;
+}
+
+export function saveLlmBaseUrlPreference(baseUrl: string): boolean {
+  return writeJson(KEYS.llmBaseUrl, baseUrl);
 }
