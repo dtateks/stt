@@ -61,6 +61,7 @@ const BAR_REQUIRED_APP_PERMISSIONS: [&str; 14] = [
 const UNUSED_PLUGIN_SHELL: &str = "tauri-plugin-shell";
 const UNUSED_PLUGIN_HTTP: &str = "tauri-plugin-http";
 const UNUSED_PLUGIN_CLIPBOARD: &str = "tauri-plugin-clipboard-manager";
+const REQUIRED_PLUGIN_AUTOSTART: &str = "tauri-plugin-autostart";
 const UNUSED_PLUGIN_SHELL_INIT: &str = "tauri_plugin_shell::init";
 const UNUSED_PLUGIN_HTTP_INIT: &str = "tauri_plugin_http::init";
 const UNUSED_PLUGIN_CLIPBOARD_INIT: &str = "tauri_plugin_clipboard_manager::init";
@@ -115,7 +116,7 @@ fn tauri_config_keeps_window_and_packaging_runtime_invariants() {
         .find(|window| window.get("label").and_then(Value::as_str) == Some(MAIN_WINDOW_LABEL))
         .expect("main window should exist");
     assert_eq!(main.get("create").and_then(Value::as_bool), Some(false));
-    assert_eq!(main.get("visible").and_then(Value::as_bool), Some(true));
+    assert_eq!(main.get("visible").and_then(Value::as_bool), Some(false));
 
     let bar = windows
         .iter()
@@ -267,8 +268,19 @@ fn runtime_builder_registers_only_required_plugins() {
 }
 
 #[test]
+fn cargo_manifest_links_autostart_plugin_for_login_launches() {
+    let manifest = read_project_file("Cargo.toml");
+
+    assert!(
+        manifest.contains(REQUIRED_PLUGIN_AUTOSTART),
+        "autostart plugin should be linked for login launch support"
+    );
+}
+
+#[test]
 fn info_and_entitlements_keep_required_usage_and_permissions() {
     let info_plist = read_project_file("Info.plist");
+    assert!(info_plist.contains("<key>LSUIElement</key>"));
     assert!(info_plist.contains("NSMicrophoneUsageDescription"));
     assert!(info_plist.contains("NSAppleEventsUsageDescription"));
 
@@ -385,6 +397,17 @@ fn runtime_builder_restores_hidden_main_window_on_macos_reopen() {
     assert!(
         lib_rs.contains("reopen_main_window(app_handle)"),
         "macOS reopen handler should restore the hidden main window"
+    );
+}
+
+#[test]
+fn runtime_setup_uses_accessory_activation_policy_for_background_app() {
+    let lib_rs = read_project_file("src/lib.rs");
+
+    assert!(
+        lib_rs.contains("set_activation_policy(tauri::ActivationPolicy::Accessory)")
+            || lib_rs.contains("set_activation_policy(ActivationPolicy::Accessory)"),
+        "runtime should switch macOS to accessory activation policy to hide the Dock icon"
     );
 }
 
