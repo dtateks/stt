@@ -48,8 +48,8 @@ const XAI_PROVIDER = "xai";
 const GEMINI_PROVIDER = "gemini";
 const OPENAI_COMPATIBLE_PROVIDER = "openai_compatible";
 const DEFAULT_XAI_MODEL = "grok-4-1-fast-non-reasoning";
-const DEFAULT_OPENAI_COMPATIBLE_MODEL = "gpt-4o-mini";
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_SONIOX_MODEL = "stt-rt-v4";
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
 
 export type OverlayMode = "PASSIVE" | "INTERACTIVE";
@@ -116,7 +116,7 @@ export class BarSessionController {
 
   async init(): Promise<void> {
     this.config = await window.voiceToText.getConfig();
-    this.client.setConfig(this.resolveSonioxConfigForSession());
+    this.client.setConfig(this.config.soniox);
     window.addEventListener("storage", this.handleStorageChange);
 
     this.unlistenToggle = window.voiceToText.onToggleMic(() => {
@@ -578,7 +578,10 @@ export class BarSessionController {
     const provider = loadLlmProviderPreference(
       config?.llm.provider ?? XAI_PROVIDER,
     );
-    const model = loadLlmModelPreference(configuredDefaultModelForProvider(config, provider));
+    const model = loadLlmModelPreference(provider) ?? defaultModelForProvider(provider);
+    if (!model) {
+      throw new Error(`No ${providerLabel(provider)} model selected. Open Settings, refresh models, and choose one.`);
+    }
     const baseUrl = loadLlmBaseUrlPreference(
       config?.llm.base_url ?? DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     );
@@ -595,8 +598,8 @@ export class BarSessionController {
       throw new Error("App config is not loaded");
     }
 
-    const defaultModel = this.config.soniox.model;
-    const selectedModel = loadSonioxModelPreference(defaultModel);
+    const selectedModel = loadSonioxModelPreference() ?? DEFAULT_SONIOX_MODEL;
+
     return {
       ...this.config.soniox,
       model: selectedModel,
@@ -624,7 +627,14 @@ export class BarSessionController {
       return;
     }
 
-    this.activeSessionPreferences = this.createActiveSessionPreferences(loadPreferences());
+    try {
+      this.activeSessionPreferences = this.createActiveSessionPreferences(loadPreferences());
+    } catch (error) {
+      console.error("[session] could not refresh preferences", error);
+      this.setErrorMessage(formatErrorMessage(error));
+      return;
+    }
+
     this.pendingActiveSessionPreferencesRefresh = false;
     this.syncReminderBeepForCurrentState();
   }
@@ -762,21 +772,24 @@ function formatErrorMessage(error: unknown): string {
   return "Unknown error";
 }
 
-function defaultModelForProvider(provider: string): string {
+function providerLabel(provider: string): string {
   if (provider === OPENAI_COMPATIBLE_PROVIDER) {
-    return DEFAULT_OPENAI_COMPATIBLE_MODEL;
+    return "OpenAI-compatible";
+  }
+  if (provider === GEMINI_PROVIDER) {
+    return "Gemini";
+  }
+
+  return "xAI";
+}
+
+function defaultModelForProvider(provider: string): string | null {
+  if (provider === XAI_PROVIDER) {
+    return DEFAULT_XAI_MODEL;
   }
   if (provider === GEMINI_PROVIDER) {
     return DEFAULT_GEMINI_MODEL;
   }
 
-  return DEFAULT_XAI_MODEL;
-}
-
-function configuredDefaultModelForProvider(config: AppConfig | null, provider: string): string {
-  if (config?.llm.provider === provider && config.llm.model.trim().length > 0) {
-    return config.llm.model;
-  }
-
-  return defaultModelForProvider(provider);
+  return null;
 }

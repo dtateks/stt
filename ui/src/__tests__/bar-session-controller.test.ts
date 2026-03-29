@@ -22,7 +22,7 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   llm: {
     provider: "xai",
-    model: "grok",
+    model: "grok-4-1-fast-non-reasoning",
     temperature: 0,
   },
   voice: {
@@ -71,10 +71,21 @@ const storage = vi.hoisted(() => ({
   })),
   loadCustomStopWordPreference: vi.fn((defaultStopWord: string) => defaultStopWord),
   loadLlmBaseUrlPreference: vi.fn((defaultBaseUrl: string) => defaultBaseUrl),
-  loadLlmModelPreference: vi.fn((defaultModel: string) => defaultModel),
+  loadLlmModelPreference: vi.fn<
+    (provider: "xai" | "openai_compatible" | "gemini") => string | null
+  >((provider: "xai" | "openai_compatible" | "gemini") => {
+    if (provider === "openai_compatible") {
+      return null;
+    }
+    if (provider === "gemini") {
+      return "gemini-2.5-flash-lite";
+    }
+
+    return "grok-4-1-fast-non-reasoning";
+  }),
   loadLlmProviderPreference: vi.fn((defaultProvider: "xai" | "openai_compatible" | "gemini") => defaultProvider),
   loadReminderBeepEnabledPreference: vi.fn(() => true),
-  loadSonioxModelPreference: vi.fn((defaultModel: string) => defaultModel),
+  loadSonioxModelPreference: vi.fn<() => string | null>(() => "stt-rt-v4"),
 }));
 
 vi.mock("../soniox-client.ts", () => ({
@@ -233,7 +244,16 @@ describe("BarSessionController", () => {
     vi.clearAllMocks();
     storage.loadCustomStopWordPreference.mockImplementation((defaultStopWord: string) => defaultStopWord);
     storage.loadLlmBaseUrlPreference.mockImplementation((defaultBaseUrl: string) => defaultBaseUrl);
-    storage.loadLlmModelPreference.mockImplementation((defaultModel: string) => defaultModel);
+    storage.loadLlmModelPreference.mockImplementation((provider: "xai" | "openai_compatible" | "gemini") => {
+      if (provider === "openai_compatible") {
+        return "gpt-4o-mini";
+      }
+      if (provider === "gemini") {
+        return "gemini-2.5-flash";
+      }
+
+      return "grok";
+    });
     storage.loadLlmProviderPreference.mockImplementation((defaultProvider: "xai" | "openai_compatible" | "gemini") => defaultProvider);
     storage.loadPreferences.mockReturnValue({
       enterMode: true,
@@ -243,7 +263,7 @@ describe("BarSessionController", () => {
       skipLlm: false,
     });
     storage.loadReminderBeepEnabledPreference.mockReturnValue(true);
-    storage.loadSonioxModelPreference.mockImplementation((defaultModel: string) => defaultModel);
+    storage.loadSonioxModelPreference.mockImplementation(() => "stt-rt-v4");
     soniox.instance.onTranscript = null;
     soniox.instance.onError = null;
   });
@@ -278,6 +298,23 @@ describe("BarSessionController", () => {
       model: "stt-rt-v3",
     });
     expect(soniox.instance.start).toHaveBeenCalled();
+  });
+
+  it("uses the default Soniox model when no custom selection is stored", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadSonioxModelPreference.mockReturnValue(null);
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(soniox.instance.start).toHaveBeenCalled();
+    expect(mocks.setMicState).toHaveBeenCalledWith(true);
+    expect(soniox.instance.setConfig).toHaveBeenCalledWith({
+      ...DEFAULT_CONFIG.soniox,
+      model: "stt-rt-v4",
+    });
   });
 
   it("keeps the session stopped when user toggles off during startup", async () => {
@@ -926,7 +963,7 @@ describe("BarSessionController", () => {
       skipLlm: false,
     });
     storage.loadLlmProviderPreference.mockReturnValue("gemini");
-    storage.loadLlmModelPreference.mockReturnValue("gemini-2.5-flash");
+    storage.loadLlmModelPreference.mockReturnValue("gemini-2.5-flash-lite");
     window.voiceToText = bridge;
 
     const controller = new BarSessionController();
@@ -945,12 +982,12 @@ describe("BarSessionController", () => {
     expect(mocks.hasOpenaiCompatibleKey).not.toHaveBeenCalled();
     expect(mocks.correctTranscript).toHaveBeenCalledWith("ship update", "auto", {
       provider: "gemini",
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite",
       baseUrl: "https://api.openai.com/v1",
     });
   });
 
-  it("falls back to the Gemini default model when no model is stored", async () => {
+  it("falls back to the configured Gemini default when no model is stored", async () => {
     const { bridge, mocks } = createBridge();
     storage.loadPreferences.mockReturnValue({
       enterMode: true,
@@ -960,7 +997,7 @@ describe("BarSessionController", () => {
       skipLlm: false,
     });
     storage.loadLlmProviderPreference.mockReturnValue("gemini");
-    storage.loadLlmModelPreference.mockImplementation((defaultModel: string) => defaultModel);
+    storage.loadLlmModelPreference.mockReturnValue(null);
     window.voiceToText = bridge;
 
     const controller = new BarSessionController();
@@ -976,10 +1013,67 @@ describe("BarSessionController", () => {
 
     expect(mocks.correctTranscript).toHaveBeenCalledWith("ship update", "auto", {
       provider: "gemini",
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite",
       baseUrl: "https://api.openai.com/v1",
     });
-    expect(mocks.hasGeminiKey).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the configured xAI default when no model is stored", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: false,
+    });
+    storage.loadLlmProviderPreference.mockReturnValue("xai");
+    storage.loadLlmModelPreference.mockReturnValue(null);
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "ship update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.correctTranscript).toHaveBeenCalledWith("ship update", "auto", {
+      provider: "xai",
+      model: "grok-4-1-fast-non-reasoning",
+      baseUrl: "https://api.openai.com/v1",
+    });
+  });
+
+  it("reports actionable error when no OpenAI-compatible model is stored", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: false,
+    });
+    storage.loadLlmProviderPreference.mockReturnValue("openai_compatible");
+    storage.loadLlmModelPreference.mockReturnValue(null);
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const errorMessages: Array<string | null> = [];
+    controller.onErrorMessageChange = (message) => {
+      errorMessages.push(message);
+    };
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(mocks.correctTranscript).not.toHaveBeenCalled();
+    expect(errorMessages.at(-1)).toContain(
+      "No OpenAI-compatible model selected. Open Settings, refresh models, and choose one.",
+    );
   });
 
   it("retries correction failures and falls back to raw transcript without extra linger", async () => {
