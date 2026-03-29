@@ -366,18 +366,55 @@ fn build_request_body(
     }))
 }
 
-fn system_prompt_for_output_language(output_lang: &str) -> &'static str {
-    match output_lang {
-        "english" => {
-            "You are a voice transcription corrector. Fix misheard words and return only corrected natural English text."
-        }
-        "vietnamese" => {
-            "You are a voice transcription corrector. Fix misheard words and return only corrected Vietnamese text."
-        }
-        _ => {
-            "You are a voice transcription corrector. Fix misheard words and preserve the original language mix. Return only corrected text."
-        }
-    }
+const STT_FIX_TABLE: &str = "\
+\"cross code\"/\"cloud code\"/\"cloth code\" → Claude Code
+\"tea mux\"/\"tee mux\"/\"T mux\"/\"TMAX\" → tmux
+\"tm send\"/\"T M send\"/\"team send\" → tm-send
+\"L M\"/\"L.M.\"/\"elem\" → LLM
+\"A.P.I\"/\"a p i\" → API
+\"get hub\"/\"git hub\" → GitHub
+\"pie test\"/\"pi test\" → pytest
+\"you v\"/\"UV\" → uv
+\"pee npm\"/\"P NPM\" → pnpm
+\"salary\"/\"seller e\"/\"celery\" → Celery";
+
+const CLEANUP_RULES: &str = "\
+1. Keep ALL ideas and points — never drop information the user intended to convey.\n\
+2. Merge repetitions — if the user restates the same idea, keep the clearest version once.\n\
+3. Remove these fillers: uh, um, à, ờ, ừ, false starts, self-corrections.\n\
+4. Clean rambling — if the user circles back, keep the clearest statement only.\n\
+5. Keep ALL swear words and profanity intact — they signal frustration for analysis.";
+
+fn system_prompt_for_output_language(output_lang: &str) -> String {
+    let lang_block = match output_lang {
+        "english" => concat!(
+            "Output MUST be in English regardless of the input language. ",
+            "Translate Vietnamese to natural, fluent English — translate meaning, not word-by-word. ",
+            "Translate Vietnamese profanity to equivalent English swear words."
+        ),
+        "vietnamese" => concat!(
+            "Output MUST be in Vietnamese. ",
+            "Translate English prose to Vietnamese, but keep technical terms ",
+            "(API, GitHub, pytest, tmux, Claude Code, etc.) in English. ",
+            "Keep Vietnamese profanity as-is."
+        ),
+        _ => concat!(
+            "Match the input language exactly — Vietnamese input → Vietnamese output, ",
+            "English input → English output, mixed → mixed. Do NOT translate. ",
+            "Keep profanity in whatever language it was spoken."
+        ),
+    };
+
+    let cleanup_rules = CLEANUP_RULES;
+    let stt_fixes = STT_FIX_TABLE;
+
+    format!(
+        "You correct voice transcriptions from a user who speaks mixed Vietnamese and English.\n\n\
+         Rules:\n{cleanup_rules}\n\n\
+         STT mishear fixes:\n{stt_fixes}\n\n\
+         {lang_block}\n\n\
+         Return ONLY the corrected text — no explanations, no quotes, no formatting."
+    )
 }
 
 pub fn format_xai_api_error(status_code: u16, response_body: &str) -> String {
