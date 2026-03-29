@@ -39,6 +39,17 @@ const REMINDER_INTERVAL_MS   = 60_000;
 const SUCCESS_AUTO_RETURN_MS  = 450;
 const ERROR_AUTO_RETURN_MS    = 2_000;
 const LLM_CORRECTION_ATTEMPT_COUNT = 3;
+const RETRYABLE_LLM_HTTP_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+const PROVIDER_API_ERROR_STATUS_PATTERN = /API error \((\d{3})(?: [A-Z_]+)?\):/i;
+const RETRYABLE_LLM_ERROR_MESSAGE_PATTERNS = [
+  /timed out after/i,
+  /error sending request/i,
+  /error trying to connect/i,
+  /connection reset/i,
+  /connection refused/i,
+  /dns error/i,
+  /network/i,
+];
 const STARTUP_MISSING_KEY_ERROR_MESSAGE = "Soniox API key is missing. Open Settings and add your key.";
 const STREAM_INTERRUPTED_ERROR_MESSAGE = "Connection interrupted. Retrying…";
 const STREAM_RESTART_FAILED_ERROR_MESSAGE = "Could not reconnect to Soniox. Check your key/network, then retry.";
@@ -481,7 +492,10 @@ export class BarSessionController {
             if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
               return;
             }
-            if (attempt === LLM_CORRECTION_ATTEMPT_COUNT - 1) {
+            if (
+              attempt === LLM_CORRECTION_ATTEMPT_COUNT - 1
+              || !shouldRetryLlmCorrectionError(error)
+            ) {
               throw error;
             }
           }
@@ -767,6 +781,27 @@ function formatErrorMessage(error: unknown): string {
   }
 
   return "Unknown error";
+}
+
+function shouldRetryLlmCorrectionError(error: unknown): boolean {
+  const message = formatErrorMessage(error);
+  const statusCode = extractProviderApiErrorStatusCode(message);
+
+  if (statusCode !== null) {
+    return RETRYABLE_LLM_HTTP_STATUS_CODES.has(statusCode);
+  }
+
+  return RETRYABLE_LLM_ERROR_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+function extractProviderApiErrorStatusCode(message: string): number | null {
+  const matchedStatusCode = message.match(PROVIDER_API_ERROR_STATUS_PATTERN)?.[1];
+  if (!matchedStatusCode) {
+    return null;
+  }
+
+  const statusCode = Number.parseInt(matchedStatusCode, 10);
+  return Number.isNaN(statusCode) ? null : statusCode;
 }
 
 function providerLabel(provider: string): string {

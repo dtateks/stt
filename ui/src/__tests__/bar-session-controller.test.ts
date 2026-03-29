@@ -1054,7 +1054,7 @@ describe("BarSessionController", () => {
     );
   });
 
-  it("retries correction failures and falls back to raw transcript without extra linger", async () => {
+  it("falls back to raw transcript after a non-retryable correction failure without extra linger", async () => {
     const { bridge, mocks } = createBridge();
     storage.loadPreferences.mockReturnValue({
       enterMode: true,
@@ -1085,7 +1085,7 @@ describe("BarSessionController", () => {
     expect(mocks.hasXaiKey).not.toHaveBeenCalled();
     expect(mocks.hasGeminiKey).not.toHaveBeenCalled();
     expect(mocks.hasOpenaiCompatibleKey).not.toHaveBeenCalled();
-    expect(mocks.correctTranscript).toHaveBeenCalledTimes(3);
+    expect(mocks.correctTranscript).toHaveBeenCalledTimes(1);
     const [rawTranscript] = mocks.correctTranscript.mock.calls[0] ?? [];
     expect(mocks.insertText).toHaveBeenCalledWith(rawTranscript, { enterMode: true });
     expect(controller.getCurrentState()).toBe("SUCCESS");
@@ -1096,6 +1096,37 @@ describe("BarSessionController", () => {
 
     expect(controller.getCurrentState()).toBe("LISTENING");
     expect(errorMessages).toEqual([]);
+  });
+
+  it("retries transient correction failures before falling back to raw transcript", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      skipLlm: false,
+    });
+    mocks.correctTranscript
+      .mockRejectedValueOnce(new Error("xAI request timed out after 15 seconds"))
+      .mockRejectedValueOnce(new Error("xAI request timed out after 15 seconds"))
+      .mockRejectedValueOnce(new Error("xAI request timed out after 15 seconds"));
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "ship update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.correctTranscript).toHaveBeenCalledTimes(3);
+    expect(mocks.insertText).toHaveBeenCalledWith("ship update", { enterMode: true });
+    expect(controller.getCurrentState()).toBe("SUCCESS");
   });
 
   it("recovers from mid-session stream interruption and returns to LISTENING", async () => {
