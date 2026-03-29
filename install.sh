@@ -68,11 +68,15 @@ resolve_release_zip_url() {
 }
 
 build_app_bundle_from_source() {
-	if [ -f "package.json" ] && grep -q '"voice-to-text"' package.json 2>/dev/null; then
+	local source_root
+	local bundle_root
+	local sign_script_path
+	local entitlements_path
+
+	if [ -f "package.json" ] && [ -f "scripts/sign-macos-app.sh" ] && [ -f "src/tauri.conf.json" ]; then
+		source_root="$(pwd)"
 		npm install --no-fund --no-audit
 		npm run build
-		printf '%s' "src/target/release/bundle"
-		return
 	else
 		SOURCE_REPO_DIR=$(mktemp -d "/tmp/stt-source.XXXXXX")
 		git clone "https://github.com/$GITHUB_REPO.git" "$SOURCE_REPO_DIR"
@@ -81,9 +85,15 @@ build_app_bundle_from_source() {
 			npm install --no-fund --no-audit
 			npm run build
 		)
-		printf '%s' "$SOURCE_REPO_DIR/src/target/release/bundle"
-		return
+		source_root="$SOURCE_REPO_DIR"
 	fi
+
+	bundle_root="$source_root/src/target/release/bundle"
+	sign_script_path="$source_root/scripts/sign-macos-app.sh"
+	entitlements_path="$source_root/src/Entitlements.plist"
+
+	"$sign_script_path" "$bundle_root/macos/$APP_NAME" "$entitlements_path"
+	printf '%s' "$bundle_root"
 }
 
 find_downloaded_app_bundle() {
@@ -93,7 +103,7 @@ find_downloaded_app_bundle() {
 	app_path=$(find "$search_root" -maxdepth 6 -name "$APP_NAME" -type d | head -n 1)
 	if [ -z "$app_path" ]; then
 		echo "Error: $APP_NAME not found in installer payload"
-		exit 1
+		return 1
 	fi
 
 	printf '%s' "$app_path"
@@ -109,7 +119,7 @@ verify_bundle_identity() {
 		echo "Error: installer payload does not have the expected macOS app identity."
 		echo "Expected CFBundleIdentifier: $APP_BUNDLE_ID"
 		echo "Actual CFBundleIdentifier: ${bundle_identifier:-<missing>}"
-		exit 1
+		return 1
 	fi
 }
 
@@ -122,7 +132,7 @@ ensure_required_entitlement() {
 
 	if [ ! -d "$target_path" ]; then
 		echo "Error: $label not found at $target_path"
-		exit 1
+		return 1
 	fi
 
 	entitlements_info=$(codesign -d --entitlements - "$target_path" 2>&1 || true)
@@ -132,7 +142,7 @@ ensure_required_entitlement() {
 		echo "Error: $label $failure_message"
 		echo "Entitlements output:"
 		echo "$entitlements_info"
-		exit 1
+		return 1
 		;;
 	esac
 }
@@ -150,6 +160,23 @@ ensure_renderer_helper_entitlement_if_present() {
 		"Voice to Text Helper (Renderer).app" \
 		"com.apple.security.device.audio-input" \
 		"is missing microphone entitlements required for macOS TCC registration."
+}
+
+validate_app_bundle() {
+	local bundle_path="$1"
+
+	verify_bundle_identity "$bundle_path" || return 1
+	ensure_required_entitlement \
+		"$bundle_path" \
+		"$APP_NAME" \
+		"com.apple.security.device.audio-input" \
+		"is missing microphone entitlements required for macOS TCC registration." || return 1
+	ensure_required_entitlement \
+		"$bundle_path" \
+		"$APP_NAME" \
+		"com.apple.security.automation.apple-events" \
+		"is missing Apple Events entitlements required for accessibility-driven paste automation." || return 1
+	ensure_renderer_helper_entitlement_if_present "$bundle_path" || return 1
 }
 
 install_app_bundle() {
@@ -179,7 +206,13 @@ if ZIP_URL=$(resolve_release_zip_url "$RELEASE_ARCH"); then
 	if curl -fL "$ZIP_URL" -o "$ZIP_PATH"; then
 		mkdir -p "$UNPACK_DIR"
 		ditto -x -k "$ZIP_PATH" "$UNPACK_DIR"
-		APP_BUNDLE=$(find_downloaded_app_bundle "$UNPACK_DIR")
+		if APP_BUNDLE=$(find_downloaded_app_bundle "$UNPACK_DIR") && validate_app_bundle "$APP_BUNDLE"; then
+			:
+		else
+			echo "Downloaded release failed validation. Building from source instead..."
+			DIST_DIR=$(build_app_bundle_from_source)
+			APP_BUNDLE=$(find_downloaded_app_bundle "$DIST_DIR")
+		fi
 	else
 		echo "Release download failed. Building from source instead..."
 		DIST_DIR=$(build_app_bundle_from_source)
@@ -190,19 +223,7 @@ else
 	DIST_DIR=$(build_app_bundle_from_source)
 	APP_BUNDLE=$(find_downloaded_app_bundle "$DIST_DIR")
 fi
-
-verify_bundle_identity "$APP_BUNDLE"
-ensure_required_entitlement \
-	"$APP_BUNDLE" \
-	"$APP_NAME" \
-	"com.apple.security.device.audio-input" \
-	"is missing microphone entitlements required for macOS TCC registration."
-ensure_required_entitlement \
-	"$APP_BUNDLE" \
-	"$APP_NAME" \
-	"com.apple.security.automation.apple-events" \
-	"is missing Apple Events entitlements required for accessibility-driven paste automation."
-ensure_renderer_helper_entitlement_if_present "$APP_BUNDLE"
+validate_app_bundle "$APP_BUNDLE"
 install_app_bundle "$APP_BUNDLE"
 
 echo ""
