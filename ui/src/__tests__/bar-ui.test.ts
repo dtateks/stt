@@ -30,6 +30,7 @@ import {
   applyTranscript,
   applyErrorMessage,
   applyOverlayMode,
+  createWaveformLayout,
   syncPromptVisibility,
   resizeCanvasWithContext,
   waveformShouldRun,
@@ -75,8 +76,8 @@ function getTranscriptPrompt(): HTMLSpanElement {
 function getStateLabel(): HTMLSpanElement {
   return document.getElementById("hud-state-label") as HTMLSpanElement;
 }
-function getSettingsBtn(): HTMLButtonElement {
-  return document.getElementById("hud-settings-btn") as HTMLButtonElement;
+function getClearBtn(): HTMLButtonElement {
+  return document.getElementById("hud-clear-btn") as HTMLButtonElement;
 }
 function getCloseBtn(): HTMLButtonElement {
   return document.getElementById("hud-close-btn") as HTMLButtonElement;
@@ -324,31 +325,31 @@ describe("applyOverlayMode — data-overlay and tabindex management", () => {
   afterEach(() => { document.body.innerHTML = ""; });
 
   it("sets data-overlay='passive' on PASSIVE mode", () => {
-    applyOverlayMode("PASSIVE", getHud(), [getSettingsBtn(), getCloseBtn()]);
+    applyOverlayMode("PASSIVE", getHud(), [getClearBtn(), getCloseBtn()]);
     expect(getHud().dataset.overlay).toBe("passive");
   });
 
   it("sets data-overlay='interactive' on INTERACTIVE mode", () => {
-    applyOverlayMode("INTERACTIVE", getHud(), [getSettingsBtn(), getCloseBtn()]);
+    applyOverlayMode("INTERACTIVE", getHud(), [getClearBtn(), getCloseBtn()]);
     expect(getHud().dataset.overlay).toBe("interactive");
   });
 
   it("sets tabindex=-1 on buttons in PASSIVE mode — buttons are not keyboard-reachable", () => {
-    applyOverlayMode("PASSIVE", getHud(), [getSettingsBtn(), getCloseBtn()]);
-    expect(getSettingsBtn().tabIndex).toBe(-1);
+    applyOverlayMode("PASSIVE", getHud(), [getClearBtn(), getCloseBtn()]);
+    expect(getClearBtn().tabIndex).toBe(-1);
     expect(getCloseBtn().tabIndex).toBe(-1);
   });
 
   it("sets tabindex=0 on buttons in INTERACTIVE mode — buttons are keyboard-reachable", () => {
-    applyOverlayMode("INTERACTIVE", getHud(), [getSettingsBtn(), getCloseBtn()]);
-    expect(getSettingsBtn().tabIndex).toBe(0);
+    applyOverlayMode("INTERACTIVE", getHud(), [getClearBtn(), getCloseBtn()]);
+    expect(getClearBtn().tabIndex).toBe(0);
     expect(getCloseBtn().tabIndex).toBe(0);
   });
 
   it("reverts tabindex to -1 when switching from INTERACTIVE back to PASSIVE", () => {
-    applyOverlayMode("INTERACTIVE", getHud(), [getSettingsBtn(), getCloseBtn()]);
-    applyOverlayMode("PASSIVE", getHud(), [getSettingsBtn(), getCloseBtn()]);
-    expect(getSettingsBtn().tabIndex).toBe(-1);
+    applyOverlayMode("INTERACTIVE", getHud(), [getClearBtn(), getCloseBtn()]);
+    applyOverlayMode("PASSIVE", getHud(), [getClearBtn(), getCloseBtn()]);
+    expect(getClearBtn().tabIndex).toBe(-1);
     expect(getCloseBtn().tabIndex).toBe(-1);
   });
 });
@@ -432,6 +433,27 @@ describe("resizeCanvasWithContext — DPR scaling without accumulation", () => {
     expect(() => resizeCanvasWithContext(canvas, null, 2)).not.toThrow();
     expect(canvas.width).toBe(112);
     expect(canvas.height).toBe(56);
+  });
+});
+
+describe("createWaveformLayout — pure geometry contract", () => {
+  it("derives consistent geometry from canvas size", () => {
+    const layout = createWaveformLayout(120, 40);
+
+    expect(layout.width).toBe(120);
+    expect(layout.height).toBe(40);
+    expect(layout.centerY).toBe(20);
+    expect(layout.barCount).toBe(12);
+    expect(layout.barWidth).toBe(2);
+    expect(layout.maxBarHeight).toBe(34);
+    expect(layout.gap).toBeCloseTo(7.3846, 3);
+  });
+
+  it("returns identical values for repeated same-size calls", () => {
+    const first = createWaveformLayout(160, 60);
+    const second = createWaveformLayout(160, 60);
+
+    expect(second).toEqual(first);
   });
 });
 
@@ -580,8 +602,8 @@ describe("bar.html — accessibility contract (production source)", () => {
     expect(getHud().getAttribute("aria-live")).toBeNull();
   });
 
-  it("settings button has accessible label", () => {
-    expect(getSettingsBtn().getAttribute("aria-label")).toBe("Open settings");
+  it("clear button has accessible label", () => {
+    expect(getClearBtn().getAttribute("aria-label")).toBe("Clear and restart listening");
   });
 
   it("close button has accessible label", () => {
@@ -619,7 +641,7 @@ describe("bar.html — accessibility contract (production source)", () => {
   });
 
   it("action buttons are type='button'", () => {
-    expect(getSettingsBtn().getAttribute("type")).toBe("button");
+    expect(getClearBtn().getAttribute("type")).toBe("button");
     expect(getCloseBtn().getAttribute("type")).toBe("button");
   });
 
@@ -636,7 +658,7 @@ describe("bar.html — accessibility contract (production source)", () => {
   });
 
   it("buttons start with tabindex=-1 (not keyboard-reachable in default PASSIVE mode)", () => {
-    expect(getSettingsBtn().tabIndex).toBe(-1);
+    expect(getClearBtn().tabIndex).toBe(-1);
     expect(getCloseBtn().tabIndex).toBe(-1);
   });
 });
@@ -659,8 +681,8 @@ describe("bar.html — structural contract (production source)", () => {
     expect(getHud().dataset.state).toBe("HIDDEN");
   });
 
-  it("settings and close buttons are real <button> elements", () => {
-    expect(getSettingsBtn().tagName).toBe("BUTTON");
+  it("clear and close buttons are real <button> elements", () => {
+    expect(getClearBtn().tagName).toBe("BUTTON");
     expect(getCloseBtn().tagName).toBe("BUTTON");
   });
 

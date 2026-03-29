@@ -26,6 +26,18 @@ interface SonioxToken {
 interface SonioxMessage {
   tokens?: SonioxToken[];
   error?: string;
+  error_code?: string;
+  error_message?: string;
+}
+
+interface SonioxControlMessage {
+  type: "finalize";
+}
+
+interface PendingFinalization {
+  fallbackTranscript: string;
+  resolve: (finalizedTranscript: string) => void;
+  reject: (error: Error) => void;
 }
 
 export class SonioxClient implements SonioxSTTClient {
@@ -41,6 +53,7 @@ export class SonioxClient implements SonioxSTTClient {
   private finalText = "";
   private interimText = "";
   private active = false;
+  private pendingFinalization: PendingFinalization | null = null;
 
   setConfig(config: SonioxConfig): void {
     this.config = config;
@@ -53,6 +66,7 @@ export class SonioxClient implements SonioxSTTClient {
     this.active = true;
     this.finalText = "";
     this.interimText = "";
+    this.pendingFinalization = null;
 
     await this.initAudio();
     this.openWebSocket(apiKey, context);
@@ -60,8 +74,31 @@ export class SonioxClient implements SonioxSTTClient {
 
   stop(): void {
     this.active = false;
+    this.rejectPendingFinalization(new Error("Soniox session stopped before finalization completed"));
     this.closeWebSocket();
     this.releaseAudio();
+  }
+
+  async finalizeCurrentUtterance(fallbackTranscript: string): Promise<string> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error("Soniox connection is not open");
+    }
+    if (this.pendingFinalization) {
+      throw new Error("Soniox finalization is already in progress");
+    }
+
+    const finalizedTranscript = new Promise<string>((resolve, reject) => {
+      this.pendingFinalization = {
+        fallbackTranscript,
+        resolve,
+        reject,
+      };
+    });
+
+    const finalizeControlMessage: SonioxControlMessage = { type: "finalize" };
+    this.ws.send(JSON.stringify(finalizeControlMessage));
+
+    return finalizedTranscript;
   }
 
   resetTranscript(): void {
@@ -120,22 +157,45 @@ export class SonioxClient implements SonioxSTTClient {
 
     this.ws.onopen = () => {
       // First frame: JSON config — required by Soniox protocol
+      const payloadContext = {
+        ...(config.context_general?.length && {
+          general: config.context_general,
+        }),
+        ...(config.context_text?.trim() && {
+          text: config.context_text.trim(),
+        }),
+        ...(context.terms?.length && {
+          terms: context.terms,
+        }),
+        ...(context.translationTerms?.length && {
+          translation_terms: context.translationTerms.map((term) => ({
+            source: term.source,
+            target: term.target,
+          })),
+        }),
+      };
+
       const initFrame = {
         api_key: apiKey,
         model: config.model,
         sample_rate: config.sample_rate,
         num_channels: config.num_channels,
         audio_format: config.audio_format,
+        ...(config.enable_endpoint_detection !== undefined && {
+          enable_endpoint_detection: config.enable_endpoint_detection,
+        }),
+        ...(config.max_endpoint_delay_ms !== undefined && {
+          max_endpoint_delay_ms: config.max_endpoint_delay_ms,
+        }),
+        ...(config.max_non_final_tokens_duration_ms !== undefined && {
+          max_non_final_tokens_duration_ms: config.max_non_final_tokens_duration_ms,
+        }),
         ...(config.language_hints?.length && {
           language_hints: config.language_hints,
           language_hints_strict: config.language_hints_strict ?? false,
         }),
-        ...(context.terms?.length && { custom_vocabulary: context.terms }),
-        ...(context.translationTerms?.length && {
-          translation_config: context.translationTerms.map((t) => ({
-            from: t.source,
-            to: t.target,
-          })),
+        ...(Object.keys(payloadContext).length > 0 && {
+          context: payloadContext,
         }),
       };
 
@@ -149,11 +209,15 @@ export class SonioxClient implements SonioxSTTClient {
 
     this.ws.onerror = () => {
       if (!this.active) return;
+      this.rejectPendingFinalization(new Error("Soniox WebSocket error"));
       this.onError?.(new Error("Soniox WebSocket error"));
     };
 
     this.ws.onclose = (event) => {
       if (!this.active) return;
+      this.rejectPendingFinalization(
+        new Error(`Soniox connection closed before finalization completed (code ${event.code})`),
+      );
       if (!event.wasClean) {
         this.onError?.(new Error(`Soniox connection closed (code ${event.code})`));
       }
@@ -168,8 +232,16 @@ export class SonioxClient implements SonioxSTTClient {
       return;
     }
 
-    if (message.error) {
-      this.onError?.(new Error(`Soniox error: ${message.error}`));
+    if (message.error || message.error_message) {
+      const errorCode = message.error_code?.trim();
+      const errorMessage =
+        message.error_message?.trim() ||
+        message.error?.trim() ||
+        "Unknown Soniox error";
+      const details = errorCode ? `${errorCode}: ${errorMessage}` : errorMessage;
+      const formattedError = new Error(`Soniox error: ${details}`);
+      this.rejectPendingFinalization(formattedError);
+      this.onError?.(formattedError);
       return;
     }
 
@@ -178,8 +250,14 @@ export class SonioxClient implements SonioxSTTClient {
     // Accumulate final tokens; replace interim tokens
     let newFinal = this.finalText;
     let newInterim = "";
+    let receivedFinalizationMarker = false;
 
     for (const token of message.tokens) {
+      if (token.text === "<fin>" || token.text === "<end>") {
+        receivedFinalizationMarker = true;
+        continue;
+      }
+
       if (token.is_final) {
         newFinal += token.text;
       } else {
@@ -190,6 +268,19 @@ export class SonioxClient implements SonioxSTTClient {
     this.finalText = newFinal;
     this.interimText = newInterim;
     this.emitTranscript();
+
+    if (receivedFinalizationMarker) {
+      const finalizedTranscript = `${this.finalText} ${this.interimText}`.trim();
+      const pendingFinalization = this.pendingFinalization;
+      if (pendingFinalization) {
+        this.pendingFinalization = null;
+        pendingFinalization.resolve(
+          finalizedTranscript.length > 0
+            ? finalizedTranscript
+            : pendingFinalization.fallbackTranscript,
+        );
+      }
+    }
   }
 
   private emitTranscript(): void {
@@ -213,6 +304,16 @@ export class SonioxClient implements SonioxSTTClient {
       }
       this.ws = null;
     }
+  }
+
+  private rejectPendingFinalization(error: Error): void {
+    if (!this.pendingFinalization) {
+      return;
+    }
+
+    const pendingFinalization = this.pendingFinalization;
+    this.pendingFinalization = null;
+    pendingFinalization.reject(error);
   }
 
   private releaseAudio(): void {

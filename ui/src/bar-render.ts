@@ -23,6 +23,32 @@ export const STATE_LABELS: Record<BarState, string> = {
   ERROR:      "Error",
 };
 
+const WAVEFORM_BAR_COUNT = 12;
+const WAVEFORM_BAR_WIDTH = 2;
+const WAVEFORM_MAX_BAR_HEIGHT_RATIO = 0.85;
+
+export interface WaveformLayout {
+  width: number;
+  height: number;
+  centerY: number;
+  barCount: number;
+  barWidth: number;
+  gap: number;
+  maxBarHeight: number;
+}
+
+export function createWaveformLayout(width: number, height: number): WaveformLayout {
+  return {
+    width,
+    height,
+    centerY: height / 2,
+    barCount: WAVEFORM_BAR_COUNT,
+    barWidth: WAVEFORM_BAR_WIDTH,
+    gap: (width - WAVEFORM_BAR_COUNT * WAVEFORM_BAR_WIDTH) / (WAVEFORM_BAR_COUNT + 1),
+    maxBarHeight: height * WAVEFORM_MAX_BAR_HEIGHT_RATIO,
+  };
+}
+
 // ─── Pure render helpers ──────────────────────────────────────────────────────
 
 export function syncPromptVisibility(

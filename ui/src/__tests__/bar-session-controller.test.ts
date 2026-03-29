@@ -11,11 +11,14 @@ import type {
 const DEFAULT_CONFIG: AppConfig = {
   soniox: {
     ws_url: "wss://example.test/stt",
-    model: "stt-rt-preview",
+    model: "stt-rt-v4",
     sample_rate: 16_000,
     num_channels: 1,
     audio_format: "pcm_s16le",
     chunk_size: 4_096,
+    enable_endpoint_detection: true,
+    max_endpoint_delay_ms: 500,
+    max_non_final_tokens_duration_ms: 1800,
   },
   llm: {
     provider: "xai",
@@ -27,11 +30,14 @@ const DEFAULT_CONFIG: AppConfig = {
   },
 };
 
+const MICROTASK_FLUSH_ITERATIONS = 8;
+
 type SonioxMock = {
   onTranscript: ((result: TranscriptResult) => void) | null;
   onError: ((error: Error) => void) | null;
   setConfig: ReturnType<typeof vi.fn<(config: AppConfig["soniox"]) => void>>;
   start: ReturnType<typeof vi.fn<(apiKey: string, context: SonioxContext) => Promise<void>>>;
+  finalizeCurrentUtterance: ReturnType<typeof vi.fn<(fallbackTranscript: string) => Promise<string>>>;
   stop: ReturnType<typeof vi.fn<() => void>>;
   resetTranscript: ReturnType<typeof vi.fn<() => void>>;
   getAnalyser: ReturnType<typeof vi.fn<() => AnalyserNode | null>>;
@@ -43,6 +49,7 @@ const soniox = vi.hoisted(() => {
     onError: null,
     setConfig: vi.fn(),
     start: vi.fn(async () => {}),
+    finalizeCurrentUtterance: vi.fn(async (fallbackTranscript: string) => fallbackTranscript),
     stop: vi.fn(),
     resetTranscript: vi.fn(),
     getAnalyser: vi.fn(() => null),
@@ -105,7 +112,8 @@ function createBridge(): {
     setMicState: ReturnType<typeof vi.fn<(isActive: boolean) => Promise<void>>>;
     insertText: ReturnType<typeof vi.fn<VoiceToTextBridge["insertText"]>>;
      correctTranscript: ReturnType<typeof vi.fn<VoiceToTextBridge["correctTranscript"]>>;
-     getSonioxKey: ReturnType<typeof vi.fn<VoiceToTextBridge["getSonioxKey"]>>;
+     hasSonioxKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasSonioxKey"]>>;
+     createSonioxTemporaryKey: ReturnType<typeof vi.fn<VoiceToTextBridge["createSonioxTemporaryKey"]>>;
       hasXaiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasXaiKey"]>>;
       hasGeminiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasGeminiKey"]>>;
       hasOpenaiCompatibleKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasOpenaiCompatibleKey"]>>;
@@ -135,7 +143,8 @@ function createBridge(): {
     setMicState: vi.fn(async (_isActive: boolean) => {}),
     insertText: vi.fn(async () => ({ success: true })),
     correctTranscript: vi.fn(async (transcript: string) => transcript),
-    getSonioxKey: vi.fn(async () => "soniox-key"),
+    hasSonioxKey: vi.fn(async () => true),
+    createSonioxTemporaryKey: vi.fn(async () => ({ apiKey: "soniox-key" })),
     hasXaiKey: vi.fn(async () => false),
     hasGeminiKey: vi.fn(async () => false),
     hasOpenaiCompatibleKey: vi.fn(async () => false),
@@ -167,7 +176,8 @@ function createBridge(): {
     setMicState: mocks.setMicState,
     insertText: mocks.insertText,
     correctTranscript: mocks.correctTranscript,
-    getSonioxKey: mocks.getSonioxKey,
+    hasSonioxKey: mocks.hasSonioxKey,
+    createSonioxTemporaryKey: mocks.createSonioxTemporaryKey,
     hasXaiKey: mocks.hasXaiKey,
     hasGeminiKey: mocks.hasGeminiKey,
     hasOpenaiCompatibleKey: mocks.hasOpenaiCompatibleKey,
@@ -199,8 +209,15 @@ function createBridge(): {
 }
 
 async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let iteration = 0; iteration < MICROTASK_FLUSH_ITERATIONS; iteration += 1) {
+    await Promise.resolve();
+  }
+}
+
+function dispatchStorageEvent(key: string): void {
+  window.dispatchEvent(new StorageEvent("storage", {
+    key,
+  }));
 }
 
 describe("BarSessionController", () => {
@@ -373,7 +390,7 @@ describe("BarSessionController", () => {
 
   it("keeps startup missing-key failures visible in ERROR", async () => {
     const { bridge, mocks } = createBridge();
-    mocks.getSonioxKey.mockResolvedValueOnce("");
+    mocks.hasSonioxKey.mockResolvedValueOnce(false);
     window.voiceToText = bridge;
 
     const controller = new BarSessionController();
@@ -408,6 +425,63 @@ describe("BarSessionController", () => {
     expect(mocks.insertText).not.toHaveBeenCalled();
     expect(soniox.instance.resetTranscript).toHaveBeenCalled();
     expect(controller.getCurrentState()).toBe("HIDDEN");
+  });
+
+  it("uses temporary Soniox keys for start and restart paths", async () => {
+    const { bridge, mocks } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(mocks.hasSonioxKey).toHaveBeenCalledTimes(1);
+    expect(mocks.createSonioxTemporaryKey).toHaveBeenCalledTimes(1);
+
+    soniox.instance.onError?.(new Error("stream dropped"));
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushMicrotasks();
+
+    expect(mocks.hasSonioxKey).toHaveBeenCalledTimes(2);
+    expect(mocks.createSonioxTemporaryKey).toHaveBeenCalledTimes(2);
+  });
+
+  it("strips stop word immediately without waiting for Soniox finalization", async () => {
+    const { bridge, mocks } = createBridge();
+    const stopMicDeferred = createDeferred<void>();
+    mocks.setMicState.mockImplementation(async (isActive: boolean) => {
+      if (isActive) {
+        return;
+      }
+
+      await stopMicDeferred.promise;
+    });
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: true,
+    });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "send update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+
+    expect(soniox.instance.finalizeCurrentUtterance).not.toHaveBeenCalled();
+    expect(controller.getCurrentState()).toBe("PROCESSING");
+
+    stopMicDeferred.resolve();
+    await flushMicrotasks();
+    expect(mocks.insertText).toHaveBeenCalledWith("send update", { enterMode: true });
   });
 
   it("keeps HUD interactive while visible and reverts passive only on hide", async () => {
@@ -460,6 +534,73 @@ describe("BarSessionController", () => {
     expect(mocks.insertText).toHaveBeenCalledWith("send update", { enterMode: true });
   });
 
+  it("loads stop-word preference once per active session", async () => {
+    const { bridge } = createBridge();
+    storage.loadCustomStopWordPreference.mockReturnValue("done now");
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: true,
+    });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "send update",
+      interimText: "please",
+    });
+    soniox.instance.onTranscript?.({
+      finalText: "send update",
+      interimText: "done now",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(storage.loadCustomStopWordPreference).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies updated stop word and toggles without restarting the HUD", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: false,
+    });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    storage.loadPreferences.mockReturnValue({
+      enterMode: false,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: true,
+    });
+    storage.loadCustomStopWordPreference.mockReturnValue("done now");
+
+    dispatchStorageEvent("skipLlm");
+
+    soniox.instance.onTranscript?.({
+      finalText: "send update",
+      interimText: "done now",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.correctTranscript).not.toHaveBeenCalled();
+    expect(mocks.insertText).toHaveBeenCalledWith("send update", { enterMode: false });
+  });
+
   it("keeps frozen command transcript while stop-word finalization is running", async () => {
     const { bridge, mocks } = createBridge();
     storage.loadPreferences.mockReturnValue({
@@ -499,6 +640,198 @@ describe("BarSessionController", () => {
     await flushMicrotasks();
   });
 
+  it("handleClear restarts a listening session without hiding the HUD", async () => {
+    const { bridge, mocks } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "draft",
+      interimText: "incoming",
+    });
+    await flushMicrotasks();
+
+    await controller.handleClear();
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(controller.getOverlayMode()).toBe("INTERACTIVE");
+    expect(soniox.instance.stop).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.start).toHaveBeenCalledTimes(2);
+    expect(mocks.hideBar).not.toHaveBeenCalled();
+    expect(mocks.setMicState).toHaveBeenNthCalledWith(2, false);
+    expect(mocks.setMicState).toHaveBeenNthCalledWith(3, true);
+  });
+
+  it("handleClear cancels stale stop-word finalization before insert", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: false,
+    });
+    const correctionDeferred = createDeferred<string>();
+    mocks.correctTranscript.mockImplementationOnce(async () => correctionDeferred.promise);
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "ship update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("PROCESSING");
+
+    await controller.handleClear();
+    await flushMicrotasks();
+
+    correctionDeferred.resolve("stale correction");
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(mocks.insertText).not.toHaveBeenCalled();
+    expect(soniox.instance.start).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores stale transcript callbacks after stop-word finalization restarts listening", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: true,
+    });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    const staleTranscriptHandler = soniox.instance.onTranscript;
+    expect(staleTranscriptHandler).not.toBeNull();
+
+    staleTranscriptHandler?.({
+      finalText: "hello hello 1234",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.insertText).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.stop).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.start).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(450);
+    await flushMicrotasks();
+
+    staleTranscriptHandler?.({
+      finalText: "hello hello 1234",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(mocks.insertText).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies pending settings changes after the current finalization completes", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: true,
+    });
+    const insertDeferred = createDeferred<{ success: boolean }>();
+    mocks.insertText
+      .mockImplementationOnce(async () => insertDeferred.promise)
+      .mockResolvedValueOnce({ success: true });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "first command",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+
+    storage.loadPreferences.mockReturnValue({
+      enterMode: false,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: true,
+    });
+    storage.loadCustomStopWordPreference.mockReturnValue("done now");
+    dispatchStorageEvent("stopWord");
+
+    insertDeferred.resolve({ success: true });
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(450);
+    await flushMicrotasks();
+
+    soniox.instance.onTranscript?.({
+      finalText: "second command",
+      interimText: "done now",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.insertText).toHaveBeenNthCalledWith(2, "second command", { enterMode: false });
+  });
+
+  it("stays in ERROR when listening restart fails after insert succeeds", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: true,
+    });
+    soniox.instance.start
+      .mockImplementationOnce(async () => {})
+      .mockImplementationOnce(async () => {
+        throw new Error("network down");
+      });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const errorMessages: Array<string | null> = [];
+    controller.onErrorMessageChange = (message) => errorMessages.push(message);
+
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "ship update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.insertText).toHaveBeenCalledTimes(1);
+    expect(controller.getCurrentState()).toBe("ERROR");
+    expect(errorMessages[errorMessages.length - 1]).toContain(
+      "Could not reconnect to Soniox. Check your key/network, then retry. network down",
+    );
+  });
+
   it("skips hasXaiKey lookup when skipLlm preference is enabled", async () => {
     const { bridge, mocks } = createBridge();
     storage.loadPreferences.mockReturnValue({
@@ -536,7 +869,6 @@ describe("BarSessionController", () => {
     storage.loadLlmProviderPreference.mockReturnValue("openai_compatible");
     storage.loadLlmModelPreference.mockReturnValue("gpt-4o-mini");
     storage.loadLlmBaseUrlPreference.mockReturnValue("https://openrouter.example/v1");
-    mocks.hasOpenaiCompatibleKey.mockResolvedValueOnce(true);
     window.voiceToText = bridge;
 
     const controller = new BarSessionController();
@@ -550,7 +882,8 @@ describe("BarSessionController", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    expect(mocks.hasOpenaiCompatibleKey).toHaveBeenCalledTimes(1);
+    expect(mocks.hasOpenaiCompatibleKey).not.toHaveBeenCalled();
+    expect(mocks.hasGeminiKey).not.toHaveBeenCalled();
     expect(mocks.hasXaiKey).not.toHaveBeenCalled();
     expect(mocks.correctTranscript).toHaveBeenCalledWith("ship update", "auto", {
       provider: "openai_compatible",
@@ -570,7 +903,6 @@ describe("BarSessionController", () => {
     });
     storage.loadLlmProviderPreference.mockReturnValue("gemini");
     storage.loadLlmModelPreference.mockReturnValue("gemini-2.5-flash");
-    mocks.hasGeminiKey.mockResolvedValueOnce(true);
     window.voiceToText = bridge;
 
     const controller = new BarSessionController();
@@ -584,7 +916,7 @@ describe("BarSessionController", () => {
     await flushMicrotasks();
     await flushMicrotasks();
 
-    expect(mocks.hasGeminiKey).toHaveBeenCalledTimes(1);
+    expect(mocks.hasGeminiKey).not.toHaveBeenCalled();
     expect(mocks.hasXaiKey).not.toHaveBeenCalled();
     expect(mocks.hasOpenaiCompatibleKey).not.toHaveBeenCalled();
     expect(mocks.correctTranscript).toHaveBeenCalledWith("ship update", "auto", {
@@ -605,7 +937,6 @@ describe("BarSessionController", () => {
     });
     storage.loadLlmProviderPreference.mockReturnValue("gemini");
     storage.loadLlmModelPreference.mockImplementation((defaultModel: string) => defaultModel);
-    mocks.hasGeminiKey.mockResolvedValueOnce(true);
     window.voiceToText = bridge;
 
     const controller = new BarSessionController();
@@ -624,6 +955,52 @@ describe("BarSessionController", () => {
       model: "gemini-2.5-flash",
       baseUrl: "https://api.openai.com/v1",
     });
+    expect(mocks.hasGeminiKey).not.toHaveBeenCalled();
+  });
+
+  it("retries correction failures and falls back to raw transcript without extra linger", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      sonioxTranslationTerms: [{ source: "one", target: "1" }],
+      skipLlm: false,
+    });
+    mocks.correctTranscript
+      .mockRejectedValueOnce(new Error("xAI API key is not configured"))
+      .mockRejectedValueOnce(new Error("xAI API key is not configured"))
+      .mockRejectedValueOnce(new Error("xAI API key is not configured"));
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const errorMessages: Array<string | null> = [];
+    controller.onErrorMessageChange = (message) => errorMessages.push(message);
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "ship update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.hasXaiKey).not.toHaveBeenCalled();
+    expect(mocks.hasGeminiKey).not.toHaveBeenCalled();
+    expect(mocks.hasOpenaiCompatibleKey).not.toHaveBeenCalled();
+    expect(mocks.correctTranscript).toHaveBeenCalledTimes(3);
+    const [rawTranscript] = mocks.correctTranscript.mock.calls[0] ?? [];
+    expect(mocks.insertText).toHaveBeenCalledWith(rawTranscript, { enterMode: true });
+    expect(controller.getCurrentState()).toBe("SUCCESS");
+    expect(errorMessages.some((message) => message !== null)).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(450);
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(errorMessages).toEqual([]);
   });
 
   it("recovers from mid-session stream interruption and returns to LISTENING", async () => {

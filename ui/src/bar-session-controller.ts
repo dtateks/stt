@@ -19,7 +19,11 @@
 
 import type { BarState, AppConfig, LlmRequestOptions, TranscriptResult } from "./types.ts";
 import { transition, type BarEvent } from "./bar-state-machine.ts";
-import { detectStopWord, stripStopWord } from "./stop-word.ts";
+import {
+  detectStopWordWithNormalizedStopWord,
+  normalizeStopWord,
+  stripStopWord,
+} from "./stop-word.ts";
 import { SonioxClient } from "./soniox-client.ts";
 import {
   loadCustomStopWordPreference,
@@ -33,6 +37,7 @@ import {
 const REMINDER_INTERVAL_MS   = 60_000;
 const SUCCESS_AUTO_RETURN_MS  = 450;
 const ERROR_AUTO_RETURN_MS    = 2_000;
+const LLM_CORRECTION_ATTEMPT_COUNT = 3;
 const STARTUP_MISSING_KEY_ERROR_MESSAGE = "Soniox API key is missing. Open Settings and add your key.";
 const STREAM_INTERRUPTED_ERROR_MESSAGE = "Connection interrupted. Retrying…";
 const STREAM_RESTART_FAILED_ERROR_MESSAGE = "Could not reconnect to Soniox. Check your key/network, then retry.";
@@ -48,6 +53,17 @@ const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
 
 export type OverlayMode = "PASSIVE" | "INTERACTIVE";
 
+interface ActiveSessionPreferences {
+  enterMode: boolean;
+  outputLang: "auto" | "english" | "vietnamese";
+  skipLlm: boolean;
+  stopWord: string;
+  normalizedStopWord: string;
+  sonioxTerms: string[];
+  sonioxTranslationTerms: Array<{ source: string; target: string }>;
+  llmOptions: LlmRequestOptions | null;
+}
+
 export type StateChangeCallback        = (state: BarState) => void;
 export type TranscriptChangeCallback   = (result: TranscriptResult) => void;
 export type OverlayModeChangeCallback  = (mode: OverlayMode) => void;
@@ -60,7 +76,10 @@ export class BarSessionController {
   private reminderTimer: ReturnType<typeof setInterval> | null = null;
   private unlistenToggle: (() => void) | null = null;
   private startAttemptId = 0;
+  private transcriptGeneration = 0;
+  private pendingActiveSessionPreferencesRefresh = false;
   private isFinalizingAfterStopWord = false;
+  private activeSessionPreferences: ActiveSessionPreferences | null = null;
 
   // Overlay interaction mode
   private overlayMode: OverlayMode = "PASSIVE";
@@ -71,6 +90,23 @@ export class BarSessionController {
   onOverlayModeChange:  OverlayModeChangeCallback | null = null;
   onErrorMessageChange: ErrorMessageChangeCallback | null = null;
 
+  private readonly handleStorageChange = (event: StorageEvent): void => {
+    if (event.storageArea !== null && event.storageArea !== window.localStorage) {
+      return;
+    }
+
+    if (!this.activeSessionPreferences) {
+      return;
+    }
+
+    if (this.isFinalizingAfterStopWord) {
+      this.pendingActiveSessionPreferencesRefresh = true;
+      return;
+    }
+
+    this.refreshActiveSessionPreferences();
+  };
+
   constructor() {
     this.client = new SonioxClient();
   }
@@ -80,6 +116,7 @@ export class BarSessionController {
   async init(): Promise<void> {
     this.config = await window.voiceToText.getConfig();
     this.client.setConfig(this.config.soniox);
+    window.addEventListener("storage", this.handleStorageChange);
 
     this.unlistenToggle = window.voiceToText.onToggleMic(() => {
       void this.handleToggle();
@@ -87,6 +124,7 @@ export class BarSessionController {
   }
 
   destroy(): void {
+    window.removeEventListener("storage", this.handleStorageChange);
     this.unlistenToggle?.();
     void this.stopSession();
   }
@@ -117,6 +155,68 @@ export class BarSessionController {
     await this.stopSession();
   }
 
+  /**
+   * Clear current transcript/error state and resume a fresh listening session.
+   *
+   * Safe to call from any visible state (LISTENING, PROCESSING, INSERTING,
+   * SUCCESS, ERROR, CONNECTING). Invalidates the active transcript generation
+   * so stale async callbacks (LLM, insert, stream) cannot re-apply after reset.
+   *
+   * Hidden state is a no-op — the HUD is not visible and there is nothing to
+   * clear.
+   */
+  async handleClear(): Promise<void> {
+    if (this.state === "HIDDEN") return;
+
+    const restartAttemptId = this.nextStartAttemptId();
+
+    // Abandon any in-flight async work from the current session.
+    this.isFinalizingAfterStopWord = false;
+    this.pendingActiveSessionPreferencesRefresh = false;
+
+    // Stop audio pipeline without affecting overlay mode — the HUD stays
+    // visible and interactive throughout the reset.
+    await this.stopAudioPipeline().catch((error: unknown) => {
+      console.error("[session] stopAudioPipeline failed during clear", error);
+    });
+
+    // Transition to CONNECTING so render layer clears transcript/error slots.
+    await this.applyEvent("CLEAR"); // any visible state → CONNECTING
+
+    // Rebuild fresh session preferences from current storage values.
+    const prefs = loadPreferences();
+    this.activeSessionPreferences = this.createActiveSessionPreferences(prefs);
+    const sessionPreferences = this.activeSessionPreferences;
+
+    try {
+      const apiKey = await this.createTemporaryApiKey();
+      if (!this.isStartAttemptCurrent(restartAttemptId)) {
+        return;
+      }
+      if (!apiKey) {
+        await this.applyEvent("CONNECTION_ERROR");
+        await this.handleStartupError(STARTUP_MISSING_KEY_ERROR_MESSAGE);
+        return;
+      }
+
+      await this.startAudioPipeline(apiKey, sessionPreferences);
+      if (!this.isStartAttemptCurrent(restartAttemptId)) {
+        await this.stopAudioPipeline().catch((error: unknown) => {
+          console.error("[session] stopAudioPipeline failed during stale clear restart", error);
+        });
+        return;
+      }
+      await this.applyEvent("CONNECTED"); // CONNECTING → LISTENING
+      this.syncReminderBeepForCurrentState();
+    } catch (error) {
+      console.error("[session] clear restart failed", error);
+      await this.applyEvent("CONNECTION_ERROR");
+      await this.handleStartupError(
+        `${SESSION_START_FAILED_PREFIX}: ${formatErrorMessage(error)}`
+      );
+    }
+  }
+
   // ─── Overlay interaction mode ─────────────────────────────────────────────
 
   /** Enter INTERACTIVE mode: disable native click-through while HUD is visible. */
@@ -144,6 +244,8 @@ export class BarSessionController {
 
   private async startSession(startAttemptId: number): Promise<void> {
     this.isFinalizingAfterStopWord = false;
+    this.pendingActiveSessionPreferencesRefresh = false;
+    this.activeSessionPreferences = null;
     await this.applyEvent("TOGGLE"); // HIDDEN → CONNECTING
     if (!this.isStartAttemptCurrent(startAttemptId)) return;
 
@@ -170,7 +272,7 @@ export class BarSessionController {
         return;
       }
 
-      const apiKey = await window.voiceToText.getSonioxKey();
+      const apiKey = await this.createTemporaryApiKey();
       if (!this.isStartAttemptCurrent(startAttemptId)) return;
       if (!apiKey) {
         await this.applyEvent("CONNECTION_ERROR");
@@ -179,47 +281,16 @@ export class BarSessionController {
       }
 
       const prefs = loadPreferences();
-      const context = {
-        terms: prefs.sonioxTerms,
-        translationTerms: prefs.sonioxTranslationTerms,
-      };
-
-      this.client.onTranscript = (result) => {
-        if (this.state !== "LISTENING") return;
-        if (!this.config) return;
-        if (this.isFinalizingAfterStopWord) return;
-
-        const stopWord = loadCustomStopWordPreference(this.config.voice.stop_word);
-        const liveTranscript = combineTranscriptText(result.finalText, result.interimText);
-        if (detectStopWord(liveTranscript, stopWord)) {
-          this.isFinalizingAfterStopWord = true;
-          void this.handleStopWordDetected(liveTranscript, stopWord);
-          return;
-        }
-
-        this.onTranscriptChange?.(result);
-      };
-
-      this.client.onError = (error) => {
-        console.error("[soniox]", error);
-        // Route mid-session stream failure through the state machine.
-        // LISTENING/PROCESSING both handle CONNECTION_ERROR → ERROR.
-        void this.handleStreamError();
-      };
-
-      await this.client.start(apiKey, context);
-      if (!this.isStartAttemptCurrent(startAttemptId)) {
-        await this.stopAudioPipeline();
-        return;
-      }
-      await window.voiceToText.setMicState(true);
+      this.activeSessionPreferences = this.createActiveSessionPreferences(prefs);
+      const sessionPreferences = this.activeSessionPreferences;
+      await this.startAudioPipeline(apiKey, sessionPreferences);
       if (!this.isStartAttemptCurrent(startAttemptId)) {
         await this.stopAudioPipeline();
         return;
       }
 
       await this.applyEvent("CONNECTED"); // CONNECTING → LISTENING
-      this.startReminderBeep();
+      this.syncReminderBeepForCurrentState();
     } catch (error) {
       if (!this.isStartAttemptCurrent(startAttemptId)) return;
       console.error("[session] start failed", error);
@@ -231,14 +302,63 @@ export class BarSessionController {
   }
 
   private async stopAudioPipeline(): Promise<void> {
+    this.invalidateTranscriptGeneration();
     this.stopReminderBeep();
     this.client.stop();
     await window.voiceToText.setMicState(false);
   }
 
+  private async startAudioPipeline(
+    apiKey: string,
+    sessionPreferences: ActiveSessionPreferences,
+  ): Promise<void> {
+    this.bindTranscriptHandlers();
+    await this.client.start(apiKey, {
+      terms: sessionPreferences.sonioxTerms,
+      translationTerms: sessionPreferences.sonioxTranslationTerms,
+    });
+    await window.voiceToText.setMicState(true);
+  }
+
+  private bindTranscriptHandlers(): void {
+    const transcriptGeneration = this.nextTranscriptGeneration();
+
+    this.client.onTranscript = (result) => {
+      if (transcriptGeneration !== this.transcriptGeneration) return;
+      if (this.state !== "LISTENING") return;
+      const currentSessionPreferences = this.activeSessionPreferences;
+      if (!currentSessionPreferences) return;
+      if (this.isFinalizingAfterStopWord) return;
+
+      const liveTranscript = combineTranscriptText(result.finalText, result.interimText);
+      if (
+        detectStopWordWithNormalizedStopWord(
+          liveTranscript,
+          currentSessionPreferences.normalizedStopWord,
+        )
+      ) {
+        this.isFinalizingAfterStopWord = true;
+        void this.handleStopWordDetected(liveTranscript, currentSessionPreferences);
+        return;
+      }
+
+      this.onTranscriptChange?.(result);
+    };
+
+    this.client.onError = (error) => {
+      if (transcriptGeneration !== this.transcriptGeneration) return;
+      console.error("[soniox]", error);
+      // Route mid-session stream failure through the state machine.
+      // LISTENING/PROCESSING both handle CONNECTION_ERROR → ERROR.
+      void this.handleStreamError();
+    };
+  }
+
   private async stopSession(): Promise<void> {
     this.invalidateStartAttempt();
     this.isFinalizingAfterStopWord = false;
+    this.pendingActiveSessionPreferencesRefresh = false;
+    this.activeSessionPreferences = null;
     await this.stopAudioPipeline().catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed", error);
     });
@@ -290,21 +410,22 @@ export class BarSessionController {
 
     // Attempt to restart the stream.
     try {
-      const apiKey = await window.voiceToText.getSonioxKey();
+      const apiKey = await this.createTemporaryApiKey();
       if (!apiKey) {
         this.setErrorMessage(STARTUP_MISSING_KEY_ERROR_MESSAGE);
         return;
       }
 
-      const prefs = loadPreferences();
-      await this.client.start(apiKey, {
-        terms: prefs.sonioxTerms,
-        translationTerms: prefs.sonioxTranslationTerms,
-      });
-      await window.voiceToText.setMicState(true);
+      const sessionPreferences = this.activeSessionPreferences;
+      if (!sessionPreferences) {
+        this.setErrorMessage(STREAM_RESTART_FAILED_ERROR_MESSAGE);
+        return;
+      }
+
+      await this.startAudioPipeline(apiKey, sessionPreferences);
 
       await this.applyEvent("AUTO_RETURN"); // ERROR → LISTENING
-      this.startReminderBeep();
+      this.syncReminderBeepForCurrentState();
     } catch (restartError) {
       console.error("[session] stream restart failed", restartError);
       this.setErrorMessage(
@@ -317,9 +438,13 @@ export class BarSessionController {
 
   private async handleStopWordDetected(
     rawTranscript: string,
-    stopWord: string
+    sessionPreferences: ActiveSessionPreferences,
   ): Promise<void> {
-    const commandText = stripStopWord(rawTranscript, stopWord);
+    const finalizationAttemptId = this.startAttemptId;
+    await this.applyEvent("STOP_WORD_DETECTED"); // LISTENING → PROCESSING
+    this.stopReminderBeep();
+
+    const commandText = stripStopWord(rawTranscript, sessionPreferences.stopWord);
     this.client.resetTranscript();
 
     if (!commandText.trim()) {
@@ -330,58 +455,103 @@ export class BarSessionController {
 
     this.onTranscriptChange?.({ finalText: commandText, interimText: "" });
 
-    await this.applyEvent("STOP_WORD_DETECTED"); // LISTENING → PROCESSING
-    this.stopReminderBeep();
+    await this.stopAudioPipeline().catch((error: unknown) => {
+      console.error("[session] stopAudioPipeline failed during stop-word finalization", error);
+    });
+    if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
+      return;
+    }
 
-    const prefs = loadPreferences();
     let correctedText = commandText;
 
-    if (!prefs.skipLlm) {
-      const llmOptions = this.resolveLlmRequestOptions();
-      const hasProviderKey =
-        llmOptions.provider === OPENAI_COMPATIBLE_PROVIDER
-          ? await window.voiceToText.hasOpenaiCompatibleKey()
-          : llmOptions.provider === GEMINI_PROVIDER
-            ? await window.voiceToText.hasGeminiKey()
-            : await window.voiceToText.hasXaiKey();
-
-      if (!hasProviderKey) {
-        await this.applyEvent("LLM_DONE"); // PROCESSING → INSERTING
-      } else {
-        try {
-          correctedText = await window.voiceToText.correctTranscript(
-            commandText,
-            prefs.outputLang,
-            llmOptions,
-          );
-          await this.applyEvent("LLM_DONE"); // PROCESSING → INSERTING
-        } catch (error) {
-          console.error("[llm] correction failed, using raw text", error);
-          await this.applyEvent("LLM_ERROR"); // PROCESSING → INSERTING (raw)
+    if (!sessionPreferences.skipLlm && sessionPreferences.llmOptions) {
+      try {
+        for (let attempt = 0; attempt < LLM_CORRECTION_ATTEMPT_COUNT; attempt += 1) {
+          try {
+            correctedText = await window.voiceToText.correctTranscript(
+              commandText,
+              sessionPreferences.outputLang,
+              sessionPreferences.llmOptions,
+            );
+            if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
+              return;
+            }
+            break;
+          } catch (error) {
+            if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
+              return;
+            }
+            if (attempt === LLM_CORRECTION_ATTEMPT_COUNT - 1) {
+              throw error;
+            }
+          }
         }
+        await this.applyEvent("LLM_DONE"); // PROCESSING → INSERTING
+      } catch (error) {
+        console.error("[llm] correction failed, using raw text", error);
+        await this.applyEvent("LLM_ERROR"); // PROCESSING → INSERTING (raw)
       }
     } else {
       await this.applyEvent("LLM_DONE"); // PROCESSING → INSERTING
     }
 
+    if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
+      return;
+    }
+
     const result = await window.voiceToText.insertText(correctedText, {
-      enterMode: prefs.enterMode,
+      enterMode: sessionPreferences.enterMode,
     });
+    if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
+      return;
+    }
 
     if (result.success) {
+      try {
+        const apiKey = await this.createTemporaryApiKey();
+        if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
+          return;
+        }
+        if (!apiKey) {
+          throw new Error(STARTUP_MISSING_KEY_ERROR_MESSAGE);
+        }
+
+        await this.startAudioPipeline(apiKey, sessionPreferences);
+        if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
+          await this.stopAudioPipeline().catch((error: unknown) => {
+            console.error("[session] stopAudioPipeline failed during stale finalization restart", error);
+          });
+          return;
+        }
+      } catch (restartError) {
+        console.error("[session] listening restart failed after insert", restartError);
+        await this.applyEvent("INSERT_ERROR"); // INSERTING → ERROR
+        this.setErrorMessage(
+          `${STREAM_RESTART_FAILED_ERROR_MESSAGE} ${formatErrorMessage(restartError)}`,
+        );
+        this.isFinalizingAfterStopWord = false;
+        this.applyPendingActiveSessionPreferencesRefresh();
+        return;
+      }
+
       await this.applyEvent("INSERT_SUCCESS"); // INSERTING → SUCCESS
       await new Promise<void>((resolve) =>
         setTimeout(resolve, SUCCESS_AUTO_RETURN_MS)
       );
+      if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
+        return;
+      }
+      this.client.resetTranscript();
       await this.applyEvent("AUTO_RETURN"); // SUCCESS → LISTENING
       this.isFinalizingAfterStopWord = false;
-      this.client.resetTranscript();
-      this.startReminderBeep();
+      this.applyPendingActiveSessionPreferencesRefresh();
+      this.syncReminderBeepForCurrentState();
     } else {
       console.error("[insert] failed", result.error);
       await this.applyEvent("INSERT_ERROR"); // INSERTING → ERROR
-      await this.stopAudioPipeline();
       this.setErrorMessage(result.error ?? INSERT_FAILED_ERROR_MESSAGE);
+      this.isFinalizingAfterStopWord = false;
+      this.applyPendingActiveSessionPreferencesRefresh();
     }
   }
 
@@ -416,6 +586,55 @@ export class BarSessionController {
       model,
       baseUrl,
     };
+  }
+
+  private createActiveSessionPreferences(
+    prefs: ReturnType<typeof loadPreferences>,
+  ): ActiveSessionPreferences {
+    const stopWord = loadCustomStopWordPreference(this.config?.voice.stop_word ?? "");
+    return {
+      enterMode: prefs.enterMode,
+      outputLang: prefs.outputLang,
+      skipLlm: prefs.skipLlm,
+      stopWord,
+      normalizedStopWord: normalizeStopWord(stopWord),
+      sonioxTerms: prefs.sonioxTerms,
+      sonioxTranslationTerms: prefs.sonioxTranslationTerms,
+      llmOptions: prefs.skipLlm ? null : this.resolveLlmRequestOptions(),
+    };
+  }
+
+  private refreshActiveSessionPreferences(): void {
+    if (!this.activeSessionPreferences) {
+      return;
+    }
+
+    this.activeSessionPreferences = this.createActiveSessionPreferences(loadPreferences());
+    this.pendingActiveSessionPreferencesRefresh = false;
+    this.syncReminderBeepForCurrentState();
+  }
+
+  private applyPendingActiveSessionPreferencesRefresh(): void {
+    if (!this.pendingActiveSessionPreferencesRefresh) {
+      return;
+    }
+
+    this.refreshActiveSessionPreferences();
+  }
+
+  private syncReminderBeepForCurrentState(): void {
+    if (this.state !== "LISTENING") {
+      return;
+    }
+
+    if (!loadReminderBeepEnabledPreference()) {
+      this.stopReminderBeep();
+      return;
+    }
+
+    if (this.reminderTimer === null) {
+      this.startReminderBeep();
+    }
   }
 
   private stopReminderBeep(): void {
@@ -460,8 +679,27 @@ export class BarSessionController {
     return this.startAttemptId;
   }
 
+  private nextTranscriptGeneration(): number {
+    this.transcriptGeneration += 1;
+    return this.transcriptGeneration;
+  }
+
   private invalidateStartAttempt(): void {
     this.startAttemptId += 1;
+  }
+
+  private invalidateTranscriptGeneration(): void {
+    this.transcriptGeneration += 1;
+  }
+
+  private async createTemporaryApiKey(): Promise<string> {
+    const hasSonioxKey = await window.voiceToText.hasSonioxKey();
+    if (!hasSonioxKey) {
+      return "";
+    }
+
+    const temporaryKey = await window.voiceToText.createSonioxTemporaryKey();
+    return temporaryKey.apiKey.trim();
   }
 
   private isStartAttemptCurrent(startAttemptId: number): boolean {

@@ -19,7 +19,8 @@ export type BarEvent =
   | "INSERT_SUCCESS"
   | "INSERT_ERROR"
   | "AUTO_RETURN"
-  | "CLOSE";
+  | "CLOSE"
+  | "CLEAR";
 
 export interface TransitionResult {
   next: BarState;
@@ -47,6 +48,7 @@ export function transition(state: BarState, event: BarEvent): TransitionResult {
       if (event === "CONNECTED") return { next: "LISTENING", ...noop };
       if (event === "PERMISSION_DENIED") return { next: "ERROR", ...noop };
       if (event === "CONNECTION_ERROR") return { next: "ERROR", ...noop };
+      if (event === "CLEAR") return { next: "CONNECTING", ...noop };
       if (event === "TOGGLE" || event === "CLOSE")
         return { next: "HIDDEN", ...hide };
       return { next: state, ...noop };
@@ -55,6 +57,7 @@ export function transition(state: BarState, event: BarEvent): TransitionResult {
       if (event === "STOP_WORD_DETECTED") return { next: "PROCESSING", ...noop };
       // Stream failure while listening — surface as recoverable error.
       if (event === "CONNECTION_ERROR") return { next: "ERROR", ...noop };
+      if (event === "CLEAR") return { next: "CONNECTING", ...noop };
       if (event === "TOGGLE" || event === "CLOSE")
         return { next: "HIDDEN", ...hide };
       return { next: state, ...noop };
@@ -64,6 +67,7 @@ export function transition(state: BarState, event: BarEvent): TransitionResult {
       if (event === "LLM_ERROR") return { next: "INSERTING", ...noop };
       // Stream failure mid-processing — surface as recoverable error.
       if (event === "CONNECTION_ERROR") return { next: "ERROR", ...noop };
+      if (event === "CLEAR") return { next: "CONNECTING", ...noop };
       if (event === "TOGGLE" || event === "CLOSE")
         return { next: "HIDDEN", ...hide };
       return { next: state, ...noop };
@@ -71,18 +75,21 @@ export function transition(state: BarState, event: BarEvent): TransitionResult {
     case "INSERTING":
       if (event === "INSERT_SUCCESS") return { next: "SUCCESS", ...noop };
       if (event === "INSERT_ERROR") return { next: "ERROR", ...noop };
+      if (event === "CLEAR") return { next: "CONNECTING", ...noop };
       if (event === "TOGGLE" || event === "CLOSE")
         return { next: "HIDDEN", ...hide };
       return { next: state, ...noop };
 
     case "SUCCESS":
       if (event === "AUTO_RETURN") return { next: "LISTENING", ...noop };
+      if (event === "CLEAR") return { next: "CONNECTING", ...noop };
       if (event === "TOGGLE" || event === "CLOSE")
         return { next: "HIDDEN", ...hide };
       return { next: state, ...noop };
 
     case "ERROR":
       if (event === "AUTO_RETURN") return { next: "LISTENING", ...noop };
+      if (event === "CLEAR") return { next: "CONNECTING", ...noop };
       if (event === "TOGGLE" || event === "CLOSE")
         return { next: "HIDDEN", ...hide };
       return { next: state, ...noop };

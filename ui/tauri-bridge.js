@@ -75,8 +75,11 @@
         llm_base_url: llmOptions?.baseUrl,
       }),
 
-    getSonioxKey: () =>
-      invoke("get_soniox_key"),
+    hasSonioxKey: () =>
+      invoke("has_soniox_key"),
+
+    createSonioxTemporaryKey: () =>
+      invoke("create_soniox_temporary_key"),
 
     hasXaiKey: () =>
       invoke("has_xai_key"),
@@ -169,12 +172,7 @@
    * These are the fallback values when localStorage has no stored terms.
    */
   window.voiceToTextDefaults = {
-    terms: [
-      "Soniox",
-      "xAI",
-      "Grok",
-      "Tauri",
-    ],
+    terms: [],
     translationTerms: [],
   };
 })();

@@ -16,6 +16,8 @@ import {
   applyTranscript as renderApplyTranscript,
   applyErrorMessage as renderApplyErrorMessage,
   applyOverlayMode as renderApplyOverlayMode,
+  createWaveformLayout,
+  type WaveformLayout,
   resizeCanvasWithContext,
   waveformShouldRun,
 } from "./bar-render.ts";
@@ -28,10 +30,10 @@ const transcriptFinalEl   = document.getElementById("transcript-final")   as HTM
 const transcriptInterimEl = document.getElementById("transcript-interim") as HTMLSpanElement;
 const transcriptPromptEl  = document.getElementById("transcript-prompt")  as HTMLSpanElement;
 const stateLabelEl    = document.getElementById("hud-state-label")   as HTMLSpanElement;
-const settingsBtn     = document.getElementById("hud-settings-btn")  as HTMLButtonElement;
+const clearBtn        = document.getElementById("hud-clear-btn")     as HTMLButtonElement;
 const closeBtn        = document.getElementById("hud-close-btn")     as HTMLButtonElement;
 
-const HUD_BUTTONS: HTMLButtonElement[] = [settingsBtn, closeBtn];
+const HUD_BUTTONS: HTMLButtonElement[] = [clearBtn, closeBtn];
 
 // ─── Controller ───────────────────────────────────────────────────────────
 
@@ -57,10 +59,62 @@ function applyOverlayMode(mode: OverlayMode): void {
   renderApplyOverlayMode(mode, hud, HUD_BUTTONS);
 }
 
+function clearHudButtonFocus(): void {
+  const activeElement = document.activeElement;
+  if (!(activeElement instanceof HTMLElement)) {
+    return;
+  }
+
+  if (!HUD_BUTTONS.includes(activeElement as HTMLButtonElement)) {
+    return;
+  }
+
+  activeElement.blur();
+}
+
+function suppressHudButtonHover(button: HTMLButtonElement): void {
+  button.dataset.hoverSuppressed = "true";
+}
+
+function clearHudButtonHoverSuppression(button: HTMLButtonElement): void {
+  delete button.dataset.hoverSuppressed;
+}
+
+function clearAllHudButtonHoverSuppression(): void {
+  for (const button of HUD_BUTTONS) {
+    clearHudButtonHoverSuppression(button);
+  }
+}
+
 // ─── Waveform ─────────────────────────────────────────────────────────────
 
 let rafId: number | null = null;
 const canvasCtx = waveformCanvas.getContext("2d");
+let waveformLayoutCache: WaveformLayout | null = null;
+let analyserDataBuffer: Uint8Array<ArrayBuffer> | null = null;
+
+function getWaveformLayout(width: number, height: number): WaveformLayout {
+  if (
+    waveformLayoutCache !== null
+    && waveformLayoutCache.width === width
+    && waveformLayoutCache.height === height
+  ) {
+    return waveformLayoutCache;
+  }
+
+  waveformLayoutCache = createWaveformLayout(width, height);
+  return waveformLayoutCache;
+}
+
+function getAnalyserFrequencyBuffer(analyser: AnalyserNode): Uint8Array<ArrayBuffer> {
+  const nextLength = analyser.frequencyBinCount;
+  if (analyserDataBuffer?.length === nextLength) {
+    return analyserDataBuffer;
+  }
+
+  analyserDataBuffer = new Uint8Array(new ArrayBuffer(nextLength));
+  return analyserDataBuffer;
+}
 
 /** Start the animation loop; idempotent — ignores duplicate calls. */
 
@@ -88,68 +142,67 @@ function drawWaveform(): void {
   if (!canvasCtx) return;
 
   const analyser = controller.getAnalyserNode();
-  const W = waveformCanvas.width;
-  const H = waveformCanvas.height;
+  const layout = getWaveformLayout(waveformCanvas.width, waveformCanvas.height);
 
-  canvasCtx.clearRect(0, 0, W, H);
+  canvasCtx.clearRect(0, 0, layout.width, layout.height);
 
   if (!analyser) {
-    drawIdleWaveform(W, H);
+    drawIdleWaveform(layout);
     return;
   }
 
-  const bufferLength = analyser.frequencyBinCount;
-  const dataArray = new Uint8Array(bufferLength);
+  const dataArray = getAnalyserFrequencyBuffer(analyser);
   analyser.getByteFrequencyData(dataArray);
 
-  drawAudioWaveform(dataArray, W, H);
+  drawAudioWaveform(dataArray, layout);
 }
 
-function drawIdleWaveform(W: number, H: number): void {
+function drawIdleWaveform(layout: WaveformLayout): void {
   if (!canvasCtx) return;
 
-  const centerY = H / 2;
   const now = performance.now() / 1000;
-  const bars = 12;
-  const barW = 2;
-  const gap = (W - bars * barW) / (bars + 1);
 
-  for (let i = 0; i < bars; i++) {
-    const x = gap + i * (barW + gap);
-    const phase = (i / bars) * Math.PI * 2;
+  for (let i = 0; i < layout.barCount; i++) {
+    const x = layout.gap + i * (layout.barWidth + layout.gap);
+    const phase = (i / layout.barCount) * Math.PI * 2;
     const amplitude = (Math.sin(now * 1.2 + phase) * 0.5 + 0.5) * 4 + 2;
 
     canvasCtx.fillStyle = "rgba(110, 117, 129, 0.4)";
     canvasCtx.beginPath();
-    canvasCtx.roundRect(x, centerY - amplitude / 2, barW, amplitude, 1);
+    canvasCtx.roundRect(x, layout.centerY - amplitude / 2, layout.barWidth, amplitude, 1);
     canvasCtx.fill();
   }
 }
 
-function drawAudioWaveform(data: Uint8Array, W: number, H: number): void {
+function drawAudioWaveform(data: Uint8Array<ArrayBuffer>, layout: WaveformLayout): void {
   if (!canvasCtx) return;
 
   const state = hud.dataset.state as BarState;
   const isListening = state === "LISTENING";
-  const centerY = H / 2;
-  const bars = 12;
-  const barW = 2;
-  const gap = (W - bars * barW) / (bars + 1);
-  const maxBarH = H * 0.85;
 
-  const bucketSize = Math.floor(data.length / bars);
+  const bucketSize = Math.max(1, Math.floor(data.length / layout.barCount));
 
-  for (let i = 0; i < bars; i++) {
+  for (let i = 0; i < layout.barCount; i++) {
+    const bucketStart = i * bucketSize;
+    if (bucketStart >= data.length) break;
+
     let sum = 0;
-    for (let j = 0; j < bucketSize; j++) {
-      sum += data[i * bucketSize + j];
+    const bucketEnd = Math.min(bucketStart + bucketSize, data.length);
+    for (let j = bucketStart; j < bucketEnd; j++) {
+      sum += data[j];
     }
-    const avg = sum / bucketSize / 255;
-    const barH = Math.max(2, avg * maxBarH);
-    const x = gap + i * (barW + gap);
+
+    const avg = sum / (bucketEnd - bucketStart) / 255;
+    const barH = Math.max(2, avg * layout.maxBarHeight);
+    const x = layout.gap + i * (layout.barWidth + layout.gap);
 
     if (isListening) {
-      const gradient = canvasCtx.createLinearGradient(x, centerY - barH / 2, x, centerY + barH / 2);
+      const gradient = canvasCtx.createLinearGradient(
+        x,
+        layout.centerY - barH / 2,
+        x,
+        layout.centerY + barH / 2,
+      );
       gradient.addColorStop(0, `rgba(56, 232, 255, ${0.4 + avg * 0.6})`);
       gradient.addColorStop(1, `rgba(167, 139, 250, ${0.3 + avg * 0.5})`);
       canvasCtx.fillStyle = gradient;
@@ -158,7 +211,7 @@ function drawAudioWaveform(data: Uint8Array, W: number, H: number): void {
     }
 
     canvasCtx.beginPath();
-    canvasCtx.roundRect(x, centerY - barH / 2, barW, barH, 1);
+    canvasCtx.roundRect(x, layout.centerY - barH / 2, layout.barWidth, barH, 1);
     canvasCtx.fill();
   }
 }
@@ -166,12 +219,26 @@ function drawAudioWaveform(data: Uint8Array, W: number, H: number): void {
 // ─── Controls ─────────────────────────────────────────────────────────────
 
 function bindControls(): void {
-  settingsBtn.addEventListener("click", () => {
+  for (const button of HUD_BUTTONS) {
+    button.addEventListener("pointermove", () => {
+      clearHudButtonHoverSuppression(button);
+    });
+
+    button.addEventListener("pointerleave", () => {
+      clearHudButtonHoverSuppression(button);
+    });
+  }
+
+  clearBtn.addEventListener("click", () => {
     if (!window.voiceToText) {
       return;
     }
 
-    void window.voiceToText.showSettings();
+    suppressHudButtonHover(clearBtn);
+    clearHudButtonFocus();
+    void controller.handleClear().catch((error: unknown) => {
+      console.error("[bar] clear handler failed", error);
+    });
   });
 
   closeBtn.addEventListener("click", () => {
@@ -179,6 +246,8 @@ function bindControls(): void {
       return;
     }
 
+    suppressHudButtonHover(closeBtn);
+    clearHudButtonFocus();
     void controller.handleClose().catch((error: unknown) => {
       console.error("[bar] close handler failed; retrying hideBar", error);
       void window.voiceToText?.hideBar();
@@ -190,6 +259,11 @@ function bindControls(): void {
 
 controller.onStateChange = (state) => {
   applyState(state);
+
+  if (state === "HIDDEN" || state === "CONNECTING") {
+    clearAllHudButtonHoverSuppression();
+    clearHudButtonFocus();
+  }
 
   if (waveformShouldRun(state)) {
     startWaveform();
@@ -218,6 +292,7 @@ controller.onErrorMessageChange = (message: string | null) => {
 
 function resizeCanvas(): void {
   resizeCanvasWithContext(waveformCanvas, canvasCtx, window.devicePixelRatio || 1);
+  waveformLayoutCache = null;
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────
@@ -239,6 +314,7 @@ async function bootstrapBar(): Promise<void> {
   // Initialise in HIDDEN — no waveform animation until a session starts.
   applyState("HIDDEN");
   applyOverlayMode("PASSIVE");
+  clearAllHudButtonHoverSuppression();
   stopWaveform();
 
   void controller.init();

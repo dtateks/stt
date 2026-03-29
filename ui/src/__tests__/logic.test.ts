@@ -13,7 +13,13 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { normalizeText, detectStopWord, stripStopWord } from "../stop-word.ts";
+import {
+  detectStopWord,
+  detectStopWordWithNormalizedStopWord,
+  normalizeStopWord,
+  normalizeText,
+  stripStopWord,
+} from "../stop-word.ts";
 import { transition, isActiveState } from "../bar-state-machine.ts";
 import {
   canonicalToMacosLabel,
@@ -90,6 +96,28 @@ describe("detectStopWord", () => {
   it("matches normalized form through extra spaces", () => {
     expect(detectStopWord("done   thank   you", "thank you")).toBe(true);
   });
+
+  it("matches detectStopWordWithNormalizedStopWord semantics", () => {
+    const stopWord = "Thank   You";
+    const normalizedStopWord = normalizeStopWord(stopWord);
+    const samples = [
+      "send this message thank you",
+      "submit now, thank you!",
+      "thank you for everything",
+      "",
+      "THANK YOU",
+    ];
+
+    for (const sample of samples) {
+      expect(detectStopWordWithNormalizedStopWord(sample, normalizedStopWord)).toBe(
+        detectStopWord(sample, stopWord),
+      );
+    }
+  });
+
+  it("returns false when normalized stop word is empty", () => {
+    expect(detectStopWordWithNormalizedStopWord("hello thank you", "")).toBe(false);
+  });
 });
 
 // ─── Stop-word: stripStopWord ─────────────────────────────────────────────
@@ -146,6 +174,13 @@ describe("bar state machine — transition", () => {
     expect(r.shouldHide).toBe(true);
   });
 
+  it("CONNECTING + CLEAR → CONNECTING", () => {
+    const r = transition("CONNECTING", "CLEAR");
+    expect(r.next).toBe("CONNECTING");
+    expect(r.shouldShow).toBe(false);
+    expect(r.shouldHide).toBe(false);
+  });
+
   it("LISTENING + STOP_WORD_DETECTED → PROCESSING", () => {
     expect(transition("LISTENING", "STOP_WORD_DETECTED").next).toBe("PROCESSING");
   });
@@ -156,6 +191,10 @@ describe("bar state machine — transition", () => {
 
   it("LISTENING + CLOSE → HIDDEN", () => {
     expect(transition("LISTENING", "CLOSE").next).toBe("HIDDEN");
+  });
+
+  it("LISTENING + CLEAR → CONNECTING", () => {
+    expect(transition("LISTENING", "CLEAR").next).toBe("CONNECTING");
   });
 
   // ── CRIT-01 regression: stream failure while LISTENING must not be ignored ──
@@ -191,6 +230,10 @@ describe("bar state machine — transition", () => {
     expect(transition("INSERTING", "INSERT_ERROR").next).toBe("ERROR");
   });
 
+  it("INSERTING + CLEAR → CONNECTING", () => {
+    expect(transition("INSERTING", "CLEAR").next).toBe("CONNECTING");
+  });
+
   it("SUCCESS + AUTO_RETURN → LISTENING", () => {
     expect(transition("SUCCESS", "AUTO_RETURN").next).toBe("LISTENING");
   });
@@ -212,6 +255,10 @@ describe("bar state machine — transition", () => {
     expect(transition("ERROR", "TOGGLE").next).toBe("HIDDEN");
   });
 
+  it("ERROR + CLEAR → CONNECTING", () => {
+    expect(transition("ERROR", "CLEAR").next).toBe("CONNECTING");
+  });
+
   it("never leaks shouldShow AND shouldHide simultaneously", () => {
     const states = [
       "HIDDEN", "CONNECTING", "LISTENING", "PROCESSING",
@@ -220,7 +267,7 @@ describe("bar state machine — transition", () => {
     const events = [
       "TOGGLE", "CLOSE", "CONNECTED", "CONNECTION_ERROR",
       "PERMISSION_DENIED", "STOP_WORD_DETECTED", "LLM_DONE", "LLM_ERROR",
-      "INSERT_SUCCESS", "INSERT_ERROR", "AUTO_RETURN",
+      "INSERT_SUCCESS", "INSERT_ERROR", "AUTO_RETURN", "CLEAR",
     ] as const;
 
     for (const state of states) {

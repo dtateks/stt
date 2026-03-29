@@ -20,11 +20,14 @@ vi.mock("../startup-permissions.ts", () => ({
 const DEFAULT_CONFIG: AppConfig = {
   soniox: {
     ws_url: "wss://example.test/stt",
-    model: "stt-rt-preview",
+    model: "stt-rt-v4",
     sample_rate: 16_000,
     num_channels: 1,
     audio_format: "pcm_s16le",
     chunk_size: 4_096,
+    enable_endpoint_detection: true,
+    max_endpoint_delay_ms: 500,
+    max_non_final_tokens_duration_ms: 1800,
   },
   llm: {
     provider: "xai",
@@ -56,7 +59,8 @@ function createBridge(): VoiceToTextBridge {
     setMicState: vi.fn(async () => {}),
     insertText: vi.fn(async () => ({ success: true })),
     correctTranscript: vi.fn(async () => ""),
-    getSonioxKey: vi.fn(async () => "soniox-key"),
+    hasSonioxKey: vi.fn(async () => true),
+    createSonioxTemporaryKey: vi.fn(async () => ({ apiKey: "temporary-key" })),
     hasXaiKey: vi.fn(async () => true),
     hasGeminiKey: vi.fn(async () => true),
     hasOpenaiCompatibleKey: vi.fn(async () => true),

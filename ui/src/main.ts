@@ -253,18 +253,18 @@ async function init(): Promise<void> {
 }
 
 async function checkHasSonioxKey(
-  bridge: Pick<typeof window.voiceToText, "getSonioxKey">,
+  bridge: Pick<typeof window.voiceToText, "hasSonioxKey">,
 ): Promise<{ hasKey: boolean; error?: string }> {
   try {
-    const key = await bridge.getSonioxKey();
-    if (typeof key !== "string") {
+    const hasKey = await bridge.hasSonioxKey();
+    if (typeof hasKey !== "boolean") {
       return {
         hasKey: false,
-        error: `getSonioxKey returned ${typeof key} instead of string`,
+        error: `hasSonioxKey returned ${typeof hasKey} instead of boolean`,
       };
     }
 
-    return { hasKey: Boolean(key && key.trim()) };
+    return { hasKey };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { hasKey: false, error: message };
@@ -682,8 +682,8 @@ function showModelPlaceholder(): void {
 async function loadKeyStates(): Promise<void> {
   // Check Soniox key
   try {
-    const sonioxKey = await window.voiceToText.getSonioxKey();
-    if (sonioxKey && sonioxKey.trim()) {
+    const hasSonioxKey = await window.voiceToText.hasSonioxKey();
+    if (hasSonioxKey) {
       // Show masked placeholder to indicate key is present
       sonioxKeyInput.placeholder = "••••••••••••••••";
       sonioxKeyInput.classList.add("has-key");

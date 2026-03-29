@@ -230,7 +230,7 @@ body {
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.46);
   cursor: pointer;
   padding: 0;
   /* Eliminate 300ms tap delay on touch devices */
@@ -242,12 +242,12 @@ body {
 }
 
 .hud-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.68);
 }
 
 .hud-btn:active {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.09);
 }
 
 /* Visible focus ring matching the HUD button shape */
@@ -258,14 +258,27 @@ body {
 }
 
 .hud-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   pointer-events: none;
 }
 
+.hud-btn-clear svg {
+  width: 14px;
+  height: 14px;
+}
+
 .hud-btn-close:hover {
-  background: rgba(239, 68, 68, 0.12);
-  color: var(--color-error-300);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.hud-btn[data-hover-suppressed="true"]:hover,
+.hud-btn[data-hover-suppressed="true"]:active,
+.hud-btn-close[data-hover-suppressed="true"]:hover,
+.hud-btn-close[data-hover-suppressed="true"]:active {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.46);
 }
 
 /* ─── State labels ───────────────────────────────────────────────────────── */

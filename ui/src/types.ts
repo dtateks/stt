@@ -39,8 +39,24 @@ export interface SonioxConfig {
   num_channels: number;
   audio_format: string;
   chunk_size: number;
+  context_general?: SonioxContextGeneralEntry[];
+  context_text?: string;
+  enable_endpoint_detection?: boolean;
+  max_endpoint_delay_ms?: number;
+  max_non_final_tokens_duration_ms?: number;
   language_hints?: string[];
   language_hints_strict?: boolean;
+}
+
+export interface SonioxContextGeneralEntry {
+  key: string;
+  value: string;
+}
+
+export interface SonioxTemporaryApiKeyResult {
+  apiKey: string;
+  expiresAt?: string;
+  expiresInSeconds?: number;
 }
 
 export interface LlmConfig {
@@ -79,7 +95,8 @@ export interface VoiceToTextBridge {
     outputLang?: string,
     llmOptions?: LlmRequestOptions,
   ): Promise<string>;
-  getSonioxKey(): Promise<string>;
+  hasSonioxKey(): Promise<boolean>;
+  createSonioxTemporaryKey(): Promise<SonioxTemporaryApiKeyResult>;
   hasXaiKey(): Promise<boolean>;
   hasGeminiKey(): Promise<boolean>;
   hasOpenaiCompatibleKey(): Promise<boolean>;
@@ -147,6 +164,7 @@ export type BarState =
 export interface SonioxSTTClient {
   setConfig(config: SonioxConfig): void;
   start(apiKey: string, context: SonioxContext): Promise<void>;
+  finalizeCurrentUtterance(fallbackTranscript: string): Promise<string>;
   stop(): void;
   resetTranscript(): void;
   getAnalyser(): AnalyserNode | null;

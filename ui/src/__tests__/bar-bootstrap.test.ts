@@ -7,6 +7,10 @@ const bridge = vi.hoisted(() => ({
 const controllerMocks = vi.hoisted(() => ({
   init: vi.fn(async () => {}),
   handleClose: vi.fn(async () => {}),
+  handleClear: vi.fn(async () => {}),
+  instance: null as {
+    onStateChange: ((state: string) => void) | null;
+  } | null,
 }));
 
 vi.mock("../bridge-ready.ts", () => ({
@@ -20,12 +24,20 @@ vi.mock("../bar-session-controller.ts", () => ({
     onOverlayModeChange: ((mode: string) => void) | null = null;
     onErrorMessageChange: ((message: string | null) => void) | null = null;
 
+    constructor() {
+      controllerMocks.instance = this;
+    }
+
     async init(): Promise<void> {
       await controllerMocks.init();
     }
 
     async handleClose(): Promise<void> {
       await controllerMocks.handleClose();
+    }
+
+    async handleClear(): Promise<void> {
+      await controllerMocks.handleClear();
     }
 
     getAnalyserNode(): AnalyserNode | null {
@@ -42,7 +54,7 @@ function renderHudFixture(): void {
       <span id="transcript-interim"></span>
       <span id="transcript-prompt" hidden></span>
       <span id="hud-state-label"></span>
-      <button id="hud-settings-btn" type="button"></button>
+      <button id="hud-clear-btn" type="button"></button>
       <button id="hud-close-btn" type="button"></button>
     </div>
   `;
@@ -59,6 +71,7 @@ describe("bar bootstrap fallback close behavior", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    controllerMocks.instance = null;
     renderHudFixture();
     Object.defineProperty(window, "voiceToText", {
       value: undefined,
@@ -90,6 +103,17 @@ describe("bar bootstrap fallback close behavior", () => {
     expect(controllerMocks.handleClose).not.toHaveBeenCalled();
   });
 
+  it("does not clear when bridge bootstraps unsuccessfully", async () => {
+    bridge.waitForVoiceToTextBridge.mockRejectedValueOnce(new Error("bridge unavailable"));
+
+    await bootstrapBarModule();
+
+    const clearBtn = document.getElementById("hud-clear-btn") as HTMLButtonElement;
+    clearBtn.click();
+
+    expect(controllerMocks.handleClear).not.toHaveBeenCalled();
+  });
+
   it("uses controller close path when bridge bootstraps successfully", async () => {
     window.voiceToText = {} as never;
     bridge.waitForVoiceToTextBridge.mockResolvedValueOnce(window.voiceToText);
@@ -103,5 +127,34 @@ describe("bar bootstrap fallback close behavior", () => {
 
     expect(controllerMocks.handleClose).toHaveBeenCalledTimes(1);
     expect(closeSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses controller clear path when bridge bootstraps successfully", async () => {
+    window.voiceToText = {} as never;
+    bridge.waitForVoiceToTextBridge.mockResolvedValueOnce(window.voiceToText);
+
+    await bootstrapBarModule();
+
+    const clearBtn = document.getElementById("hud-clear-btn") as HTMLButtonElement;
+    clearBtn.click();
+    await Promise.resolve();
+
+    expect(controllerMocks.handleClear).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears close-button hover suppression when the HUD hides", async () => {
+    window.voiceToText = {} as never;
+    bridge.waitForVoiceToTextBridge.mockResolvedValueOnce(window.voiceToText);
+
+    await bootstrapBarModule();
+
+    const closeBtn = document.getElementById("hud-close-btn") as HTMLButtonElement;
+    closeBtn.click();
+    await Promise.resolve();
+
+    expect(closeBtn.dataset.hoverSuppressed).toBe("true");
+
+    controllerMocks.instance?.onStateChange?.("HIDDEN");
+    expect(closeBtn.dataset.hoverSuppressed).toBeUndefined();
   });
 });

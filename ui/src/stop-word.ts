@@ -13,19 +13,28 @@ export function normalizeText(text: string): string {
     .toLowerCase();
 }
 
+export function normalizeStopWord(stopWord: string): string {
+  return normalizeText(stopWord);
+}
+
+export function detectStopWordWithNormalizedStopWord(
+  text: string,
+  normalizedStopWord: string,
+): boolean {
+  if (!normalizedStopWord) return false;
+
+  const normalizedText = normalizeText(text);
+  if (!normalizedText) return false;
+
+  return normalizedText.endsWith(normalizedStopWord);
+}
+
 /**
  * Returns true if the normalized form of `text` ends with the normalized
  * form of `stopWord`.
  */
 export function detectStopWord(text: string, stopWord: string): boolean {
-  if (!stopWord.trim()) return false;
-
-  const normalizedText = normalizeText(text);
-  const normalizedStop = normalizeText(stopWord);
-
-  if (!normalizedText || !normalizedStop) return false;
-
-  return normalizedText.endsWith(normalizedStop);
+  return detectStopWordWithNormalizedStopWord(text, normalizeStopWord(stopWord));
 }
 
 /**

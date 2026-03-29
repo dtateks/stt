@@ -32,6 +32,8 @@ describe("tauri bridge command contract", () => {
     await window.voiceToText.saveCredentials("xai", "soniox");
     await window.voiceToText.updateXaiKey("xai-new");
     await window.voiceToText.updateGeminiKey("gemini-new");
+    await window.voiceToText.hasSonioxKey();
+    await window.voiceToText.createSonioxTemporaryKey();
     await window.voiceToText.updateSonioxKey("soniox-new");
     await window.voiceToText.hasGeminiKey();
     await window.voiceToText.hasOpenaiCompatibleKey();
@@ -56,6 +58,8 @@ describe("tauri bridge command contract", () => {
     expect(invoke).toHaveBeenCalledWith("update_xai_key", {
       xai_key: "xai-new",
     });
+    expect(invoke).toHaveBeenCalledWith("has_soniox_key", undefined);
+    expect(invoke).toHaveBeenCalledWith("create_soniox_temporary_key", undefined);
     expect(invoke).toHaveBeenCalledWith("update_soniox_key", {
       soniox_key: "soniox-new",
     });
@@ -138,9 +142,9 @@ describe("tauri bridge command contract", () => {
   it("waits for Tauri invoke to become available during startup", async () => {
     vi.useFakeTimers();
 
-    const invoke = vi.fn(async () => "soniox-key");
+    const invoke = vi.fn(async () => true);
     const listen = vi.fn(async () => () => {});
-    const pendingKey = window.voiceToText.getSonioxKey();
+    const pendingHasKey = window.voiceToText.hasSonioxKey();
 
     setTimeout(() => {
       installTauriRuntime(invoke, listen);
@@ -148,8 +152,8 @@ describe("tauri bridge command contract", () => {
 
     await vi.advanceTimersByTimeAsync(30);
 
-    await expect(pendingKey).resolves.toBe("soniox-key");
-    expect(invoke).toHaveBeenCalledWith("get_soniox_key", undefined);
+    await expect(pendingHasKey).resolves.toBe(true);
+    expect(invoke).toHaveBeenCalledWith("has_soniox_key", undefined);
 
     vi.useRealTimers();
   });
@@ -183,8 +187,8 @@ describe("tauri bridge command contract", () => {
   it("rejects when the Tauri IPC bridge never becomes available", async () => {
     vi.useFakeTimers();
 
-    const pendingKey = window.voiceToText.getSonioxKey();
-    const rejection = expect(pendingKey).rejects.toThrow("Tauri IPC not available");
+    const pendingHasKey = window.voiceToText.hasSonioxKey();
+    const rejection = expect(pendingHasKey).rejects.toThrow("Tauri IPC not available");
 
     await vi.advanceTimersByTimeAsync(10_000);
 
