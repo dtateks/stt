@@ -21,3 +21,5 @@ src/target/
 .idea/
 .vscode/
 *.swp
+.gitnexus
+.agents/

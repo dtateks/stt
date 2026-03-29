@@ -12,7 +12,8 @@
   "llm": {
     "provider": "xai",
     "model": "grok-4-1-fast-non-reasoning",
-    "temperature": 0.1
+    "temperature": 0.1,
+    "base_url": "https://api.openai.com/v1"
   },
   "voice": {
     "stop_word": "thank you"
