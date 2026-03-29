@@ -199,6 +199,13 @@ fn perform_insertion(text: &str, enter_mode: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Non-prompting automation status check.
+/// After the initial `ensure_text_insertion_permission` call triggers the
+/// macOS prompt, subsequent calls just return the stored TCC decision.
+pub fn check_automation_status() -> bool {
+    run_osascript(r#"tell application "System Events" to count processes"#).is_ok()
+}
+
 fn run_osascript(script: &str) -> Result<(), String> {
     let output = Command::new("osascript")
         .args(["-e", script])

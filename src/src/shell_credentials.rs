@@ -99,6 +99,12 @@ pub fn parse_shell_environment_output(stdout: &[u8]) -> Credentials {
 
         if key == "XAI_API_KEY" {
             credentials.xai_key = value.to_string();
+        } else if key == "GEMINI_API_KEY" {
+            credentials.gemini_key = value.to_string();
+        } else if key == "OPENAI_COMPATIBLE_API_KEY" {
+            credentials.openai_compatible_key = value.to_string();
+        } else if key == "OPENAI_API_KEY" && credentials.openai_compatible_key.is_empty() {
+            credentials.openai_compatible_key = value.to_string();
         } else if key == "SONIOX_API_KEY" {
             credentials.soniox_key = value.to_string();
         }
@@ -125,7 +131,10 @@ pub fn parse_shell_environment_result(status_success: bool, stdout: &[u8]) -> Cr
 }
 
 fn has_any_credential(credentials: &Credentials) -> bool {
-    !credentials.soniox_key.is_empty() || !credentials.xai_key.is_empty()
+    !credentials.soniox_key.is_empty()
+        || !credentials.xai_key.is_empty()
+        || !credentials.gemini_key.is_empty()
+        || !credentials.openai_compatible_key.is_empty()
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {

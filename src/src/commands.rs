@@ -35,6 +35,16 @@ pub fn has_xai_key(app: AppHandle) -> Result<bool, String> {
     Ok(!credentials.xai_key.is_empty())
 }
 
+#[tauri::command]
+pub fn has_openai_compatible_key(app: AppHandle, provider: Option<String>) -> Result<bool, String> {
+    let credentials = credentials::get_credentials(&app)?;
+    if provider.as_deref() == Some("gemini") {
+        return Ok(!credentials.gemini_key.is_empty());
+    }
+
+    Ok(!credentials.openai_compatible_key.is_empty())
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub fn save_credentials(app: AppHandle, xai_key: String, soniox_key: String) -> Result<(), String> {
     credentials::save_credentials(&app, xai_key, soniox_key)
@@ -43,6 +53,49 @@ pub fn save_credentials(app: AppHandle, xai_key: String, soniox_key: String) -> 
 #[tauri::command(rename_all = "snake_case")]
 pub fn update_xai_key(app: AppHandle, xai_key: String) -> Result<(), String> {
     credentials::save_xai_key(&app, xai_key)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn update_openai_compatible_key(
+    app: AppHandle,
+    openai_compatible_key: String,
+    provider: Option<String>,
+) -> Result<(), String> {
+    if provider.as_deref() == Some("gemini") {
+        return credentials::save_gemini_key(&app, openai_compatible_key);
+    }
+
+    credentials::save_openai_compatible_key(&app, openai_compatible_key)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn update_soniox_key(app: AppHandle, soniox_key: String) -> Result<(), String> {
+    credentials::save_soniox_key(&app, soniox_key)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn list_models(
+    app: AppHandle,
+    provider: Option<String>,
+    base_url: Option<String>,
+) -> Result<Vec<String>, String> {
+    let credentials = credentials::get_credentials(&app)?;
+    let provider_config = llm_service::LlmConfig {
+        provider,
+        model: None,
+        temperature: None,
+        base_url: None,
+    };
+    let resolved_provider = llm_service::resolve_provider(&provider_config)?;
+    let api_key = if resolved_provider == "openai_compatible" {
+        credentials.openai_compatible_key
+    } else if resolved_provider == "gemini" {
+        credentials.gemini_key
+    } else {
+        credentials.xai_key
+    };
+
+    llm_service::list_models(api_key, resolved_provider, base_url.as_deref()).await
 }
 
 #[tauri::command]
@@ -65,6 +118,16 @@ pub fn ensure_text_insertion_permission() -> text_inserter::TextInsertionPermiss
     text_inserter::ensure_text_insertion_permission()
 }
 
+#[tauri::command]
+pub fn check_permissions_status() -> permissions::PermissionsStatus {
+    permissions::check_permissions_status()
+}
+
+#[tauri::command]
+pub fn relaunch_app(app: AppHandle) {
+    app.restart();
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub fn insert_text(text: String, enter_mode: Option<bool>) -> text_inserter::InsertTextResult {
     text_inserter::insert_text(text, enter_mode.unwrap_or(false))
@@ -75,21 +138,49 @@ pub async fn correct_transcript(
     app: AppHandle,
     transcript: String,
     output_lang: Option<String>,
+    llm_provider: Option<String>,
+    llm_model: Option<String>,
+    llm_base_url: Option<String>,
 ) -> Result<String, String> {
     let credentials = credentials::get_credentials(&app)?;
-    if credentials.xai_key.trim().is_empty() {
-        return Err("xAI API key is not configured".to_string());
-    }
 
     let config = get_config(app)?;
-    let llm_config = serde_json::from_value::<llm_service::LlmConfig>(
+    let mut llm_config = serde_json::from_value::<llm_service::LlmConfig>(
         config.get("llm").cloned().unwrap_or(Value::Null),
     )
     .unwrap_or_default();
 
+    if let Some(provider) = llm_provider {
+        llm_config.provider = Some(provider);
+    }
+    if let Some(model) = llm_model {
+        llm_config.model = Some(model);
+    }
+    if let Some(base_url) = llm_base_url {
+        llm_config.base_url = Some(base_url);
+    }
+
+    let provider = llm_service::resolve_provider(&llm_config)?;
+    let api_key = if provider == "openai_compatible" {
+        credentials.openai_compatible_key
+    } else if provider == "gemini" {
+        credentials.gemini_key
+    } else {
+        credentials.xai_key
+    };
+    if api_key.trim().is_empty() {
+        if provider == "openai_compatible" {
+            return Err("OpenAI-compatible API key is not configured".to_string());
+        }
+        if provider == "gemini" {
+            return Err("Gemini API key is not configured".to_string());
+        }
+        return Err("xAI API key is not configured".to_string());
+    }
+
     llm_service::correct_transcript(
         transcript,
-        credentials.xai_key,
+        api_key,
         llm_config,
         output_lang.unwrap_or_else(|| "auto".to_string()),
     )
@@ -119,28 +210,18 @@ pub fn show_bar(app: AppHandle) -> Result<(), String> {
 
     crate::show_bar_window_with_runtime_invariants(&app, &bar_window)
         .map_err(|error| error.to_string())?;
-    crate::set_bar_ignores_mouse_events_native(&app, &bar_window, false)
-        .map_err(|error| error.to_string())?;
+    crate::set_bar_ignores_mouse_events(&app, false).map_err(|error| error.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn hide_bar(app: AppHandle) -> Result<(), String> {
-    let Some(bar_window) = app.get_webview_window(BAR_WINDOW_LABEL) else {
-        return Err("bar window not found".to_string());
-    };
-
-    bar_window.hide().map_err(|error| error.to_string())
+    crate::hide_bar_panel(&app).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub fn set_mouse_events(app: AppHandle, ignore: bool) -> Result<(), String> {
-    let Some(bar_window) = app.get_webview_window(BAR_WINDOW_LABEL) else {
-        return Err("bar window not found".to_string());
-    };
-
-    crate::set_bar_ignores_mouse_events_native(&app, &bar_window, ignore)
-        .map_err(|error| error.to_string())
+    crate::set_bar_ignores_mouse_events(&app, ignore).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -151,4 +232,14 @@ pub fn show_settings(app: AppHandle) -> Result<(), String> {
 
     main_window.show().map_err(|error| error.to_string())?;
     main_window.set_focus().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_mic_toggle_shortcut(app: AppHandle) -> Result<String, String> {
+    crate::get_mic_toggle_shortcut(&app)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn update_mic_toggle_shortcut(app: AppHandle, shortcut: String) -> Result<String, String> {
+    crate::update_mic_toggle_shortcut(&app, &shortcut)
 }

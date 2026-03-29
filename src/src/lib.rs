@@ -1,27 +1,27 @@
-use tauri::utils::config::{Color, WindowConfig};
+use std::sync::Mutex;
+use tauri::utils::config::WindowConfig;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-#[cfg(target_os = "macos")]
-use objc2::msg_send;
 #[cfg(target_os = "macos")]
 use core_graphics::event::CGEvent;
 #[cfg(target_os = "macos")]
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 #[cfg(target_os = "macos")]
+use objc2::msg_send;
+#[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSColor, NSWindow, NSWindowCollectionBehavior};
+use objc2_app_kit::{NSColor, NSWindowCollectionBehavior};
 #[cfg(target_os = "macos")]
 use objc2_foundation::{NSNumber, NSString};
 #[cfg(target_os = "macos")]
 use objc2_web_kit::WKWebView;
+
 #[cfg(target_os = "macos")]
-use std::sync::mpsc;
-#[cfg(target_os = "macos")]
-use std::time::Duration;
+use tauri_nspanel::{ManagerExt, WebviewWindowExt};
 
 mod commands;
 pub mod credentials;
@@ -33,12 +33,197 @@ pub mod text_inserter;
 const MAIN_WINDOW_LABEL: &str = "main";
 pub(crate) const BAR_WINDOW_LABEL: &str = "bar";
 const TOGGLE_MIC_EVENT: &str = "toggle-mic";
+pub(crate) const DEFAULT_MIC_TOGGLE_SHORTCUT: &str = "Control+Alt+Super+V";
 const BAR_WINDOW_WIDTH: f64 = 600.0;
 const BAR_WINDOW_HEIGHT: f64 = 56.0;
 const BAR_BOTTOM_OFFSET_PX: i32 = 40;
 const BAR_WINDOW_CORNER_RADIUS: f64 = 24.0;
+
+struct MicToggleShortcutState {
+    active_shortcut: Mutex<String>,
+}
+
+impl Default for MicToggleShortcutState {
+    fn default() -> Self {
+        Self {
+            active_shortcut: Mutex::new(DEFAULT_MIC_TOGGLE_SHORTCUT.to_string()),
+        }
+    }
+}
+
+fn lock_error_message() -> String {
+    "mic shortcut state is unavailable".to_string()
+}
+
+fn parse_error_message(shortcut: &str, error: &str) -> String {
+    format!(
+        "Invalid global shortcut `{shortcut}`. Use an accelerator like `Control+Alt+Super+V`. Details: {error}"
+    )
+}
+
+fn handler_registration_error_message(shortcut: &str, error: &str) -> String {
+    format!("Could not attach global shortcut handler for `{shortcut}`: {error}")
+}
+
+fn unregister_error_message(shortcut: &str, error: &str) -> String {
+    format!("Could not unregister global shortcut `{shortcut}`: {error}")
+}
+
+fn register_toggle_mic_handler(app: &AppHandle, shortcut: &str) -> Result<(), String> {
+    app.global_shortcut()
+        .on_shortcut(shortcut, move |app, _, event| {
+            if event.state == ShortcutState::Pressed {
+                if let Some(bar_window) = app.get_webview_window(BAR_WINDOW_LABEL) {
+                    let _ = bar_window.emit(TOGGLE_MIC_EVENT, ());
+                }
+            }
+        })
+        .map_err(|error| handler_registration_error_message(shortcut, &error.to_string()))
+}
+
+fn register_toggle_mic_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
+    register_toggle_mic_handler(app, shortcut)
+}
+
+fn validate_shortcut_format(shortcut: &str) -> Result<(), String> {
+    shortcut
+        .parse::<Shortcut>()
+        .map(|_| ())
+        .map_err(|error| parse_error_message(shortcut, &error.to_string()))
+}
+
+fn apply_shortcut_update_transaction<IsRegistered, RegisterShortcut, UnregisterShortcut>(
+    current_shortcut: &str,
+    new_shortcut: &str,
+    current_is_registered: bool,
+    mut is_registered: IsRegistered,
+    mut register_shortcut: RegisterShortcut,
+    mut unregister_shortcut: UnregisterShortcut,
+) -> Result<(), String>
+where
+    IsRegistered: FnMut(&str) -> bool,
+    RegisterShortcut: FnMut(&str) -> Result<(), String>,
+    UnregisterShortcut: FnMut(&str) -> Result<(), String>,
+{
+    if current_shortcut == new_shortcut {
+        return Ok(());
+    }
+
+    if !current_is_registered {
+        return register_shortcut(new_shortcut);
+    }
+
+    register_shortcut(new_shortcut)?;
+
+    if let Err(unregister_error) = unregister_shortcut(current_shortcut) {
+        let rollback_unregister_new_error = unregister_shortcut(new_shortcut)
+            .err()
+            .unwrap_or_else(|| "none".to_string());
+        let current_still_registered = is_registered(current_shortcut);
+        let rollback_restore_old_error = if current_still_registered {
+            "none".to_string()
+        } else {
+            register_shortcut(current_shortcut)
+                .err()
+                .unwrap_or_else(|| "none".to_string())
+        };
+
+        return Err(format!(
+            "Failed to switch global shortcut from `{current_shortcut}` to `{new_shortcut}`: {unregister_error}. Rollback status — unregister new: {rollback_unregister_new_error}; restore previous: {rollback_restore_old_error}."
+        ));
+    }
+
+    Ok(())
+}
+
+fn apply_mic_toggle_shortcut_update<IsRegistered, RegisterShortcut, UnregisterShortcut>(
+    active_shortcut: &mut String,
+    new_shortcut: &str,
+    current_is_registered: bool,
+    is_registered: IsRegistered,
+    register_shortcut: RegisterShortcut,
+    unregister_shortcut: UnregisterShortcut,
+) -> Result<String, String>
+where
+    IsRegistered: FnMut(&str) -> bool,
+    RegisterShortcut: FnMut(&str) -> Result<(), String>,
+    UnregisterShortcut: FnMut(&str) -> Result<(), String>,
+{
+    let current_shortcut = active_shortcut.clone();
+
+    apply_shortcut_update_transaction(
+        &current_shortcut,
+        new_shortcut,
+        current_is_registered,
+        is_registered,
+        register_shortcut,
+        unregister_shortcut,
+    )?;
+
+    *active_shortcut = new_shortcut.to_string();
+    Ok(active_shortcut.clone())
+}
+
+pub(crate) fn get_mic_toggle_shortcut(app: &AppHandle) -> Result<String, String> {
+    app.state::<MicToggleShortcutState>()
+        .active_shortcut
+        .lock()
+        .map_err(|_| lock_error_message())
+        .map(|shortcut| shortcut.clone())
+}
+
+pub(crate) fn update_mic_toggle_shortcut(
+    app: &AppHandle,
+    requested_shortcut: &str,
+) -> Result<String, String> {
+    let next_shortcut = requested_shortcut.trim();
+    if next_shortcut.is_empty() {
+        return Err("Global shortcut cannot be empty".to_string());
+    }
+
+    validate_shortcut_format(next_shortcut)?;
+
+    let shortcut_state = app.state::<MicToggleShortcutState>();
+    let mut active_shortcut = shortcut_state
+        .active_shortcut
+        .lock()
+        .map_err(|_| lock_error_message())?;
+    let current_is_registered = app.global_shortcut().is_registered(active_shortcut.as_str());
+
+    apply_mic_toggle_shortcut_update(
+        &mut active_shortcut,
+        next_shortcut,
+        current_is_registered,
+        |shortcut| app.global_shortcut().is_registered(shortcut),
+        |shortcut| register_toggle_mic_shortcut(app, shortcut),
+        |shortcut| {
+            app.global_shortcut()
+                .unregister(shortcut)
+                .map_err(|error| unregister_error_message(shortcut, &error.to_string()))
+        },
+    )
+}
+
+/// Above NSScreenSaverWindowLevel (1000) — reliably visible over fullscreen apps.
 #[cfg(target_os = "macos")]
-const NS_STATUS_WINDOW_LEVEL: i64 = 25;
+const PANEL_WINDOW_LEVEL: i64 = 1001;
+
+#[cfg(target_os = "macos")]
+mod hud_panel {
+    use tauri::Manager;
+
+    tauri_nspanel::tauri_panel! {
+        panel!(HUDPanel {
+            config: {
+                can_become_key_window: true,
+                is_floating_panel: true
+            }
+        })
+    }
+}
+
+#[cfg(target_os = "macos")]
+use hud_panel::HUDPanel;
 
 pub fn run_bar_show_sequence<
     ConfigureBarWindow,
@@ -92,11 +277,21 @@ pub(crate) fn show_bar_window_with_runtime_invariants(
     app: &AppHandle,
     bar_window: &WebviewWindow,
 ) -> tauri::Result<()> {
+    let panel = app
+        .get_webview_panel(BAR_WINDOW_LABEL)
+        .map_err(|_| std::io::Error::other("bar panel not found"))?;
+
     run_bar_show_sequence(
-        || configure_bar_window_for_macos(bar_window),
+        || configure_bar_webview_transparency(bar_window),
         || position_bar_window_bottom_center(app, bar_window),
-        || bar_window.show(),
-        || order_bar_window_front_for_macos(bar_window),
+        || {
+            panel.show();
+            Ok(())
+        },
+        || {
+            panel.order_front_regardless();
+            Ok(())
+        },
     )
 }
 
@@ -131,76 +326,33 @@ unsafe fn configure_bar_window_view_layer(view: *mut AnyObject) {
 }
 
 #[cfg(target_os = "macos")]
-fn bar_window_collection_behavior() -> NSWindowCollectionBehavior {
+pub(crate) fn bar_window_collection_behavior() -> NSWindowCollectionBehavior {
     NSWindowCollectionBehavior::CanJoinAllSpaces
         | NSWindowCollectionBehavior::FullScreenAuxiliary
         | NSWindowCollectionBehavior::Stationary
 }
 
+/// Configure the bar panel's native properties for fullscreen overlay behavior.
 #[cfg(target_os = "macos")]
-pub(crate) fn set_bar_ignores_mouse_events_native(
-    app: &AppHandle,
-    bar_window: &WebviewWindow,
-    ignores: bool,
-) -> tauri::Result<()> {
-    let ns_window_ptr = bar_window.ns_window()? as usize;
-    let (done_tx, done_rx) = mpsc::channel::<()>();
+fn configure_bar_panel(panel: &tauri_nspanel::PanelHandle<tauri::Wry>) {
+    use tauri_nspanel::{CollectionBehavior, StyleMask};
 
-    app.run_on_main_thread(move || {
-        let ns_window = unsafe { &*(ns_window_ptr as *mut NSWindow) };
-        ns_window.setIgnoresMouseEvents(ignores);
-        let _ = done_tx.send(());
-    })?;
-
-    if done_rx
-        .recv_timeout(Duration::from_millis(700))
-        .is_ok()
-    {
-        return Ok(());
-    }
-
-    eprintln!(
-        "[bar] setIgnoresMouseEvents main-thread ack timed out (ignore={}); falling back to tao set_ignore_cursor_events",
-        ignores
-    );
-
-    bar_window.set_ignore_cursor_events(ignores)
+    panel.set_level(PANEL_WINDOW_LEVEL);
+    panel.set_style_mask(StyleMask::empty().nonactivating_panel().into());
+    panel
+        .set_collection_behavior(CollectionBehavior::from(bar_window_collection_behavior()).into());
+    panel.set_hides_on_deactivate(false);
+    panel.set_opaque(false);
+    panel.set_has_shadow(true);
+    panel.set_transparent(true);
+    panel.set_corner_radius(BAR_WINDOW_CORNER_RADIUS);
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn set_bar_ignores_mouse_events_native(
-    _app: &AppHandle,
-    bar_window: &WebviewWindow,
-    ignores: bool,
-) -> tauri::Result<()> {
-    bar_window.set_ignore_cursor_events(ignores)
-}
-
+/// Configure WKWebView transparency for the bar window.
+/// Panel-level transparency alone is not enough — the WKWebView must also be
+/// cleared so the pill-shaped HUD composites correctly on all backgrounds.
 #[cfg(target_os = "macos")]
-pub(crate) fn configure_bar_window_for_macos(bar_window: &WebviewWindow) -> tauri::Result<()> {
-    bar_window.set_background_color(Some(Color(0, 0, 0, 0)))?;
-
-    let ns_window = unsafe { &*(bar_window.ns_window()? as *mut NSWindow) };
-    let clear = NSColor::clearColor();
-    let collection_behavior = bar_window_collection_behavior();
-
-    ns_window.setOpaque(false);
-    ns_window.setHasShadow(true);
-    ns_window.setBackgroundColor(Some(&clear));
-    ns_window.setCollectionBehavior(collection_behavior);
-
-    // NSStatusWindowLevel (25) — high enough to appear over fullscreen apps.
-    // setHidesOnDeactivate(false) keeps HUD visible when another app is active.
-    unsafe {
-        let _: () = msg_send![ns_window, setLevel: NS_STATUS_WINDOW_LEVEL];
-        let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
-
-        let content_view: *mut AnyObject = msg_send![ns_window, contentView];
-        configure_bar_window_view_layer(content_view);
-
-        let _: () = msg_send![ns_window, invalidateShadow];
-    }
-
+pub(crate) fn configure_bar_webview_transparency(bar_window: &WebviewWindow) -> tauri::Result<()> {
     bar_window.with_webview(|webview| unsafe {
         let view: &WKWebView = &*webview.inner().cast();
         let background_enabled = NSNumber::new_bool(false);
@@ -211,30 +363,48 @@ pub(crate) fn configure_bar_window_for_macos(bar_window: &WebviewWindow) -> taur
         view.setUnderPageBackgroundColor(Some(&under_page_background));
 
         configure_bar_window_view_layer(view as *const WKWebView as *mut AnyObject);
-    })?;
+    })
+}
 
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn configure_bar_webview_transparency(_bar_window: &WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Set mouse-event passthrough on the bar panel.
 #[cfg(target_os = "macos")]
-pub(crate) fn order_bar_window_front_for_macos(bar_window: &WebviewWindow) -> tauri::Result<()> {
-    let ns_window = unsafe { &*(bar_window.ns_window()? as *mut NSWindow) };
-
-    unsafe {
-        let _: () = msg_send![ns_window, orderFrontRegardless];
-    }
-
+pub(crate) fn set_bar_ignores_mouse_events(app: &AppHandle, ignores: bool) -> tauri::Result<()> {
+    let panel = app
+        .get_webview_panel(BAR_WINDOW_LABEL)
+        .map_err(|_| std::io::Error::other("bar panel not found"))?;
+    panel.set_ignores_mouse_events(ignores);
     Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn order_bar_window_front_for_macos(_bar_window: &WebviewWindow) -> tauri::Result<()> {
+pub(crate) fn set_bar_ignores_mouse_events(app: &AppHandle, ignores: bool) -> tauri::Result<()> {
+    let bar_window = app
+        .get_webview_window(BAR_WINDOW_LABEL)
+        .ok_or_else(|| std::io::Error::other("bar window not found"))?;
+    bar_window.set_ignore_cursor_events(ignores)
+}
+
+/// Hide the bar via the panel API so it truly disappears from all Spaces.
+#[cfg(target_os = "macos")]
+pub(crate) fn hide_bar_panel(app: &AppHandle) -> tauri::Result<()> {
+    let panel = app
+        .get_webview_panel(BAR_WINDOW_LABEL)
+        .map_err(|_| std::io::Error::other("bar panel not found"))?;
+    panel.hide();
     Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn configure_bar_window_for_macos(_bar_window: &WebviewWindow) -> tauri::Result<()> {
-    Ok(())
+pub(crate) fn hide_bar_panel(app: &AppHandle) -> tauri::Result<()> {
+    let bar_window = app
+        .get_webview_window(BAR_WINDOW_LABEL)
+        .ok_or_else(|| std::io::Error::other("bar window not found"))?;
+    bar_window.hide()
 }
 
 #[cfg(target_os = "macos")]
@@ -263,7 +433,8 @@ pub(crate) fn position_bar_window_bottom_center(
             .and_then(|monitor| monitor)
     });
 
-    let monitor_from_cursor = monitor_from_cursor.or_else(|| monitor_from_global_mouse_location(app));
+    let monitor_from_cursor =
+        monitor_from_cursor.or_else(|| monitor_from_global_mouse_location(app));
 
     let monitor = match monitor_from_cursor {
         Some(monitor) => Some(monitor),
@@ -331,35 +502,29 @@ fn build_bar_window(app: &tauri::App) -> tauri::Result<()> {
 
     let app_handle = app.handle().clone();
     position_bar_window_bottom_center(&app_handle, &bar_window)?;
-    configure_bar_window_for_macos(&bar_window)?;
+
+    // Convert NSWindow → NSPanel for fullscreen overlay capability.
+    #[cfg(target_os = "macos")]
+    {
+        let panel = bar_window.to_panel::<HUDPanel>()?;
+        configure_bar_panel(&panel);
+        configure_bar_webview_transparency(&bar_window)?;
+    }
 
     Ok(())
 }
 
 fn setup_global_shortcut(app: &tauri::App) -> tauri::Result<()> {
-    let shortcut = Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER),
-        Code::KeyV,
-    );
+    let app_handle = app.handle().clone();
+    let shortcut = app
+        .state::<MicToggleShortcutState>()
+        .active_shortcut
+        .lock()
+        .map_err(|_| std::io::Error::other("mic shortcut state is unavailable"))?
+        .clone();
 
-    app.global_shortcut()
-        .on_shortcut(shortcut.clone(), move |app, _, event| {
-            if event.state == ShortcutState::Pressed {
-                if let Some(bar_window) = app.get_webview_window(BAR_WINDOW_LABEL) {
-                    let _ = bar_window.emit(TOGGLE_MIC_EVENT, ());
-                }
-            }
-        })
-        .map_err(|error| {
-            eprintln!(
-                "[global-shortcut] Failed to set up shortcut handler: {}",
-                error
-            );
-            std::io::Error::other(error.to_string())
-        })?;
-
-    if let Err(error) = app.global_shortcut().register(shortcut) {
-        eprintln!("[global-shortcut] Failed to register global shortcut (may be in use by another app): {}", error);
+    if let Err(error) = register_toggle_mic_shortcut(&app_handle, &shortcut) {
+        eprintln!("[global-shortcut] {error}");
         eprintln!("[global-shortcut] Continuing without global shortcut.");
         return Ok(());
     }
@@ -370,7 +535,9 @@ fn setup_global_shortcut(app: &tauri::App) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_nspanel::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .manage(MicToggleShortcutState::default())
         .setup(|app| {
             build_main_window(app)?;
             build_bar_window(app)?;
@@ -381,21 +548,29 @@ pub fn run() {
             commands::get_config,
             commands::get_soniox_key,
             commands::has_xai_key,
+            commands::has_openai_compatible_key,
             commands::save_credentials,
             commands::update_xai_key,
+            commands::update_openai_compatible_key,
+            commands::update_soniox_key,
+            commands::list_models,
             commands::reset_credentials,
             commands::ensure_microphone_permission,
             commands::ensure_accessibility_permission,
             commands::ensure_text_insertion_permission,
+            commands::check_permissions_status,
             commands::insert_text,
             commands::correct_transcript,
             commands::set_mic_state,
             commands::copy_to_clipboard,
             commands::quit_app,
+            commands::relaunch_app,
             commands::show_bar,
             commands::hide_bar,
             commands::set_mouse_events,
             commands::show_settings,
+            commands::get_mic_toggle_shortcut,
+            commands::update_mic_toggle_shortcut,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -419,5 +594,137 @@ mod tests {
 
         assert!(behavior.contains(NSWindowCollectionBehavior::Stationary));
         assert!(!behavior.contains(NSWindowCollectionBehavior::MoveToActiveSpace));
+    }
+}
+
+#[cfg(test)]
+mod shortcut_transaction_tests {
+    use super::{apply_mic_toggle_shortcut_update, apply_shortcut_update_transaction};
+    use std::cell::RefCell;
+
+    #[test]
+    fn keeps_current_registration_when_new_registration_fails() {
+        let registered = RefCell::new(vec!["Control+Alt+Super+V".to_string()]);
+
+        let result = apply_shortcut_update_transaction(
+            "Control+Alt+Super+V",
+            "Control+Alt+Super+M",
+            true,
+            |shortcut| registered.borrow().iter().any(|item| item == shortcut),
+            |shortcut| {
+                if shortcut == "Control+Alt+Super+M" {
+                    return Err("in use by another app".to_string());
+                }
+                registered.borrow_mut().push(shortcut.to_string());
+                Ok(())
+            },
+            |shortcut| {
+                registered.borrow_mut().retain(|item| item != shortcut);
+                Ok(())
+            },
+        );
+
+        assert!(result.is_err());
+        assert!(registered
+            .borrow()
+            .iter()
+            .any(|item| item == "Control+Alt+Super+V"));
+    }
+
+    #[test]
+    fn replaces_old_shortcut_with_new_shortcut() {
+        let registered = RefCell::new(vec!["Control+Alt+Super+V".to_string()]);
+
+        let result = apply_shortcut_update_transaction(
+            "Control+Alt+Super+V",
+            "Control+Alt+Super+M",
+            true,
+            |shortcut| registered.borrow().iter().any(|item| item == shortcut),
+            |shortcut| {
+                if !registered.borrow().iter().any(|item| item == shortcut) {
+                    registered.borrow_mut().push(shortcut.to_string());
+                }
+                Ok(())
+            },
+            |shortcut| {
+                registered.borrow_mut().retain(|item| item != shortcut);
+                Ok(())
+            },
+        );
+
+        assert!(result.is_ok());
+        assert!(!registered
+            .borrow()
+            .iter()
+            .any(|item| item == "Control+Alt+Super+V"));
+        assert!(registered
+            .borrow()
+            .iter()
+            .any(|item| item == "Control+Alt+Super+M"));
+    }
+
+    #[test]
+    fn update_lifecycle_keeps_only_selected_shortcut_active() {
+        let registered = RefCell::new(vec!["Control+Alt+Super+V".to_string()]);
+        let mut active_shortcut = "Control+Alt+Super+V".to_string();
+
+        let result = apply_mic_toggle_shortcut_update(
+            &mut active_shortcut,
+            "Control+Alt+Super+M",
+            true,
+            |shortcut| registered.borrow().iter().any(|item| item == shortcut),
+            |shortcut| {
+                if !registered.borrow().iter().any(|item| item == shortcut) {
+                    registered.borrow_mut().push(shortcut.to_string());
+                }
+                Ok(())
+            },
+            |shortcut| {
+                registered.borrow_mut().retain(|item| item != shortcut);
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Ok("Control+Alt+Super+M".to_string()));
+        assert_eq!(active_shortcut, "Control+Alt+Super+M");
+        assert_eq!(registered.borrow().as_slice(), ["Control+Alt+Super+M"]);
+    }
+
+    #[test]
+    fn rolls_back_to_previous_shortcut_when_unregister_old_fails() {
+        let registered = RefCell::new(vec![
+            "Control+Alt+Super+V".to_string(),
+            "Control+Alt+Super+M".to_string(),
+        ]);
+
+        let result = apply_shortcut_update_transaction(
+            "Control+Alt+Super+V",
+            "Control+Alt+Super+M",
+            true,
+            |shortcut| registered.borrow().iter().any(|item| item == shortcut),
+            |shortcut| {
+                if !registered.borrow().iter().any(|item| item == shortcut) {
+                    registered.borrow_mut().push(shortcut.to_string());
+                }
+                Ok(())
+            },
+            |shortcut| {
+                if shortcut == "Control+Alt+Super+V" {
+                    return Err("failed to unregister old".to_string());
+                }
+                registered.borrow_mut().retain(|item| item != shortcut);
+                Ok(())
+            },
+        );
+
+        assert!(result.is_err());
+        assert!(registered
+            .borrow()
+            .iter()
+            .any(|item| item == "Control+Alt+Super+V"));
+        assert!(!registered
+            .borrow()
+            .iter()
+            .any(|item| item == "Control+Alt+Super+M"));
     }
 }

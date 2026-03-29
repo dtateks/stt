@@ -8,6 +8,8 @@ use objc2::runtime::Bool;
 #[cfg(target_os = "macos")]
 use objc2_av_foundation::{AVCaptureDevice, AVMediaTypeAudio};
 
+use crate::text_inserter;
+
 const MICROPHONE_PRIVACY_PANE_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
 const MICROPHONE_PERMISSION_REQUIRED_CODE: &str = "microphone-permission-required";
@@ -44,6 +46,38 @@ pub struct AccessibilityPermissionResult {
 const AV_AUTH_STATUS_NOT_DETERMINED: isize = 0;
 const AV_AUTH_STATUS_RESTRICTED: isize = 1;
 const AV_AUTH_STATUS_AUTHORIZED: isize = 3;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PermissionsStatus {
+    pub microphone: bool,
+    pub accessibility: bool,
+    pub automation: bool,
+}
+
+/// Non-prompting status check for all three permissions.
+/// Safe to call repeatedly for polling — never triggers system dialogs.
+pub fn check_permissions_status() -> PermissionsStatus {
+    PermissionsStatus {
+        microphone: is_microphone_authorized(),
+        accessibility: is_accessibility_trusted(),
+        automation: text_inserter::check_automation_status(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn is_microphone_authorized() -> bool {
+    let media_type = unsafe { AVMediaTypeAudio };
+    let Some(media_type) = media_type else {
+        return false;
+    };
+    let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(media_type) };
+    status.0 == AV_AUTH_STATUS_AUTHORIZED
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_microphone_authorized() -> bool {
+    true
+}
 
 #[cfg(target_os = "macos")]
 pub fn ensure_microphone_permission() -> MicrophonePermissionResult {

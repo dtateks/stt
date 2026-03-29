@@ -10,9 +10,11 @@ use crate::shell_credentials::get_credentials_from_shell_environment;
 const CREDENTIALS_DIRECTORY_NAME: &str = "voice-to-text";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Credentials {
     pub xai_key: String,
+    pub gemini_key: String,
+    pub openai_compatible_key: String,
     pub soniox_key: String,
 }
 
@@ -20,6 +22,8 @@ impl Credentials {
     pub fn empty() -> Self {
         Self {
             xai_key: String::new(),
+            gemini_key: String::new(),
+            openai_compatible_key: String::new(),
             soniox_key: String::new(),
         }
     }
@@ -29,6 +33,9 @@ pub fn get_credentials(app: &AppHandle) -> Result<Credentials, String> {
     let env_credentials = get_env_credentials();
     let store = load_stored_credentials_or_empty(read_store(app));
     let needs_shell_fallback = (store.xai_key.is_empty() && env_credentials.xai_key.is_empty())
+        || (store.gemini_key.is_empty() && env_credentials.gemini_key.is_empty())
+        || (store.openai_compatible_key.is_empty()
+            && env_credentials.openai_compatible_key.is_empty())
         || (store.soniox_key.is_empty() && env_credentials.soniox_key.is_empty());
 
     let shell_credentials = if needs_shell_fallback {
@@ -55,6 +62,16 @@ pub fn resolve_credentials_with_precedence(
             env_credentials.xai_key.as_str(),
             shell_credentials.xai_key.as_str(),
         ]),
+        gemini_key: first_non_empty([
+            store.gemini_key.as_str(),
+            env_credentials.gemini_key.as_str(),
+            shell_credentials.gemini_key.as_str(),
+        ]),
+        openai_compatible_key: first_non_empty([
+            store.openai_compatible_key.as_str(),
+            env_credentials.openai_compatible_key.as_str(),
+            shell_credentials.openai_compatible_key.as_str(),
+        ]),
         soniox_key: first_non_empty([
             store.soniox_key.as_str(),
             env_credentials.soniox_key.as_str(),
@@ -72,18 +89,36 @@ pub fn save_credentials(
         return Err("Soniox API key is required".to_string());
     }
 
-    write_store(
-        app,
-        &Credentials {
-            xai_key,
-            soniox_key,
-        },
-    )
+    let mut current = read_store(app)?;
+    current.xai_key = xai_key;
+    current.soniox_key = soniox_key;
+    write_store(app, &current)
 }
 
 pub fn save_xai_key(app: &AppHandle, xai_key: String) -> Result<(), String> {
     let mut current = read_store(app)?;
     current.xai_key = xai_key;
+    write_store(app, &current)
+}
+
+pub fn save_openai_compatible_key(
+    app: &AppHandle,
+    openai_compatible_key: String,
+) -> Result<(), String> {
+    let mut current = read_store(app)?;
+    current.openai_compatible_key = openai_compatible_key;
+    write_store(app, &current)
+}
+
+pub fn save_gemini_key(app: &AppHandle, gemini_key: String) -> Result<(), String> {
+    let mut current = read_store(app)?;
+    current.gemini_key = gemini_key;
+    write_store(app, &current)
+}
+
+pub fn save_soniox_key(app: &AppHandle, soniox_key: String) -> Result<(), String> {
+    let mut current = read_store(app)?;
+    current.soniox_key = soniox_key;
     write_store(app, &current)
 }
 
@@ -95,6 +130,10 @@ pub fn clear_credentials(app: &AppHandle) -> Result<(), String> {
 fn get_env_credentials() -> Credentials {
     Credentials {
         xai_key: env::var("XAI_API_KEY").unwrap_or_default(),
+        gemini_key: env::var("GEMINI_API_KEY").unwrap_or_default(),
+        openai_compatible_key: env::var("OPENAI_COMPATIBLE_API_KEY")
+            .or_else(|_| env::var("OPENAI_API_KEY"))
+            .unwrap_or_default(),
         soniox_key: env::var("SONIOX_API_KEY").unwrap_or_default(),
     }
 }

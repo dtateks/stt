@@ -5,12 +5,24 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const XAI_CHAT_COMPLETIONS_URL: &str = "https://api.x.ai/v1/chat/completions";
+const GEMINI_GENERATE_CONTENT_BASE_URL: &str =
+    "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_MODELS_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/models";
+const DEFAULT_OPENAI_COMPATIBLE_BASE_URL: &str = "https://api.openai.com/v1";
 const REQUEST_TIMEOUT_SECONDS: u64 = 15;
-const DEFAULT_MODEL: &str = "grok-4-1-fast-non-reasoning";
+const DEFAULT_XAI_MODEL: &str = "grok-4-1-fast-non-reasoning";
+const DEFAULT_OPENAI_COMPATIBLE_MODEL: &str = "gpt-4o-mini";
+const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-flash";
 const DEFAULT_TEMPERATURE: f64 = 0.1;
 const XAI_PROVIDER: &str = "xai";
+const OPENAI_COMPATIBLE_PROVIDER: &str = "openai_compatible";
+const GEMINI_PROVIDER: &str = "gemini";
 const XAI_RESPONSE_SHAPE_ERROR: &str =
     "xAI response shape unexpected — could not extract corrected text";
+const OPENAI_COMPATIBLE_RESPONSE_SHAPE_ERROR: &str =
+    "OpenAI-compatible response shape unexpected — could not extract corrected text";
+const GEMINI_RESPONSE_SHAPE_ERROR: &str =
+    "Gemini response shape unexpected — could not extract corrected text";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -39,12 +51,87 @@ pub struct LlmConfig {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub temperature: Option<f64>,
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub struct VoiceConfig {
     pub stop_word: String,
+}
+
+pub async fn list_models(
+    api_key: String,
+    provider: &str,
+    base_url: Option<&str>,
+) -> Result<Vec<String>, String> {
+    if api_key.trim().is_empty() {
+        return Err(format!(
+            "{} API key is not configured",
+            provider_display_name(provider)
+        ));
+    }
+
+    let endpoint = if provider == XAI_PROVIDER {
+        "https://api.x.ai/v1/models".to_string()
+    } else if provider == GEMINI_PROVIDER {
+        GEMINI_MODELS_URL.to_string()
+    } else {
+        let base = base_url
+            .unwrap_or(DEFAULT_OPENAI_COMPATIBLE_BASE_URL)
+            .trim()
+            .trim_end_matches('/');
+        if base.is_empty() {
+            return Err("OpenAI-compatible base URL is required".to_string());
+        }
+        format!("{base}/models")
+    };
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let response = client
+        .get(&endpoint)
+        .bearer_auth(&api_key)
+        .send()
+        .await
+        .map_err(|error| {
+            if error.is_timeout() {
+                format!("Model list request timed out after {REQUEST_TIMEOUT_SECONDS} seconds")
+            } else {
+                error.to_string()
+            }
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format_provider_api_error(provider, status, &body));
+    }
+
+    let payload = response
+        .json::<Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let models = payload
+        .get("data")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str).map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if models.is_empty() {
+        return Err("No models returned from provider".to_string());
+    }
+
+    Ok(models)
 }
 
 pub async fn correct_transcript(
@@ -54,10 +141,11 @@ pub async fn correct_transcript(
     output_lang: String,
 ) -> Result<String, String> {
     if api_key.trim().is_empty() {
-        return Err("xAI API key is not configured".to_string());
+        return Err("LLM API key is not configured".to_string());
     }
 
-    validate_llm_config_for_xai(&llm_config)?;
+    let provider = resolve_provider(&llm_config)?;
+    validate_llm_config(&llm_config, provider)?;
 
     let client = Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
@@ -65,48 +153,150 @@ pub async fn correct_transcript(
         .map_err(|error| error.to_string())?;
 
     let request_body = build_request_body(transcript, &llm_config, &output_lang);
-    let response = client
-        .post(XAI_CHAT_COMPLETIONS_URL)
-        .bearer_auth(api_key)
-        .json(&request_body)
+    let endpoint = completion_endpoint(provider, &llm_config)?;
+    let request_builder = client.post(endpoint).json(&request_body);
+    let request_builder = if provider == GEMINI_PROVIDER {
+        request_builder.header("x-goog-api-key", api_key)
+    } else {
+        request_builder.bearer_auth(api_key)
+    };
+    let response = request_builder
         .send()
         .await
-        .map_err(map_http_error)?;
+        .map_err(|error| map_http_error(provider, error))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let response_body = response.text().await.unwrap_or_default();
-        return Err(format_xai_api_error(status.as_u16(), &response_body));
+        return Err(format_provider_api_error(
+            provider,
+            status.as_u16(),
+            &response_body,
+        ));
     }
 
     let payload = response
         .json::<Value>()
         .await
         .map_err(|error| error.to_string())?;
-    extract_corrected_text_from_response(&payload)
+    extract_corrected_text_from_response(&payload, provider)
 }
 
-pub fn validate_llm_config_for_xai(llm_config: &LlmConfig) -> Result<(), String> {
-    let Some(provider) = llm_config.provider.as_deref() else {
-        return Ok(());
-    };
-
+pub fn resolve_provider(llm_config: &LlmConfig) -> Result<&str, String> {
+    let provider = llm_config
+        .provider
+        .as_deref()
+        .unwrap_or(XAI_PROVIDER)
+        .trim();
     if provider.is_empty() || provider == XAI_PROVIDER {
-        return Ok(());
+        return Ok(XAI_PROVIDER);
+    }
+    if provider == OPENAI_COMPATIBLE_PROVIDER {
+        return Ok(OPENAI_COMPATIBLE_PROVIDER);
+    }
+    if provider == GEMINI_PROVIDER {
+        return Ok(GEMINI_PROVIDER);
     }
 
-    Err(format!(
-        "Unsupported LLM provider `{provider}` for xAI transcript correction"
+    Err(format!("Unsupported LLM provider `{provider}`"))
+}
+
+pub fn validate_llm_config(llm_config: &LlmConfig, provider: &str) -> Result<(), String> {
+    if provider == OPENAI_COMPATIBLE_PROVIDER {
+        let base_url = llm_config
+            .base_url
+            .as_deref()
+            .unwrap_or(DEFAULT_OPENAI_COMPATIBLE_BASE_URL)
+            .trim();
+        if base_url.is_empty() {
+            return Err("OpenAI-compatible base URL is required".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+pub fn completion_endpoint(provider: &str, llm_config: &LlmConfig) -> Result<String, String> {
+    if provider == XAI_PROVIDER {
+        return Ok(XAI_CHAT_COMPLETIONS_URL.to_string());
+    }
+    if provider == GEMINI_PROVIDER {
+        let model = llm_config
+            .model
+            .clone()
+            .unwrap_or_else(|| default_model_for_provider(provider).to_string());
+        let model = model.trim();
+        if model.is_empty() {
+            return Err("Gemini model is required".to_string());
+        }
+
+        return Ok(format!(
+            "{}/{}:generateContent",
+            GEMINI_GENERATE_CONTENT_BASE_URL, model
+        ));
+    }
+
+    let base_url = llm_config
+        .base_url
+        .as_deref()
+        .unwrap_or(DEFAULT_OPENAI_COMPATIBLE_BASE_URL)
+        .trim();
+
+    if base_url.is_empty() {
+        return Err("OpenAI-compatible base URL is required".to_string());
+    }
+
+    Ok(format!(
+        "{}/chat/completions",
+        base_url.trim_end_matches('/')
     ))
 }
 
-pub fn extract_corrected_text_from_response(payload: &Value) -> Result<String, String> {
+pub fn extract_corrected_text_from_response(
+    payload: &Value,
+    provider: &str,
+) -> Result<String, String> {
+    if provider == GEMINI_PROVIDER {
+        let Some(candidates) = payload.get("candidates").and_then(Value::as_array) else {
+            return Err(GEMINI_RESPONSE_SHAPE_ERROR.to_string());
+        };
+
+        let Some(first_candidate) = candidates.first() else {
+            return Err(GEMINI_RESPONSE_SHAPE_ERROR.to_string());
+        };
+
+        let Some(parts) = first_candidate
+            .get("content")
+            .and_then(|content| content.get("parts"))
+            .and_then(Value::as_array)
+        else {
+            return Err(GEMINI_RESPONSE_SHAPE_ERROR.to_string());
+        };
+
+        let Some(text) = parts
+            .iter()
+            .filter_map(|part| part.get("text").and_then(Value::as_str))
+            .map(str::trim)
+            .find(|value| !value.is_empty())
+        else {
+            return Err(GEMINI_RESPONSE_SHAPE_ERROR.to_string());
+        };
+
+        return Ok(text.to_string());
+    }
+
+    let response_shape_error = if provider == OPENAI_COMPATIBLE_PROVIDER {
+        OPENAI_COMPATIBLE_RESPONSE_SHAPE_ERROR
+    } else {
+        XAI_RESPONSE_SHAPE_ERROR
+    };
+
     let Some(choices) = payload.get("choices").and_then(Value::as_array) else {
-        return Err(XAI_RESPONSE_SHAPE_ERROR.to_string());
+        return Err(response_shape_error.to_string());
     };
 
     let Some(first_choice) = choices.first() else {
-        return Err(XAI_RESPONSE_SHAPE_ERROR.to_string());
+        return Err(response_shape_error.to_string());
     };
 
     let Some(content) = first_choice
@@ -114,26 +304,47 @@ pub fn extract_corrected_text_from_response(payload: &Value) -> Result<String, S
         .and_then(|message| message.get("content"))
         .and_then(extract_message_content_text)
     else {
-        return Err(XAI_RESPONSE_SHAPE_ERROR.to_string());
+        return Err(response_shape_error.to_string());
     };
 
     let corrected_text = content.trim();
     if corrected_text.is_empty() {
-        return Err(XAI_RESPONSE_SHAPE_ERROR.to_string());
+        return Err(response_shape_error.to_string());
     }
 
     Ok(corrected_text.to_string())
 }
 
 fn build_request_body(transcript: String, llm_config: &LlmConfig, output_lang: &str) -> Value {
+    let provider = resolve_provider(llm_config).unwrap_or(XAI_PROVIDER);
     let system_prompt = system_prompt_for_output_language(output_lang);
     let user_prompt = format!(
         "## Voice Transcript (may have pronunciation errors):\n\"{}\"",
         transcript
     );
 
+    if provider == GEMINI_PROVIDER {
+        return json!({
+          "systemInstruction": {
+            "parts": [{ "text": system_prompt }]
+          },
+          "contents": [
+            {
+              "role": "user",
+              "parts": [{ "text": user_prompt }]
+            }
+          ],
+          "generationConfig": {
+            "temperature": llm_config.temperature.unwrap_or(DEFAULT_TEMPERATURE)
+          }
+        });
+    }
+
     json!({
-      "model": llm_config.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+      "model": llm_config
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model_for_provider(provider).to_string()),
       "temperature": llm_config.temperature.unwrap_or(DEFAULT_TEMPERATURE),
       "messages": [
         { "role": "system", "content": system_prompt },
@@ -159,15 +370,59 @@ fn system_prompt_for_output_language(output_lang: &str) -> &'static str {
 pub fn format_xai_api_error(status_code: u16, response_body: &str) -> String {
     let message = serde_json::from_str::<Value>(response_body)
         .ok()
-        .and_then(extract_xai_error_message)
+        .and_then(extract_provider_error_message)
         .unwrap_or_else(|| "xAI returned an unexpected error response".to_string());
 
     format!("xAI API error ({status_code}): {message}")
 }
 
-fn map_http_error(error: reqwest::Error) -> String {
+pub fn format_openai_compatible_api_error(status_code: u16, response_body: &str) -> String {
+    let message = serde_json::from_str::<Value>(response_body)
+        .ok()
+        .and_then(extract_provider_error_message)
+        .unwrap_or_else(|| {
+            "OpenAI-compatible provider returned an unexpected error response".to_string()
+        });
+
+    format!("OpenAI-compatible API error ({status_code}): {message}")
+}
+
+pub fn format_gemini_api_error(status_code: u16, response_body: &str) -> String {
+    let parsed = serde_json::from_str::<Value>(response_body).ok();
+    let message = parsed
+        .as_ref()
+        .and_then(|value| extract_provider_error_message(value.clone()))
+        .unwrap_or_else(|| "Gemini returned an unexpected error response".to_string());
+    let status = parsed
+        .and_then(extract_gemini_error_status)
+        .map(|value| format!(" {value}"))
+        .unwrap_or_default();
+
+    format!("Gemini API error ({status_code}{status}): {message}")
+}
+
+fn format_provider_api_error(provider: &str, status_code: u16, response_body: &str) -> String {
+    if provider == OPENAI_COMPATIBLE_PROVIDER {
+        return format_openai_compatible_api_error(status_code, response_body);
+    }
+    if provider == GEMINI_PROVIDER {
+        return format_gemini_api_error(status_code, response_body);
+    }
+
+    format_xai_api_error(status_code, response_body)
+}
+
+fn map_http_error(provider: &str, error: reqwest::Error) -> String {
     if error.is_timeout() {
-        return "xAI request timed out after 15 seconds".to_string();
+        if provider == OPENAI_COMPATIBLE_PROVIDER {
+            return format!(
+                "OpenAI-compatible request timed out after {REQUEST_TIMEOUT_SECONDS} seconds"
+            );
+        }
+        if provider == GEMINI_PROVIDER {
+            return format!("Gemini request timed out after {REQUEST_TIMEOUT_SECONDS} seconds");
+        }
+        return format!("xAI request timed out after {REQUEST_TIMEOUT_SECONDS} seconds");
     }
 
     error.to_string()
@@ -186,7 +441,7 @@ fn extract_message_content_text(content: &Value) -> Option<&str> {
     })
 }
 
-fn extract_xai_error_message(payload: Value) -> Option<String> {
+fn extract_provider_error_message(payload: Value) -> Option<String> {
     payload
         .get("error")
         .and_then(|error| error.get("message"))
@@ -195,4 +450,36 @@ fn extract_xai_error_message(payload: Value) -> Option<String> {
         .map(str::trim)
         .filter(|message| !message.is_empty())
         .map(ToString::to_string)
+}
+
+fn extract_gemini_error_status(payload: Value) -> Option<String> {
+    payload
+        .get("error")
+        .and_then(|error| error.get("status"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|status| !status.is_empty())
+        .map(ToString::to_string)
+}
+
+fn default_model_for_provider(provider: &str) -> &'static str {
+    if provider == GEMINI_PROVIDER {
+        return DEFAULT_GEMINI_MODEL;
+    }
+    if provider == OPENAI_COMPATIBLE_PROVIDER {
+        return DEFAULT_OPENAI_COMPATIBLE_MODEL;
+    }
+
+    DEFAULT_XAI_MODEL
+}
+
+fn provider_display_name(provider: &str) -> &'static str {
+    if provider == GEMINI_PROVIDER {
+        return "Gemini";
+    }
+    if provider == OPENAI_COMPATIBLE_PROVIDER {
+        return "OpenAI-compatible";
+    }
+
+    "xAI"
 }
