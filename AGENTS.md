@@ -57,6 +57,7 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 | App reopen / explicit show recovery | `src/src/lib.rs`, `src/src/commands.rs`, `src/Cargo.toml`, `src/tests/window_shell.rs` | hidden main window is restored through explicit show / second-launch flows; reopen flow must unminimize, show, then focus, and the plugin must register before other plugins |
 | Launch-at-login / autostart | `src/src/lib.rs`, `src/Cargo.toml`, `src/tests/window_shell.rs` | macOS autostart uses `tauri-plugin-autostart` with `MacosLauncher::LaunchAgent`; login-item registration is enabled only from bundled `.app` paths, non-bundled runs must skip it, and the dedicated `--launch-at-login` flag suppresses the initial main-window show |
 | Credential resolution | `src/src/credentials.rs` | JSON storage first, stored lookup failures are non-fatal, then env, then Finder startup-shell resolution |
+| Credential save verification | `src/src/credentials.rs`, `ui/src/main.ts`, `ui/src/__tests__/main-credential-sync.test.ts` | in-app key saves verify storage readback before falling through to env/shell fallback; setup blocks on verification failure and revalidates setup vs prefs when the main window regains focus/visibility |
 | Soniox credential gating | `src/src/commands.rs`, `ui/src/types.ts`, `ui/tauri-bridge.js` | renderer checks Soniox presence via `has_soniox_key` before mutation flows; temporary-key creation goes through `create_soniox_temporary_key`, not direct long-lived key reads |
 | Transcript correction | `src/src/llm_service.rs`, `src/src/credentials.rs`, `src/src/shell_credentials.rs`, `src/src/commands.rs`, `ui/src/main.ts`, `ui/src/storage.ts`, `ui/src/types.ts`, `ui/src/bar-session-controller.ts` | xAI/Gemini/OpenAI-compatible provider policy, per-provider defaults, provider-scoped key storage, shell/env credential fallback, correction prefs, and skip-LLM toggle |
 | Voice shortcuts / reminders | `src/src/commands.rs`, `ui/src/main.ts`, `ui/src/storage.ts`, `src/src/lib.rs` | custom mic toggle shortcut, stop-word reminders, reminder beep prefs, and global mic shortcut replacement |
@@ -66,7 +67,7 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 | Shortcut recorder | `ui/src/shortcut-display.ts`, `ui/src/shortcut-recorder-logic.ts`, `ui/src/main.ts` | canonical shortcut tokens stay in storage; recorder renders macOS-native labels |
 | Floating HUD shell / clipping | `ui/bar.html`, `ui/src/bar.css`, `ui/src/bar-render.ts` | HTML/body/root sizing and clipping; keep the webview shell transparent, rounded, and render-only |
 | HUD render/state | `ui/src/bar.ts`, `ui/src/bar-render.ts` | orchestration only in `bar.ts`; render helpers keep cleaned command text frozen through PROCESSING/INSERTING/SUCCESS |
-| HUD session control | `ui/src/bar-session-controller.ts` | overlay mode, timers, STT, stop-word gating, live session preference refresh, deferred refresh during finalization, error recovery, bounded LLM retry fallback |
+| HUD session control | `ui/src/bar-session-controller.ts` | overlay mode, timers, STT, stop-word gating, live session preference refresh, deferred refresh during finalization, error recovery, selective LLM retry fallback |
 | HUD positioning / macOS window setup | `src/src/lib.rs`, `src/src/commands.rs` | bottom-center placement, Retina scale-factor correction, `tauri-nspanel` panel API, `HUDPanel`/`tauri_panel!`, `ManagerExt::get_webview_panel`, panel-level mouse events, transparent panel/webview setup |
 | HUD state machine | `ui/src/bar-state-machine.ts` | pure state transitions for bar lifecycle |
 | UI persistence/defaults | `ui/src/storage.ts`, `ui/tauri-bridge.js` | localStorage helpers + shared defaults |
@@ -125,7 +126,7 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 | Stop-word finalization | `ui/src/bar-session-controller.ts` stops the Soniox pipeline before insert/correction, restarts listening only after a successful insert, and invalidates stale transcript/error callbacks with `transcriptGeneration` so one utterance cannot insert twice.
 | Soniox WS init | `ui/src/soniox-client.ts` sends the official Soniox context object shape with transcription vocabulary hints in `terms` only; do not use `translation_terms` in this app’s transcription pipeline. Manual finalization uses `<fin>` / `<end>` markers plus endpoint-detection config, not ad hoc transcript heuristics. |
 | Soniox endpoint delay | `ui/src/soniox-client.ts`, `ui/src/bar-session-controller.ts` | `max_endpoint_delay_ms` must stay within Soniox's documented 500-3000 range; values below 500 can make start requests fail or look like silent listening because stream errors collapse into generic reconnect handling. |
-| LLM correction fallback | When transcript correction fails, the controller retries a bounded number of times, then inserts raw text with normal success timing; no user-visible warning or extra linger.
+| LLM correction fallback | When transcript correction fails, retry only transient/recoverable failures (timeouts, transport/network issues, provider 408/429/5xx); deterministic failures fall back to raw after the first failed attempt, then insert raw text with normal success timing and no extra linger.
 | Main window split | `main.ts` owns async orchestration; `main-logic.ts` stays pure and accepts explicit element parameters.
 | Main window reopen sequence | `src/src/lib.rs` restores a hidden main window with `unminimize() -> show() -> set_focus()`; single-instance and explicit show flows use the same sequence.
 | Shortcut labels | `shortcut-display.ts` owns token-to-macOS label formatting; recorder storage keeps canonical values and only the label view changes.
@@ -172,7 +173,7 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 - Sending snake_case bridge payloads to commands that omit `#[tauri::command(rename_all = "snake_case")]`; Tauri defaults to camelCase args and throws `invalid args` at runtime, including `is_active`/`isActive` mismatches.
 - Routing Gemini through OpenAI-compatible transport, response parsing, or credential checks; Gemini uses its own endpoint and API key path.
 - Freezing stop-word or correction prefs for the entire HUD session; active prefs now refresh from storage changes and may apply after stop-word finalization completes.
-- Hiding AI correction failures during HUD finalization; raw transcript fallback now retries briefly, then proceeds silently with normal success timing.
+- Hiding AI correction failures during HUD finalization; raw transcript fallback now retries only transient/recoverable failures, then proceeds silently with normal success timing.
 - Treating unexpected System Events execution errors as permanent insertion failures; the success path retries once after a short delay, but automation-denied errors still fail immediately.
 - Moving provider-key preflight into the UI correction hot path; the UI now attempts correction directly.
 - Recreating reqwest clients or LLM config per correction request; the Rust path now shares both.
@@ -248,18 +249,21 @@ npm test
 - `src/Info.plist` and `src/Entitlements.plist` must stay aligned with the macOS permission prompts; `src/tests/window_shell.rs` checks both and verifies dockless accessory startup.
 - `src/permissions/autogenerated/*.toml` are generated outputs; edit source permissions, not the generated files.
 - `src/src/credentials.rs` treats stored lookup failures as non-fatal and keeps searching env/shell sources.
+- `src/src/credentials.rs` verifies in-app credential writes by reading storage back before env/shell fallback can satisfy the request.
 - `src/src/credentials.rs` now stores and resolves a dedicated Gemini key alongside xAI/OpenAI-compatible/Soniox keys.
+- `ui/src/main.ts` blocks setup advancement on credential-save verification failure and rechecks setup vs prefs on focus/visibility regain.
 - `src/src/commands.rs` checks Soniox key presence before temporary-key issuance; renderer flow should rely on `has_soniox_key` / `create_soniox_temporary_key`, not direct long-lived-key reads.
 - `src/src/soniox_auth.rs` sends `usage_type=transcribe_websocket` and `expires_in_seconds=3600` in temporary-key requests.
 - `ui/src/soniox-client.ts` now sends the official Soniox context payload shape and treats `<fin>` / `<end>` as the manual-finalization boundary, alongside endpoint-detection config.
 - `ui/src/bridge-ready.ts` gates startup work until `window.voiceToText` is injected.
 - `ui/src/bar-session-controller.ts` now checks stop words against combined final + interim transcript, refreshes active session prefs from storage changes in place, and applies pending updates after finalization.
-- `ui/src/bar-session-controller.ts` now retries LLM correction a bounded number of times, then falls back silently to raw transcript with normal success timing.
+- `ui/src/bar-session-controller.ts` now retries LLM correction only for transient/recoverable failures, and deterministic failures fall back to raw after the first attempt with normal success timing.
 - `ui/src/bar-session-controller.ts` clear/reset now restarts listening in place, resets transcript/error state, and drops stale async finalization after reset.
 - `ui/src/storage.ts` defaults `skipLlm` to true so LLM correction stays off the default path.
 - `ui/src/storage.ts` normalizes provider defaults so Gemini gets its own model slot and openai_compatible retains the base-url path.
 - `ui/src/shortcut-recorder-logic.ts` keeps recorder storage canonical while `ui/src/shortcut-display.ts` handles macOS label rendering.
 - `ui/src/__tests__/shortcut-recorder-logic.test.ts` covers shortcut recorder storage/label regressions.
+- `ui/src/__tests__/main-credential-sync.test.ts` covers setup->prefs verification and focus revalidation.
 - `npm run build` emits only the macOS `.app` bundle; build DMGs explicitly with `npm run build:dmg`.
 - Success state linger is 450ms.
 - Credentials persist under `voice-to-text/credentials.json`; do not rely on removed legacy support dirs.
