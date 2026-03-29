@@ -66,7 +66,6 @@ const storage = vi.hoisted(() => ({
     enterMode: true,
     outputLang: "auto" as const,
     sonioxTerms: ["alpha"],
-    sonioxTranslationTerms: [{ source: "one", target: "1" }],
     skipLlm: false,
   })),
   loadCustomStopWordPreference: vi.fn((defaultStopWord: string) => defaultStopWord),
@@ -142,7 +141,6 @@ function createBridge(): {
      updateSonioxKey: ReturnType<typeof vi.fn<VoiceToTextBridge["updateSonioxKey"]>>;
      listModels: ReturnType<typeof vi.fn<VoiceToTextBridge["listModels"]>>;
      listSonioxModels: ReturnType<typeof vi.fn<VoiceToTextBridge["listSonioxModels"]>>;
-      resetCredentials: ReturnType<typeof vi.fn<VoiceToTextBridge["resetCredentials"]>>;
     onToggleMic: ReturnType<typeof vi.fn<VoiceToTextBridge["onToggleMic"]>>;
     copyToClipboard: ReturnType<typeof vi.fn<VoiceToTextBridge["copyToClipboard"]>>;
     quitApp: ReturnType<typeof vi.fn<VoiceToTextBridge["quitApp"]>>;
@@ -176,7 +174,6 @@ function createBridge(): {
     updateSonioxKey: vi.fn(async () => {}),
     listModels: vi.fn(async () => []),
     listSonioxModels: vi.fn(async () => []),
-    resetCredentials: vi.fn(async () => {}),
     onToggleMic: vi.fn((_callback: () => void) => () => {}),
     copyToClipboard: vi.fn(async (_text: string) => {}),
     quitApp: vi.fn(async () => {}),
@@ -210,7 +207,6 @@ function createBridge(): {
     updateSonioxKey: mocks.updateSonioxKey,
     listModels: mocks.listModels,
     listSonioxModels: mocks.listSonioxModels,
-    resetCredentials: mocks.resetCredentials,
     onToggleMic: mocks.onToggleMic,
     copyToClipboard: mocks.copyToClipboard,
     quitApp: mocks.quitApp,
@@ -259,7 +255,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: false,
     });
     storage.loadReminderBeepEnabledPreference.mockReturnValue(true);
@@ -522,7 +517,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: true,
     });
     window.voiceToText = bridge;
@@ -575,7 +569,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: true,
     });
     window.voiceToText = bridge;
@@ -602,7 +595,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: true,
     });
     window.voiceToText = bridge;
@@ -631,7 +623,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: false,
     });
     window.voiceToText = bridge;
@@ -644,7 +635,6 @@ describe("BarSessionController", () => {
       enterMode: false,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: true,
     });
     storage.loadCustomStopWordPreference.mockReturnValue("done now");
@@ -668,7 +658,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: true,
     });
     const insertDeferred = createDeferred<{ success: boolean }>();
@@ -733,7 +722,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: false,
     });
     const correctionDeferred = createDeferred<string>();
@@ -769,7 +757,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: true,
     });
     window.voiceToText = bridge;
@@ -811,7 +798,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: true,
     });
     const insertDeferred = createDeferred<{ success: boolean }>();
@@ -834,7 +820,6 @@ describe("BarSessionController", () => {
       enterMode: false,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: true,
     });
     storage.loadCustomStopWordPreference.mockReturnValue("done now");
@@ -861,7 +846,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: true,
     });
     soniox.instance.start
@@ -899,7 +883,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: true,
     });
     window.voiceToText = bridge;
@@ -924,7 +907,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: false,
     });
     storage.loadLlmProviderPreference.mockReturnValue("openai_compatible");
@@ -959,7 +941,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: false,
     });
     storage.loadLlmProviderPreference.mockReturnValue("gemini");
@@ -993,7 +974,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: false,
     });
     storage.loadLlmProviderPreference.mockReturnValue("gemini");
@@ -1024,7 +1004,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: false,
     });
     storage.loadLlmProviderPreference.mockReturnValue("xai");
@@ -1055,7 +1034,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: false,
     });
     storage.loadLlmProviderPreference.mockReturnValue("openai_compatible");
@@ -1082,7 +1060,6 @@ describe("BarSessionController", () => {
       enterMode: true,
       outputLang: "auto",
       sonioxTerms: ["alpha"],
-      sonioxTranslationTerms: [{ source: "one", target: "1" }],
       skipLlm: false,
     });
     mocks.correctTranscript

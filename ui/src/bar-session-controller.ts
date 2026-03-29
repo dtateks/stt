@@ -61,7 +61,6 @@ interface ActiveSessionPreferences {
   stopWord: string;
   normalizedStopWord: string;
   sonioxTerms: string[];
-  sonioxTranslationTerms: Array<{ source: string; target: string }>;
   llmOptions: LlmRequestOptions | null;
 }
 
@@ -317,7 +316,6 @@ export class BarSessionController {
     this.bindTranscriptHandlers();
     await this.client.start(apiKey, {
       terms: sessionPreferences.sonioxTerms,
-      translationTerms: sessionPreferences.sonioxTranslationTerms,
     });
     await window.voiceToText.setMicState(true);
   }
@@ -617,7 +615,6 @@ export class BarSessionController {
       stopWord,
       normalizedStopWord: normalizeStopWord(stopWord),
       sonioxTerms: prefs.sonioxTerms,
-      sonioxTranslationTerms: prefs.sonioxTranslationTerms,
       llmOptions: prefs.skipLlm ? null : this.resolveLlmRequestOptions(),
     };
   }

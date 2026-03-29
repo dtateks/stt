@@ -167,12 +167,6 @@ export class SonioxClient implements SonioxSTTClient {
         ...(context.terms?.length && {
           terms: context.terms,
         }),
-        ...(context.translationTerms?.length && {
-          translation_terms: context.translationTerms.map((term) => ({
-            source: term.source,
-            target: term.target,
-          })),
-        }),
       };
 
       const initFrame = {

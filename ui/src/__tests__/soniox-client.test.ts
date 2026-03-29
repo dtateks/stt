@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { TranscriptResult } from "../types.ts";
+import type { SonioxConfig, TranscriptResult } from "../types.ts";
 import { SonioxClient } from "../soniox-client.ts";
 
 describe("SonioxClient", () => {
@@ -80,5 +80,71 @@ describe("SonioxClient", () => {
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Soniox error: unauthorized: invalid key" }),
     );
+  });
+
+  it("sends Soniox terms without translation_terms in the init frame", () => {
+    const sentFrames: string[] = [];
+
+    class MockWebSocket {
+      static OPEN = 1;
+      binaryType = "";
+      readyState = MockWebSocket.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: CloseEvent) => void) | null = null;
+
+      constructor(_url: string) {
+        queueMicrotask(() => {
+          this.onopen?.();
+        });
+      }
+
+      send(frame: string): void {
+        sentFrames.push(frame);
+      }
+
+      close(): void {}
+    }
+
+    const client = new SonioxClient();
+    const config: SonioxConfig = {
+      ws_url: "wss://example.test/stt",
+      model: "stt-rt-v4",
+      sample_rate: 16_000,
+      num_channels: 1,
+      audio_format: "pcm_s16le",
+      chunk_size: 4_096,
+      context_general: [{ key: "domain", value: "software" }],
+      context_text: "CLI tools and code terms",
+    };
+
+    client.setConfig(config);
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    (client as unknown as { openWebSocket(apiKey: string, context: { terms: string[] }): void }).openWebSocket(
+      "temporary-key",
+      { terms: ["Claude Code", "tmux"] },
+    );
+
+    expect(sentFrames).toHaveLength(0);
+
+    return Promise.resolve().then(() => {
+      expect(sentFrames).toHaveLength(1);
+      expect(JSON.parse(sentFrames[0])).toEqual({
+        api_key: "temporary-key",
+        model: "stt-rt-v4",
+        sample_rate: 16_000,
+        num_channels: 1,
+        audio_format: "pcm_s16le",
+        context: {
+          general: [{ key: "domain", value: "software" }],
+          text: "CLI tools and code terms",
+          terms: ["Claude Code", "tmux"],
+        },
+      });
+      expect(sentFrames[0]).not.toContain("translation_terms");
+      vi.unstubAllGlobals();
+    });
   });
 });
