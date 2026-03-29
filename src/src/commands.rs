@@ -145,7 +145,7 @@ pub async fn list_models(
 
 #[tauri::command]
 pub async fn list_soniox_models() -> Result<Vec<String>, String> {
-    Ok(soniox_models::list_soniox_models().await)
+    soniox_models::list_soniox_models().await
 }
 
 #[tauri::command]
