@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
 **Updated:** 2026-03-29 18:10
-**Commit:** 7b3c0b4f7c4d1c1f0b2d8f3a9c5e6d7f8a9b0c1d2
+**Commit:** 1eda6b03f703162893371e93195dace26795d882
 **Branch:** main
 
 ## OVERVIEW
@@ -52,9 +52,9 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
-| App lifecycle / window visibility / IPC | `src/src/lib.rs`, `src/tauri.conf.json`, `ui/src/bridge-ready.ts`, `ui/src/main.ts`, `ui/src/startup-permissions.ts`, `ui/src/bar.ts` | background accessory app starts without a Dock icon, main/settings window stays hidden until explicitly shown, startup waits for the injected bridge before key checks and startup permission checks, bar window starts hidden and is configured/positioned before show |
+| App lifecycle / window visibility / IPC | `src/src/lib.rs`, `src/tauri.conf.json`, `ui/src/bridge-ready.ts`, `ui/src/main.ts`, `ui/src/startup-permissions.ts`, `ui/src/bar.ts` | background accessory app starts without a Dock icon, cold launch explicitly shows the main/settings window, autostart/login launches stay hidden via the autostart flag, startup waits for the injected bridge before key checks and startup permission checks, bar window starts hidden and is configured/positioned before show |
 | App reopen / explicit show recovery | `src/src/lib.rs`, `src/src/commands.rs`, `src/Cargo.toml`, `src/tests/window_shell.rs` | hidden main window is restored through explicit show / second-launch flows; reopen flow must unminimize, show, then focus, and the plugin must register before other plugins |
-| Launch-at-login / autostart | `src/src/lib.rs`, `src/Cargo.toml`, `src/tests/window_shell.rs` | macOS autostart uses `tauri-plugin-autostart` with `MacosLauncher::LaunchAgent`; login-item registration is enabled only from bundled `.app` paths, and non-bundled runs must skip it |
+| Launch-at-login / autostart | `src/src/lib.rs`, `src/Cargo.toml`, `src/tests/window_shell.rs` | macOS autostart uses `tauri-plugin-autostart` with `MacosLauncher::LaunchAgent`; login-item registration is enabled only from bundled `.app` paths, non-bundled runs must skip it, and the dedicated `--launch-at-login` flag suppresses the initial main-window show |
 | Credential resolution | `src/src/credentials.rs` | JSON storage first, stored lookup failures are non-fatal, then env, then Finder startup-shell resolution |
 | Soniox credential gating | `src/src/commands.rs`, `ui/src/types.ts`, `ui/tauri-bridge.js` | renderer checks Soniox presence via `has_soniox_key` before mutation flows; temporary-key creation goes through `create_soniox_temporary_key`, not direct long-lived key reads |
 | Transcript correction | `src/src/llm_service.rs`, `src/src/credentials.rs`, `src/src/shell_credentials.rs`, `src/src/commands.rs`, `ui/src/main.ts`, `ui/src/storage.ts`, `ui/src/types.ts`, `ui/src/bar-session-controller.ts` | xAI/Gemini/OpenAI-compatible provider policy, per-provider defaults, provider-scoped key storage, shell/env credential fallback, correction prefs, and skip-LLM toggle |
@@ -92,13 +92,13 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 | Overlay reachability | HUD buttons are tabbable only in `INTERACTIVE`; passive mode removes them from tab order.
 | HUD click-through default | Bar panel should keep cursor events ignored by default; `show_bar` re-enables pointer interaction after the panel is shown.
 | HUD interactive state | Visible HUD stays interactive; PASSIVE is only for hidden/stopped states because whole-window click-through has no per-control hit testing.
-| Bar lifecycle | `bar` starts hidden at boot; each show repositions it bottom-center on the active monitor before display.
+| Bar lifecycle | `bar` starts hidden at boot; each show repositions it bottom-center on the active monitor before display without stealing key focus.
 | HUD close behavior | Close requests on the bar are intercepted, hidden, and never allowed to destroy the window; controller close action delegates to the same hidden-close path.
 | HUD action controls | `ui/bar.html`, `ui/src/bar.ts`, `ui/src/bar-state-machine.ts`, `ui/src/bar-session-controller.ts` | HUD action row is clear/reset + close only; no settings surface in the bar. Clear resets current transcript/error stage, restarts a fresh listening session in place, and ignores stale async finalization after reset. |
-| Main window visibility | `src/tauri.conf.json` keeps `main.visible=false`; startup is a hidden settings window in a background accessory app, not a visible launcher.
+| Main window visibility | `src/tauri.conf.json` keeps `main.visible=false`; startup is hidden for autostart/login launches and shown explicitly on normal cold launch.
 | Startup bridge gate | `ui/src/bridge-ready.ts`, `ui/src/main.ts`, `ui/src/bar.ts` wait for `window.voiceToText` before startup key checks and permission prompts.
 | Startup permission checks | `ui/src/startup-permissions.ts` requests microphone → accessibility → text insertion in order, keeps going after individual failures, and `ui/src/main.ts` turns the results into advisory copy only.
-| Bar show order | `configure_bar_panel()` / `configure_bar_webview_transparency()` and `position_bar_window_bottom_center()` run before `panel.show()`; reversing that flashes opaque content.
+| Bar show order | `configure_bar_panel()` / `configure_bar_webview_transparency()` and `position_bar_window_bottom_center()` run before `panel.show()`; reversing that flashes opaque content. The show path must not make the NSPanel key window.
 | macOS HUD spaces | `HUDPanel` collection behavior uses `CanJoinAllSpaces` + `FullScreenAuxiliary`; keep the panel anchored between Spaces.
 | macOS HUD level | `1001` keeps the HUD above fullscreen apps; it must stay above `NSScreenSaverWindowLevel` for reliable overlay.
 | macOS HUD movement | `NSWindowCollectionBehavior::Stationary` remains part of the panel flag set.
@@ -114,7 +114,7 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 | Finalization flow | Stop-word detection uses combined final+interim transcript in the controller; success path freezes the cleaned command text through PROCESSING, INSERTING, and SUCCESS.
 | State ownership | `bar-session-controller.ts` owns timers, mouse events, and session lifecycle; `bar.ts` stays rendering-focused.
 | Stop-word finalization | `ui/src/bar-session-controller.ts` stops the Soniox pipeline before insert/correction, restarts listening only after a successful insert, and invalidates stale transcript/error callbacks with `transcriptGeneration` so one utterance cannot insert twice.
-| Soniox WS init | `ui/src/soniox-client.ts` sends the official Soniox context object shape (`general`, `text`, `terms`, `translation_terms`) in the first JSON frame; manual finalization uses `<fin>` / `<end>` markers plus endpoint-detection config, not ad hoc transcript heuristics. |
+| Soniox WS init | `ui/src/soniox-client.ts` sends the official Soniox context object shape with transcription vocabulary hints in `terms` only; do not use `translation_terms` in this app’s transcription pipeline. Manual finalization uses `<fin>` / `<end>` markers plus endpoint-detection config, not ad hoc transcript heuristics. |
 | Soniox endpoint delay | `ui/src/soniox-client.ts`, `ui/src/bar-session-controller.ts` | `max_endpoint_delay_ms` must stay within Soniox's documented 500-3000 range; values below 500 can make start requests fail or look like silent listening because stream errors collapse into generic reconnect handling. |
 | LLM correction fallback | When transcript correction fails, the controller retries a bounded number of times, then inserts raw text with normal success timing; no user-visible warning or extra linger.
 | Main window split | `main.ts` owns async orchestration; `main-logic.ts` stays pure and accepts explicit element parameters.
@@ -169,6 +169,7 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 - Recreating reqwest clients or LLM config per correction request; the Rust path now shares both.
 - Reallocating waveform layout / analyser buffers on every frame; bar rendering reuses both by size.
 - Importing the Soniox PCM worklet as an inlined data URL; it must stay a real `?url&no-inline` asset to satisfy CSP.
+- Using `translation_terms` for transcription vocabulary hints; this app’s Soniox context is `terms`-only.
 - Reading the long-lived Soniox API key in the renderer when `has_soniox_key`/`create_soniox_temporary_key` already cover presence and temporary-key flows.
 - Reintroducing resend/insert buttons that steal focus from the destination app.
 - Reintroducing HUD settings controls; the bar action row is clear/reset + close only.
@@ -183,7 +184,7 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 - Treating `NSPasteboard.clearContents` like a BOOL; `0` is a valid change count and only negative values are invalid in clipboard clear/restore paths.
 - Checking Accessibility with AppleScript `tell application "System Events"`; it misses app-specific TCC trust and does not register the app in System Settings.
 - Calling `panel.show()` before `configure_bar_panel()` / `configure_bar_webview_transparency()` / `position_bar_window_bottom_center()`; it causes a visible opaque flash.
-- Assuming the bar starts pointer-active after show; `show_bar` only makes it interactive after the show sequence completes.
+- Assuming the bar should become key during show; `show_bar` must preserve existing app/input focus.
 - Using raw `NSWindow` manipulation instead of `tauri-nspanel` for bar fullscreen behavior.
 - Setting the bar window level below `1001` (for example `NSStatusWindowLevel` 25); it is too low for fullscreen overlay.
 - Adding `MoveToActiveSpace` to the HUD window flags; paired with `CanJoinAllSpaces` it trips AppKit startup assertions in `-[TaoWindow _validateCollectionBehavior:]`.
@@ -205,7 +206,7 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 - Changing bar state names without updating matching CSS classes.
 - Treating a missing `docs/` tree as optional when checking HUD/runtime behavior; the code paths above are the current source of truth.
 - Allowing bar close requests to destroy the window; close must be prevented and converted into hide semantics.
-- Reintroducing visible-on-launch main settings behavior; startup is hidden and shown explicitly.
+- Reintroducing visible-on-launch main settings behavior on cold launch; autostart/login launches stay hidden behind the autostart flag.
 - Copying `Info.plist` via `bundle.macOS.files`; it replaces Tauri's generated plist and breaks app launch.
 - Forcing unsigned macOS package builds in install/signing flow; packaged identity must stay valid so TCC permissions appear in System Settings.
 - Skipping `com.apple.security.device.audio-input` on the packaged app; mic/TCC registration fails without it.
@@ -256,94 +257,7 @@ npm test
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **stt** (1313 symbols, 2393 relationships, 110 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
-
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
-
-## Always Do
-
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
-
-## When Debugging
-
-1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
-2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/stt/process/{processName}` — trace the full execution flow step by step
-4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
-
-## When Refactoring
-
-- **Renaming**: MUST use `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` first. Review the preview — graph edits are safe, text_search edits need manual review. Then run with `dry_run: false`.
-- **Extracting/Splitting**: MUST run `gitnexus_context({name: "target"})` to see all incoming/outgoing refs, then `gitnexus_impact({target: "target", direction: "upstream"})` to find all external callers before moving code.
-- After any refactor: run `gitnexus_detect_changes({scope: "all"})` to verify only expected files changed.
-
-## Never Do
-
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
-
-## Tools Quick Reference
-
-| Tool | When to use | Command |
-|------|-------------|---------|
-| `query` | Find code by concept | `gitnexus_query({query: "auth validation"})` |
-| `context` | 360-degree view of one symbol | `gitnexus_context({name: "validateUser"})` |
-| `impact` | Blast radius before editing | `gitnexus_impact({target: "X", direction: "upstream"})` |
-| `detect_changes` | Pre-commit scope check | `gitnexus_detect_changes({scope: "staged"})` |
-| `rename` | Safe multi-file rename | `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` |
-| `cypher` | Custom graph queries | `gitnexus_cypher({query: "MATCH ..."})` |
-
-## Impact Risk Levels
-
-| Depth | Meaning | Action |
-|-------|---------|--------|
-| d=1 | WILL BREAK — direct callers/importers | MUST update these |
-| d=2 | LIKELY AFFECTED — indirect deps | Should test |
-| d=3 | MAY NEED TESTING — transitive | Test if critical path |
-
-## Resources
-
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/stt/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/stt/clusters` | All functional areas |
-| `gitnexus://repo/stt/processes` | All execution flows |
-| `gitnexus://repo/stt/process/{name}` | Step-by-step execution trace |
-
-## Self-Check Before Finishing
-
-Before completing any code modification task, verify:
-1. `gitnexus_impact` was run for all modified symbols
-2. No HIGH/CRITICAL risk warnings were ignored
-3. `gitnexus_detect_changes()` confirms changes match expected scope
-4. All d=1 (WILL BREAK) dependents were updated
-
-## Keeping the Index Fresh
-
-After committing code changes, the GitNexus index becomes stale. Re-run analyze to update it:
-
-```bash
-npx gitnexus analyze
-```
-
-If the index previously included embeddings, preserve them by adding `--embeddings`:
-
-```bash
-npx gitnexus analyze --embeddings
-```
-
-To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.embeddings` field shows the count (0 means no embeddings). **Running analyze without `--embeddings` will delete any previously generated embeddings.**
-
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
-
-This project is indexed by GitNexus as **stt** (1868 symbols, 3578 relationships, 158 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **stt** (2005 symbols, 3779 relationships, 170 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
