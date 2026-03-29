@@ -9,42 +9,50 @@ permissions:
   contents: write
 
 jobs:
-  check-existing-release:
-    name: Check for existing release
-    runs-on: ubuntu-latest
-    outputs:
-      skip: ${{ steps.check.outputs.skip }}
-    steps:
-      - name: Check if a release already targets this commit
-        id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          short_sha="${GITHUB_SHA::7}"
-          # Local releases use tag `local-<sha>`
-          if gh release view "local-${short_sha}" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "⏭ Release local-${short_sha} already exists — skipping CI build"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
   prepare-release:
     name: Prepare release metadata
-    needs: check-existing-release
-    if: needs.check-existing-release.outputs.skip != 'true'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.release-meta.outputs.tag }}
       release_name: ${{ steps.release-meta.outputs.release_name }}
+      build_matrix: ${{ steps.release-meta.outputs.build_matrix }}
     steps:
-      - name: Build unique tag for this push
+      - name: Build release plan for this push
         id: release-meta
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           short_sha="${GITHUB_SHA::7}"
-          tag="main-${GITHUB_RUN_NUMBER}-${short_sha}"
+          local_tag="local-${short_sha}"
+          local_asset="Voice-to-Text-darwin-arm64.zip"
+          local_release_ready="false"
+
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${local_tag}" >/dev/null 2>&1; then
+            echo "Found ${local_tag}; waiting for local arm64 release asset…"
+
+            for attempt in $(seq 1 18); do
+              release_assets="$(gh release view "$local_tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)"
+
+              if printf '%s\n' "$release_assets" | grep -qx "$local_asset"; then
+                local_release_ready="true"
+                break
+              fi
+
+              sleep 10
+            done
+          fi
+
+          if [[ "$local_release_ready" == "true" ]]; then
+            tag="$local_tag"
+            build_matrix='{"include":[{"arch":"x64","runner":"macos-15-intel","asset_name":"Voice-to-Text-darwin-x64.zip"}]}'
+          else
+            tag="main-${GITHUB_RUN_NUMBER}-${short_sha}"
+            build_matrix='{"include":[{"arch":"arm64","runner":"macos-15","asset_name":"Voice-to-Text-darwin-arm64.zip"},{"arch":"x64","runner":"macos-15-intel","asset_name":"Voice-to-Text-darwin-x64.zip"}]}'
+          fi
+
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "release_name=Voice to Text $tag" >> "$GITHUB_OUTPUT"
+          echo "build_matrix=$build_matrix" >> "$GITHUB_OUTPUT"
 
   build-macos:
     name: Build ${{ matrix.arch }} macOS bundle
@@ -52,14 +60,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-15
-            asset_name: Voice-to-Text-darwin-arm64.zip
-          - arch: x64
-            runner: macos-15-intel
-            asset_name: Voice-to-Text-darwin-x64.zip
+      matrix: ${{ fromJson(needs.prepare-release.outputs.build_matrix) }}
 
     steps:
       - name: Check out repository
@@ -79,6 +80,19 @@ jobs:
 
       - name: Build macOS app bundle
         run: npm run build
+
+      - name: Sign macOS app bundle with entitlements
+        run: ./scripts/sign-macos-app.sh "src/target/release/bundle/macos/Voice to Text.app" "src/Entitlements.plist"
+
+      - name: Verify signed macOS entitlements
+        run: |
+          app_path="src/target/release/bundle/macos/Voice to Text.app"
+          entitlements_path="$RUNNER_TEMP/entitlements.txt"
+
+          codesign --verify --verbose=2 "$app_path"
+          codesign -d --entitlements - "$app_path" 2>&1 | tee "$entitlements_path"
+          grep -q "com.apple.security.device.audio-input" "$entitlements_path"
+          grep -q "com.apple.security.automation.apple-events" "$entitlements_path"
 
       - name: Package app bundle as stable zip asset
         run: |
@@ -120,6 +134,5 @@ jobs:
           prerelease: false
           make_latest: true
           generate_release_notes: true
-          files: |
-            release-assets/Voice-to-Text-darwin-arm64.zip
-            release-assets/Voice-to-Text-darwin-x64.zip
+          overwrite_files: true
+          files: release-assets/*.zip

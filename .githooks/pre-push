@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${STT_SKIP_PRE_PUSH_RELEASE:-}" == "1" ]]; then
+	exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+ref_file="$(mktemp)"
+should_run="false"
+
+trap 'rm -f "$ref_file"' EXIT
+
+cat > "$ref_file"
+
+while read -r local_ref local_oid remote_ref remote_oid; do
+	if [[ "$remote_ref" == "refs/heads/main" ]]; then
+		should_run="true"
+		break
+	fi
+done < "$ref_file"
+
+if [[ "$should_run" != "true" ]]; then
+	exit 0
+fi
+
+cd "$repo_root"
+export STT_SKIP_PRE_PUSH_RELEASE=1
+bash "scripts/release.sh" --hook "$1" "$2" "$ref_file"

@@ -44,6 +44,7 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 ./src/tests/native_services.rs  # credential precedence + LLM parsing contracts
 ./src/tests/text_insertion_permissions.rs  # permission/result shape tests for insertion paths
 ./src/tauri.conf.json  # window visibility, Vite hooks, CSP, frontendDist -> ../ui/dist
+./.githooks/pre-push   # version-controlled pre-push hook; install into .git/hooks/pre-push
 ./src/Cargo.toml       # includes `tauri-nspanel` dependency for the HUD panel
 ./assets/              # app icons and screenshots
 ./config.json          # runtime Soniox/LLM config bundled into the app
@@ -77,8 +78,16 @@ Voice to Text is a macOS Tauri v2 app with a Rust backend and a Vite/TypeScript 
 | Test setup | `ui/src/__tests__/setup.ts` | replaces Node 25 localStorage with jsdom-friendly in-memory storage |
 | Rust invariant tests | `src/tests/*.rs` | RefCell-backed closure order checks, file-backed contract assertions, and macOS permission/credential contract tests |
 | UI build pipeline | `package.json`, `vite.config.mjs`, `tsconfig.json`, `ui/tsconfig.json` | multi-page Vite root and scripts |
+| Git hooks | `.githooks/pre-push`, `scripts/install-git-hooks.sh` | version-controlled pre-push hook source; installer copies it into `.git/hooks/pre-push` |
 | Tauri build/security | `src/tauri.conf.json` | Vite hooks, CSP, `frontendDist`, bundle resources, active capability set |
 | App entitlements | `src/Info.plist`, `src/Entitlements.plist`, install/signing flow + Tauri bundle | packaged app needs audio-input + automation.apple-events entitlements, plus matching usage strings for microphone and Apple Events; `LSUIElement` keeps the app Dockless |
+
+## RELEASE FLOW
+| Path | Behavior | Notes |
+|------|----------|-------|
+| `git push` on `main` | pre-push hook runs local release build/sign path before push completes | installed from `.githooks/pre-push` via `scripts/install-git-hooks.sh`; opt out with `STT_SKIP_PRE_PUSH_RELEASE=1` |
+| local arm64 release available | CI builds x64 and attaches it to the same GitHub Release | same-release attachment depends on the local release existing first |
+| local arm64 release absent | CI creates the release itself | fallback path remains CI-driven release creation |
 
 ## CONVENTIONS
 | Rule | Detail |
@@ -226,8 +235,13 @@ npm test
 
 ## NOTES
 - `.github/workflows/release-main.yml` publishes non-prerelease GitHub Releases from every push to `main`; installers should treat `latest` as the release channel, not a special case.
+- `git push` on `main` now routes through the version-controlled pre-push hook in `.githooks/pre-push`; `scripts/install-git-hooks.sh` installs it into `.git/hooks/pre-push` so local arm64 release/signing runs before the push completes.
+- CI release attachment is split by availability: when the local arm64 release exists, CI builds x64 and attaches it to that same GitHub Release; when it does not, CI creates the release itself.
+- `.github/workflows/release-main.yml` currently ad-hoc signs the built `.app` with `src/Entitlements.plist` before zipping/uploading stable assets; notarization is not configured until an Apple Developer account exists.
 - Release asset names are stable: `Voice-to-Text-darwin-arm64.zip` and `Voice-to-Text-darwin-x64.zip`.
-- `install.sh` downloads assets from `releases/latest/download/{asset}` and verifies the app identity from `Contents/Info.plist` `CFBundleIdentifier`.
+- `install.sh` downloads assets from `releases/latest/download/{asset}` and falls back to source build when release download, bundle-id, or entitlement validation fails.
+- Plain `tauri build` without Apple signing identity does not embed the macOS entitlements the installer expects.
+- Local/source-build fallback signs the built `.app` ad-hoc with `src/Entitlements.plist` before installer verification.
 - HUD/runtime semantics are encoded in `src/src/lib.rs`, `src/src/commands.rs`, `ui/src/bar-session-controller.ts`, and `ui/src/soniox-client.ts`.
 - `ui/src/__tests__/bar-ui.test.ts` parses the real `ui/bar.html` body; keep HUD IDs and structure stable.
 - `src/tests/command_bridge_contract.rs` and `ui/src/__tests__/bridge-contract.test.ts` are the contract source of truth for command names, keys, and result shapes.
@@ -257,7 +271,7 @@ npm test
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **stt** (2005 symbols, 3779 relationships, 170 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **stt** (2041 symbols, 3826 relationships, 173 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
