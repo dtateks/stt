@@ -37,6 +37,7 @@ const MAIN_WINDOW_LABEL: &str = "main";
 pub(crate) const BAR_WINDOW_LABEL: &str = "bar";
 const TOGGLE_MIC_EVENT: &str = "toggle-mic";
 pub(crate) const DEFAULT_MIC_TOGGLE_SHORTCUT: &str = "Control+Alt+Super+V";
+const AUTOSTART_LAUNCH_FLAG: &str = "--launch-at-login";
 const BAR_WINDOW_WIDTH: f64 = 600.0;
 const BAR_WINDOW_HEIGHT: f64 = 56.0;
 const BAR_BOTTOM_OFFSET_PX: i32 = 40;
@@ -253,6 +254,16 @@ where
     Ok(())
 }
 
+pub fn run_bar_order_front_without_focus_steal<OrderBarWindowFront>(
+    mut order_bar_window_front: OrderBarWindowFront,
+) -> tauri::Result<()>
+where
+    OrderBarWindowFront: FnMut() -> tauri::Result<()>,
+{
+    order_bar_window_front()?;
+    Ok(())
+}
+
 pub fn run_main_window_show_sequence<UnminimizeMainWindow, ShowMainWindow, FocusMainWindow>(
     mut unminimize_main_window: UnminimizeMainWindow,
     mut show_main_window: ShowMainWindow,
@@ -320,13 +331,10 @@ pub(crate) fn show_bar_window_with_runtime_invariants(
             Ok(())
         },
         || {
-            panel.order_front_regardless();
-            // NonactivatingPanel prevents app activation, but the panel must
-            // become key window so the first click/hover reaches HUD controls
-            // immediately — without this, macOS consumes the first click just
-            // to make the panel key.
-            panel.make_key_window();
-            Ok(())
+            run_bar_order_front_without_focus_steal(|| {
+                panel.order_front_regardless();
+                Ok(())
+            })
         },
     )
 }
@@ -339,6 +347,29 @@ pub(crate) fn show_main_window_with_runtime_invariants(
         || main_window.show(),
         || main_window.set_focus(),
     )
+}
+
+fn show_main_window_on_initial_launch(app: &tauri::App) -> tauri::Result<()> {
+    if !should_show_main_window_on_current_launch(std::env::args()) {
+        return Ok(());
+    }
+
+    let main_window = app
+        .get_webview_window(MAIN_WINDOW_LABEL)
+        .ok_or_else(|| std::io::Error::other("main window not found"))?;
+
+    show_main_window_with_runtime_invariants(&main_window)
+}
+
+fn should_show_main_window_on_current_launch<Args, Arg>(args: Args) -> bool
+where
+    Args: IntoIterator<Item = Arg>,
+    Arg: AsRef<str>,
+{
+    !args
+        .into_iter()
+        .skip(1)
+        .any(|arg| arg.as_ref() == AUTOSTART_LAUNCH_FLAG)
 }
 
 fn reopen_main_window(app: &AppHandle) {
@@ -646,7 +677,7 @@ fn setup_launch_at_login(app: &tauri::App) -> Result<(), String> {
             app.handle()
                 .plugin(tauri_plugin_autostart::init(
                     MacosLauncher::LaunchAgent,
-                    None,
+                    Some(vec![AUTOSTART_LAUNCH_FLAG]),
                 ))
                 .map_err(|error| format!("Could not initialize autostart plugin: {error}"))
         },
@@ -689,6 +720,7 @@ pub fn run() {
             build_main_window(app)?;
             build_bar_window(app)?;
             setup_global_shortcut(app)?;
+            show_main_window_on_initial_launch(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -892,7 +924,11 @@ mod shortcut_transaction_tests {
 
 #[cfg(all(test, target_os = "macos"))]
 mod autostart_tests {
-    use super::{is_running_from_macos_app_bundle_path, run_launch_at_login_setup_flow};
+    use super::{
+        is_running_from_macos_app_bundle_path, run_bar_order_front_without_focus_steal,
+        run_launch_at_login_setup_flow, should_show_main_window_on_current_launch,
+        AUTOSTART_LAUNCH_FLAG,
+    };
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
 
@@ -994,5 +1030,30 @@ mod autostart_tests {
 
         assert!(result.is_ok());
         assert_eq!(executed_steps.into_inner(), vec!["init", "is-enabled"]);
+    }
+
+    #[test]
+    fn launch_at_login_flag_keeps_initial_launch_hidden() {
+        assert!(should_show_main_window_on_current_launch([
+            "voice_to_text",
+            "--some-other-arg",
+        ]));
+        assert!(!should_show_main_window_on_current_launch([
+            "voice_to_text",
+            AUTOSTART_LAUNCH_FLAG,
+        ]));
+    }
+
+    #[test]
+    fn bar_front_sequence_orders_front_without_extra_focus_step() {
+        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+        let result = run_bar_order_front_without_focus_steal(|| {
+            executed_steps.borrow_mut().push("front");
+            Ok(())
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(executed_steps.into_inner(), vec!["front"]);
     }
 }
