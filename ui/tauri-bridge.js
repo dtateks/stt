@@ -172,7 +172,12 @@
    * These are the fallback values when localStorage has no stored terms.
    */
   window.voiceToTextDefaults = {
-    terms: [],
-    translationTerms: [],
+    terms: [
+      "Claude Code", "tmux", "tm-send", "LLM", "API", "GitHub", "pytest",
+      "uv", "pnpm", "Celery", "Redis", "FastAPI", "Docker", "Kubernetes",
+      "git", "npm", "pip", "debug", "refactor", "deploy", "endpoint",
+      "middleware", "async", "await", "webhook", "caching", "SSH",
+      "localhost", "frontend", "backend", "TypeScript", "Python",
+    ],
   };
 })();

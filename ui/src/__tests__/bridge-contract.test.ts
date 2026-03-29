@@ -99,6 +99,12 @@ describe("tauri bridge command contract", () => {
     expect(unlisten).toHaveBeenCalledTimes(1);
   });
 
+  it("exposes upstream vocabulary defaults through the bridge", () => {
+    expect(window.voiceToTextDefaults.terms).toContain("Claude Code");
+    expect(window.voiceToTextDefaults.terms).toContain("FastAPI");
+    expect("translationTerms" in window.voiceToTextDefaults).toBe(false);
+  });
+
   it("preserves serialized permission and insertion result shapes", async () => {
     const deniedPermission: PermissionResult = {
       granted: false,
