@@ -12,7 +12,7 @@ const DEFAULT_CAPABILITY: &str = "default";
 const BAR_CAPABILITY: &str = "bar";
 const MAIN_WINDOW_LABEL: &str = "main";
 const BAR_WINDOW_LABEL: &str = "bar";
-const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 27] = [
+const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 28] = [
     "allow-get-config",
     "allow-has-soniox-key",
     "allow-create-soniox-temporary-key",
@@ -23,6 +23,7 @@ const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 27] = [
     "allow-update-openai-compatible-key",
     "allow-update-soniox-key",
     "allow-list-models",
+    "allow-list-soniox-models",
     "allow-reset-credentials",
     "allow-ensure-microphone-permission",
     "allow-ensure-accessibility-permission",
@@ -218,6 +219,10 @@ fn bar_capability_keeps_hud_permissions_least_privilege() {
     assert!(
         !permission_ids.contains(&"allow-list-models"),
         "bar window must not receive model management permissions"
+    );
+    assert!(
+        !permission_ids.contains(&"allow-list-soniox-models"),
+        "bar window must not receive Soniox model management permissions"
     );
     assert!(
         !permission_ids.contains(&"allow-update-soniox-key"),

@@ -35,6 +35,7 @@ describe("tauri bridge command contract", () => {
     await window.voiceToText.hasSonioxKey();
     await window.voiceToText.createSonioxTemporaryKey();
     await window.voiceToText.updateSonioxKey("soniox-new");
+    await window.voiceToText.listSonioxModels();
     await window.voiceToText.hasGeminiKey();
     await window.voiceToText.hasOpenaiCompatibleKey();
     await window.voiceToText.updateMicToggleShortcut("Control+Alt+Super+M");
@@ -63,6 +64,7 @@ describe("tauri bridge command contract", () => {
     expect(invoke).toHaveBeenCalledWith("update_soniox_key", {
       soniox_key: "soniox-new",
     });
+    expect(invoke).toHaveBeenCalledWith("list_soniox_models", undefined);
     expect(invoke).toHaveBeenCalledWith("update_openai_compatible_key", {
       openai_compatible_key: "gemini-new",
       provider: "gemini",
@@ -220,6 +222,16 @@ describe("tauri bridge command contract", () => {
       provider: "gemini",
       base_url: null,
     });
+  });
+
+  it("wires listSonioxModels through invoke", async () => {
+    const models = ["stt-rt-v4", "stt-rt-v3"];
+    const invoke = vi.fn(async () => models);
+    const listen = vi.fn(async () => () => {});
+    installTauriRuntime(invoke, listen);
+
+    await expect(window.voiceToText.listSonioxModels()).resolves.toEqual(models);
+    expect(invoke).toHaveBeenCalledWith("list_soniox_models", undefined);
   });
 
   it("wires checkPermissionsStatus and relaunchApp through invoke", async () => {

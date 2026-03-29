@@ -111,6 +111,7 @@ export interface VoiceToTextBridge {
   updateOpenaiCompatibleKey(openaiCompatibleKey: string): Promise<void>;
   updateSonioxKey(sonioxKey: string): Promise<void>;
   listModels(provider?: string, baseUrl?: string): Promise<string[]>;
+  listSonioxModels(): Promise<string[]>;
   resetCredentials(): Promise<void>;
   onToggleMic(callback: () => void): () => void;
   copyToClipboard(text: string): Promise<void>;

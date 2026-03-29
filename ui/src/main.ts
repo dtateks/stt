@@ -21,6 +21,7 @@ import {
   loadLlmProviderPreference,
   loadMicToggleShortcutPreference,
   loadReminderBeepEnabledPreference,
+  loadSonioxModelPreference,
   resetCustomStopWordPreference,
   resetMicToggleShortcutPreference,
   saveEnterMode,
@@ -32,6 +33,7 @@ import {
   saveMicToggleShortcutPreference,
   saveOutputLang,
   saveReminderBeepEnabledPreference,
+  saveSonioxModelPreference,
   saveSonioxTerms,
   saveSonioxTranslationTerms,
 } from "./storage.ts";
@@ -110,6 +112,9 @@ const providerKeyLabel = q<HTMLLabelElement>("#pref-provider-key-label");
 const sonioxKeyInput = q<HTMLInputElement>("#pref-soniox-key");
 const sonioxKeySaveBtn = q<HTMLButtonElement>("#pref-soniox-key-save");
 const sonioxKeyStatus = q<HTMLDivElement>("#pref-soniox-key-status");
+const sonioxModelSelect = q<HTMLSelectElement>("#pref-soniox-model");
+const sonioxModelFetchBtn = q<HTMLButtonElement>("#pref-soniox-model-fetch");
+const sonioxModelStatus = q<HTMLDivElement>("#pref-soniox-model-status");
 
 // Stop word status (General tab — separate from shortcut status)
 const stopWordStatus = q<HTMLDivElement>("#pref-stop-word-status");
@@ -161,6 +166,7 @@ let shortcutStatusTimer: ReturnType<typeof setTimeout> | null = null;
 const AI_STATUS_CLEAR_DELAY_MS = 4_000;
 const STOP_WORD_STATUS_CLEAR_DELAY_MS = 4_000;
 const SONIOX_KEY_STATUS_CLEAR_DELAY_MS = 4_000;
+const SONIOX_MODEL_STATUS_CLEAR_DELAY_MS = 4_000;
 const MODEL_STATUS_CLEAR_DELAY_MS = 4_000;
 const PROVIDER_KEY_STATUS_CLEAR_DELAY_MS = 4_000;
 
@@ -177,12 +183,14 @@ const SETUP_BUTTON_SAVING_LABEL = "Saving…";
 let aiStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let stopWordStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let sonioxKeyStatusTimer: ReturnType<typeof setTimeout> | null = null;
+let sonioxModelStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let modelStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let providerKeyStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let defaultStopWord = "thank you";
 let defaultLlmProvider: LlmProvider = XAI_PROVIDER;
 let defaultLlmModel = DEFAULT_XAI_MODEL;
 let defaultLlmBaseUrl = DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
+let defaultSonioxModel = "stt-rt-v4";
 
 // ─── Initialization ───────────────────────────────────────────────────────
 
@@ -318,6 +326,7 @@ function showPrefsScreen(): void {
   void loadRuntimeMicToggleShortcut();
   void loadKeyStates(); // Load key presence indicators
   void fetchModels(); // Fetch real models from endpoint
+  void fetchSonioxModels(); // Fetch Soniox realtime models from backend
 }
 
 // ─── Setup form ───────────────────────────────────────────────────────────
@@ -388,6 +397,7 @@ function loadPrefsUI(): void {
   clearStopWordStatus();
   clearAiStatus();
   clearSonioxKeyStatus();
+  clearSonioxModelStatus();
   clearModelStatus();
   clearProviderKeyStatus();
 
@@ -398,6 +408,7 @@ function loadPrefsUI(): void {
   // Show placeholder in model select until fetch completes
   // Real models are fetched from endpoint in fetchModels()
   showModelPlaceholder();
+  showSonioxModelPlaceholder();
 }
 
 function bindPrefs(): void {
@@ -485,6 +496,20 @@ function bindPrefs(): void {
   sonioxKeySaveBtn.addEventListener("click", () => {
     void handleSonioxKeySave();
   });
+
+  sonioxModelSelect.addEventListener("change", () => {
+    const model = sonioxModelSelect.value;
+    if (!model) {
+      return;
+    }
+
+    saveSonioxModelPreference(model);
+    setSonioxModelStatus("Soniox model saved.", false);
+  });
+
+  sonioxModelFetchBtn.addEventListener("click", () => {
+    void fetchSonioxModels();
+  });
 }
 
 async function syncStoredMicToggleShortcut(
@@ -515,6 +540,7 @@ async function hydrateRuntimeDefaults(
     defaultLlmProvider = config.llm.provider || defaultLlmProvider;
     defaultLlmModel = config.llm.model || providerDefaultModel(defaultLlmProvider);
     defaultLlmBaseUrl = config.llm.base_url || DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
+    defaultSonioxModel = config.soniox.model || defaultSonioxModel;
   } catch {
     // Keep baked defaults when config fetch fails.
   }
@@ -610,10 +636,68 @@ async function handleSonioxKeySave(): Promise<void> {
     await window.voiceToText.updateSonioxKey(key);
     sonioxKeyInput.value = "";
     setSonioxKeyStatus("Soniox API key saved.", false);
+    await fetchSonioxModels();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setSonioxKeyStatus(`Could not save Soniox API key: ${message}`, true);
   }
+}
+
+async function fetchSonioxModels(): Promise<void> {
+  setSonioxModelLoading(true);
+  setSonioxModelStatus("Fetching Soniox realtime models…", false);
+
+  try {
+    const models = await window.voiceToText.listSonioxModels();
+    const currentModel = loadSonioxModelPreference(defaultSonioxModel);
+    populateSonioxModelSelect(models, currentModel);
+    setSonioxModelStatus(`Loaded ${models.length} Soniox models.`, false);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setSonioxModelStatus(message, true);
+    showSonioxModelPlaceholder();
+  } finally {
+    setSonioxModelLoading(false);
+  }
+}
+
+function populateSonioxModelSelect(models: string[], selectedModel: string): void {
+  sonioxModelSelect.innerHTML = "";
+
+  if (models.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No Soniox realtime models available — click refresh";
+    option.disabled = true;
+    sonioxModelSelect.appendChild(option);
+    sonioxModelSelect.value = "";
+    return;
+  }
+
+  for (const model of models) {
+    const option = document.createElement("option");
+    option.value = model;
+    option.textContent = model;
+    if (model === selectedModel) {
+      option.selected = true;
+    }
+    sonioxModelSelect.appendChild(option);
+  }
+}
+
+function setSonioxModelLoading(loading: boolean): void {
+  sonioxModelFetchBtn.disabled = loading;
+  sonioxModelFetchBtn.classList.toggle("is-loading", loading);
+}
+
+function showSonioxModelPlaceholder(): void {
+  sonioxModelSelect.innerHTML = "";
+  const option = document.createElement("option");
+  option.value = "";
+  option.textContent = "Click refresh to load Soniox realtime models";
+  option.disabled = true;
+  option.selected = true;
+  sonioxModelSelect.appendChild(option);
 }
 
 async function fetchModels(): Promise<void> {
@@ -1032,6 +1116,29 @@ function clearSonioxKeyStatus(): void {
   if (sonioxKeyStatusTimer !== null) {
     clearTimeout(sonioxKeyStatusTimer);
     sonioxKeyStatusTimer = null;
+  }
+}
+
+function setSonioxModelStatus(message: string, isError: boolean): void {
+  sonioxModelStatus.textContent = message;
+  sonioxModelStatus.classList.toggle("is-error", isError);
+  sonioxModelStatus.classList.toggle("is-success", !isError);
+
+  if (sonioxModelStatusTimer !== null) {
+    clearTimeout(sonioxModelStatusTimer);
+  }
+
+  sonioxModelStatusTimer = setTimeout(() => {
+    clearSonioxModelStatus();
+  }, SONIOX_MODEL_STATUS_CLEAR_DELAY_MS);
+}
+
+function clearSonioxModelStatus(): void {
+  sonioxModelStatus.textContent = "";
+  sonioxModelStatus.classList.remove("is-error", "is-success");
+  if (sonioxModelStatusTimer !== null) {
+    clearTimeout(sonioxModelStatusTimer);
+    sonioxModelStatusTimer = null;
   }
 }
 

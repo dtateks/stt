@@ -129,6 +129,9 @@
     listModels: (provider, baseUrl) =>
       invoke("list_models", { provider: provider ?? null, base_url: baseUrl ?? null }),
 
+    listSonioxModels: () =>
+      invoke("list_soniox_models"),
+
     resetCredentials: () =>
       invoke("reset_credentials"),
 

@@ -32,6 +32,7 @@ import {
   loadLlmProviderPreference,
   loadPreferences,
   loadReminderBeepEnabledPreference,
+  loadSonioxModelPreference,
 } from "./storage.ts";
 
 const REMINDER_INTERVAL_MS   = 60_000;
@@ -115,7 +116,7 @@ export class BarSessionController {
 
   async init(): Promise<void> {
     this.config = await window.voiceToText.getConfig();
-    this.client.setConfig(this.config.soniox);
+    this.client.setConfig(this.resolveSonioxConfigForSession());
     window.addEventListener("storage", this.handleStorageChange);
 
     this.unlistenToggle = window.voiceToText.onToggleMic(() => {
@@ -312,6 +313,7 @@ export class BarSessionController {
     apiKey: string,
     sessionPreferences: ActiveSessionPreferences,
   ): Promise<void> {
+    this.client.setConfig(this.resolveSonioxConfigForSession());
     this.bindTranscriptHandlers();
     await this.client.start(apiKey, {
       terms: sessionPreferences.sonioxTerms,
@@ -585,6 +587,19 @@ export class BarSessionController {
       provider,
       model,
       baseUrl,
+    };
+  }
+
+  private resolveSonioxConfigForSession(): AppConfig["soniox"] {
+    if (!this.config) {
+      throw new Error("App config is not loaded");
+    }
+
+    const defaultModel = this.config.soniox.model;
+    const selectedModel = loadSonioxModelPreference(defaultModel);
+    return {
+      ...this.config.soniox,
+      model: selectedModel,
     };
   }
 

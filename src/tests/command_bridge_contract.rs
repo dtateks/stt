@@ -10,7 +10,7 @@ use voice_to_text_lib::text_inserter::{
     build_insert_text_result, ensure_text_insertion_permission,
 };
 
-const COMMAND_NAMES: [&str; 27] = [
+const COMMAND_NAMES: [&str; 28] = [
     "get_config",
     "has_soniox_key",
     "create_soniox_temporary_key",
@@ -21,6 +21,7 @@ const COMMAND_NAMES: [&str; 27] = [
     "update_openai_compatible_key",
     "update_soniox_key",
     "list_models",
+    "list_soniox_models",
     "reset_credentials",
     "ensure_microphone_permission",
     "ensure_accessibility_permission",
@@ -314,6 +315,10 @@ fn bridge_payload_keys_match_rust_command_signatures() {
         "list_models bridge call must be present"
     );
     assert!(
+        bridge_js.contains("invoke(\"list_soniox_models\")"),
+        "list_soniox_models bridge call must be present"
+    );
+    assert!(
         bridge_js.contains("invoke(\"update_mic_toggle_shortcut\", { shortcut })"),
         "update_mic_toggle_shortcut payload must pass shortcut field"
     );
@@ -358,6 +363,10 @@ fn commands_with_multiword_args_opt_into_snake_case_deserialization() {
         commands_rs
             .contains("#[tauri::command(rename_all = \"snake_case\")]\npub async fn list_models"),
         "list_models must opt into snake_case arg deserialization"
+    );
+    assert!(
+        commands_rs.contains("#[tauri::command]\npub async fn list_soniox_models"),
+        "list_soniox_models should remain a no-arg command"
     );
     assert!(
         commands_rs.contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn insert_text"),

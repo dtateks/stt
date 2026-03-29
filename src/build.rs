@@ -10,6 +10,7 @@ fn main() {
         "update_openai_compatible_key",
         "update_soniox_key",
         "list_models",
+        "list_soniox_models",
         "reset_credentials",
         "ensure_microphone_permission",
         "ensure_accessibility_permission",

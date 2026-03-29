@@ -267,6 +267,12 @@
           "markdownDescription": "Enables the list_models command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_soniox_models command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-soniox-models",
+          "markdownDescription": "Enables the list_soniox_models command without any pre-configured scope."
+        },
+        {
           "description": "Enables the quit_app command without any pre-configured scope.",
           "type": "string",
           "const": "allow-quit-app",
@@ -427,6 +433,12 @@
           "type": "string",
           "const": "deny-list-models",
           "markdownDescription": "Denies the list_models command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_soniox_models command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-soniox-models",
+          "markdownDescription": "Denies the list_soniox_models command without any pre-configured scope."
         },
         {
           "description": "Denies the quit_app command without any pre-configured scope.",

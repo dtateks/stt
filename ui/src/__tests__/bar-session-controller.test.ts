@@ -74,6 +74,7 @@ const storage = vi.hoisted(() => ({
   loadLlmModelPreference: vi.fn((defaultModel: string) => defaultModel),
   loadLlmProviderPreference: vi.fn((defaultProvider: "xai" | "openai_compatible" | "gemini") => defaultProvider),
   loadReminderBeepEnabledPreference: vi.fn(() => true),
+  loadSonioxModelPreference: vi.fn((defaultModel: string) => defaultModel),
 }));
 
 vi.mock("../soniox-client.ts", () => ({
@@ -87,6 +88,7 @@ vi.mock("../storage.ts", () => ({
   loadLlmModelPreference: storage.loadLlmModelPreference,
   loadLlmProviderPreference: storage.loadLlmProviderPreference,
   loadReminderBeepEnabledPreference: storage.loadReminderBeepEnabledPreference,
+  loadSonioxModelPreference: storage.loadSonioxModelPreference,
 }));
 
 import { BarSessionController } from "../bar-session-controller.ts";
@@ -122,11 +124,14 @@ function createBridge(): {
     ensureAccessibilityPermission: ReturnType<typeof vi.fn<VoiceToTextBridge["ensureAccessibilityPermission"]>>;
     ensureTextInsertionPermission: ReturnType<typeof vi.fn<VoiceToTextBridge["ensureTextInsertionPermission"]>>;
     checkPermissionsStatus: ReturnType<typeof vi.fn<VoiceToTextBridge["checkPermissionsStatus"]>>;
-     saveCredentials: ReturnType<typeof vi.fn<VoiceToTextBridge["saveCredentials"]>>;
+      saveCredentials: ReturnType<typeof vi.fn<VoiceToTextBridge["saveCredentials"]>>;
       updateXaiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["updateXaiKey"]>>;
       updateGeminiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["updateGeminiKey"]>>;
       updateOpenaiCompatibleKey: ReturnType<typeof vi.fn<VoiceToTextBridge["updateOpenaiCompatibleKey"]>>;
-     resetCredentials: ReturnType<typeof vi.fn<VoiceToTextBridge["resetCredentials"]>>;
+     updateSonioxKey: ReturnType<typeof vi.fn<VoiceToTextBridge["updateSonioxKey"]>>;
+     listModels: ReturnType<typeof vi.fn<VoiceToTextBridge["listModels"]>>;
+     listSonioxModels: ReturnType<typeof vi.fn<VoiceToTextBridge["listSonioxModels"]>>;
+      resetCredentials: ReturnType<typeof vi.fn<VoiceToTextBridge["resetCredentials"]>>;
     onToggleMic: ReturnType<typeof vi.fn<VoiceToTextBridge["onToggleMic"]>>;
     copyToClipboard: ReturnType<typeof vi.fn<VoiceToTextBridge["copyToClipboard"]>>;
     quitApp: ReturnType<typeof vi.fn<VoiceToTextBridge["quitApp"]>>;
@@ -159,6 +164,7 @@ function createBridge(): {
     updateOpenaiCompatibleKey: vi.fn(async () => {}),
     updateSonioxKey: vi.fn(async () => {}),
     listModels: vi.fn(async () => []),
+    listSonioxModels: vi.fn(async () => []),
     resetCredentials: vi.fn(async () => {}),
     onToggleMic: vi.fn((_callback: () => void) => () => {}),
     copyToClipboard: vi.fn(async (_text: string) => {}),
@@ -192,6 +198,7 @@ function createBridge(): {
     updateOpenaiCompatibleKey: mocks.updateOpenaiCompatibleKey,
     updateSonioxKey: mocks.updateSonioxKey,
     listModels: mocks.listModels,
+    listSonioxModels: mocks.listSonioxModels,
     resetCredentials: mocks.resetCredentials,
     onToggleMic: mocks.onToggleMic,
     copyToClipboard: mocks.copyToClipboard,
@@ -236,6 +243,7 @@ describe("BarSessionController", () => {
       skipLlm: false,
     });
     storage.loadReminderBeepEnabledPreference.mockReturnValue(true);
+    storage.loadSonioxModelPreference.mockImplementation((defaultModel: string) => defaultModel);
     soniox.instance.onTranscript = null;
     soniox.instance.onError = null;
   });
@@ -254,6 +262,22 @@ describe("BarSessionController", () => {
     expect(mocks.getConfig).toHaveBeenCalledTimes(1);
     expect(soniox.instance.setConfig).toHaveBeenCalledWith(DEFAULT_CONFIG.soniox);
     expect(mocks.onToggleMic).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses stored Soniox model when starting realtime session", async () => {
+    const { bridge } = createBridge();
+    storage.loadSonioxModelPreference.mockReturnValue("stt-rt-v3");
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(soniox.instance.setConfig).toHaveBeenCalledWith({
+      ...DEFAULT_CONFIG.soniox,
+      model: "stt-rt-v3",
+    });
+    expect(soniox.instance.start).toHaveBeenCalled();
   });
 
   it("keeps the session stopped when user toggles off during startup", async () => {

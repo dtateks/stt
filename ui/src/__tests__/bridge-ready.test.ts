@@ -40,6 +40,7 @@ function createBridge(): VoiceToTextBridge {
     updateOpenaiCompatibleKey: vi.fn(async () => {}),
     updateSonioxKey: vi.fn(async () => {}),
     listModels: vi.fn(async () => []),
+    listSonioxModels: vi.fn(async () => []),
     resetCredentials: vi.fn(async () => {}),
     onToggleMic: vi.fn(() => () => {}),
     copyToClipboard: vi.fn(async () => {}),

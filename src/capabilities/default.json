@@ -15,6 +15,7 @@
     "allow-update-openai-compatible-key",
     "allow-update-soniox-key",
     "allow-list-models",
+    "allow-list-soniox-models",
     "allow-reset-credentials",
     "allow-ensure-microphone-permission",
     "allow-ensure-accessibility-permission",

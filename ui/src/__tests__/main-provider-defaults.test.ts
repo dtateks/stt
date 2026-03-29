@@ -79,6 +79,7 @@ function createBridge(): VoiceToTextBridge {
     updateOpenaiCompatibleKey: vi.fn(async () => {}),
     updateSonioxKey: vi.fn(async () => {}),
     listModels: vi.fn(async () => ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]),
+    listSonioxModels: vi.fn(async () => ["stt-rt-v4", "stt-rt-v3", "stt-rt"]),
     resetCredentials: vi.fn(async () => {}),
     onToggleMic: vi.fn(() => () => {}),
     copyToClipboard: vi.fn(async () => {}),
@@ -149,5 +150,26 @@ describe("main provider defaults", () => {
     modelSelect.dispatchEvent(new Event("change"));
     await Promise.resolve();
     expect(window.localStorage.getItem("llmModel")).toBe('"gemini-1.5-pro"');
+  });
+
+  it("loads Soniox realtime models and persists selected Soniox model", async () => {
+    await bootMain();
+
+    const sonioxModelSelect = document.getElementById("pref-soniox-model") as HTMLSelectElement;
+    const sonioxModelFetchBtn = document.getElementById("pref-soniox-model-fetch") as HTMLButtonElement;
+
+    sonioxModelFetchBtn.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const sonioxOptionValues = Array.from(sonioxModelSelect.options).map((option) => option.value);
+    expect(sonioxOptionValues).toContain("stt-rt-v4");
+
+    sonioxModelSelect.value = "stt-rt-v3";
+    sonioxModelSelect.dispatchEvent(new Event("change"));
+    await Promise.resolve();
+
+    expect(window.localStorage.getItem("sonioxModel")).toBe('"stt-rt-v3"');
   });
 });

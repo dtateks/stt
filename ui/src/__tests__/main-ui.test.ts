@@ -37,6 +37,7 @@ import {
   loadLlmProviderPreference,
   loadMicToggleShortcutPreference,
   loadReminderBeepEnabledPreference,
+  loadSonioxModelPreference,
   resetCustomStopWordPreference,
   resetMicToggleShortcutPreference,
   saveCustomStopWordPreference,
@@ -49,6 +50,7 @@ import {
   saveOutputLang,
   saveReminderBeepEnabledPreference,
   saveSkipLlm,
+  saveSonioxModelPreference,
   saveSonioxTerms,
   saveSonioxTranslationTerms,
 } from "../storage.ts";
@@ -334,6 +336,12 @@ describe("storage — stop word and llm/reminder helper keys", () => {
     expect(loadLlmBaseUrlPreference("https://api.openai.com/v1")).toBe("https://api.openai.com/v1");
     expect(saveLlmBaseUrlPreference("https://openrouter.ai/api/v1")).toBe(true);
     expect(loadLlmBaseUrlPreference("https://api.openai.com/v1")).toBe("https://openrouter.ai/api/v1");
+  });
+
+  it("loads and saves Soniox realtime model preference", () => {
+    expect(loadSonioxModelPreference("stt-rt-v4")).toBe("stt-rt-v4");
+    expect(saveSonioxModelPreference("stt-rt-v3")).toBe(true);
+    expect(loadSonioxModelPreference("stt-rt-v4")).toBe("stt-rt-v3");
   });
 });
 

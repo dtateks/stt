@@ -21,6 +21,7 @@ const KEYS = {
   llmProvider: "llmProvider",
   llmModel: "llmModel",
   llmBaseUrl: "llmBaseUrl",
+  sonioxModel: "sonioxModel",
 } as const;
 
 function readJson<T>(key: string, fallback: T): T {
@@ -186,4 +187,18 @@ export function loadLlmBaseUrlPreference(defaultBaseUrl: string): string {
 
 export function saveLlmBaseUrlPreference(baseUrl: string): boolean {
   return writeJson(KEYS.llmBaseUrl, baseUrl);
+}
+
+export function loadSonioxModelPreference(defaultModel: string): string {
+  const storedModel = readJson<string>(KEYS.sonioxModel, defaultModel);
+  if (typeof storedModel !== "string") {
+    return defaultModel;
+  }
+
+  const trimmedModel = storedModel.trim();
+  return trimmedModel || defaultModel;
+}
+
+export function saveSonioxModelPreference(model: string): boolean {
+  return writeJson(KEYS.sonioxModel, model);
 }

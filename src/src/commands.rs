@@ -8,6 +8,7 @@ use crate::credentials;
 use crate::llm_service;
 use crate::permissions;
 use crate::soniox_auth;
+use crate::soniox_models;
 use crate::text_inserter;
 use crate::BAR_WINDOW_LABEL;
 
@@ -140,6 +141,11 @@ pub async fn list_models(
     };
 
     llm_service::list_models(api_key, resolved_provider, base_url.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn list_soniox_models() -> Result<Vec<String>, String> {
+    Ok(soniox_models::list_soniox_models().await)
 }
 
 #[tauri::command]

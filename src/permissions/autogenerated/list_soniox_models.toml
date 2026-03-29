@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-soniox-models"
+description = "Enables the list_soniox_models command without any pre-configured scope."
+commands.allow = ["list_soniox_models"]
+
+[[permission]]
+identifier = "deny-list-soniox-models"
+description = "Denies the list_soniox_models command without any pre-configured scope."
+commands.deny = ["list_soniox_models"]

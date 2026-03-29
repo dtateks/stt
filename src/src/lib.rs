@@ -29,6 +29,7 @@ pub mod llm_service;
 pub mod permissions;
 pub mod shell_credentials;
 pub mod soniox_auth;
+pub mod soniox_models;
 pub mod text_inserter;
 
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -592,6 +593,7 @@ pub fn run() {
             commands::update_openai_compatible_key,
             commands::update_soniox_key,
             commands::list_models,
+            commands::list_soniox_models,
             commands::reset_credentials,
             commands::ensure_microphone_permission,
             commands::ensure_accessibility_permission,
