@@ -20,6 +20,8 @@
           "title": "Voice to Text",
           "width": 360,
           "height": 560,
+          "minWidth": 320,
+          "minHeight": 480,
           "visible": true,
           "resizable": true
         },
@@ -42,7 +44,7 @@
     "security": {
       "freezePrototype": true,
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost http://127.0.0.1:1420 http://localhost:1420 ws://127.0.0.1:1420 ws://localhost:1420 ws://127.0.0.1:1421 ws://localhost:1421 https://*.soniox.com wss://*.soniox.com; img-src 'self' asset: http://asset.localhost blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; media-src 'self' blob: data:; worker-src 'self' blob:; child-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
-      "capabilities": ["default"]
+      "capabilities": ["default", "bar"]
     }
   },
   "bundle": {
