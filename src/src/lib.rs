@@ -704,7 +704,12 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             reopen_main_window(app);
-        }))
+        }));
+
+    #[cfg(desktop)]
+    let app = app.plugin(tauri_plugin_updater::Builder::new().build());
+
+    let app = app
         .plugin(tauri_nspanel::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(MicToggleShortcutState::default())

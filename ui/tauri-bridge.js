@@ -93,6 +93,23 @@
     getConfig: () =>
       invoke("get_config"),
 
+    checkForUpdate: () =>
+      waitForTauriApi(function(tauri) {
+        return tauri.updater;
+      }).then(function(updater) {
+        return updater.check();
+      }).then(function(update) {
+        if (!update) return null;
+        return {
+          version: update.version,
+          date: update.date,
+          body: update.body,
+          downloadAndInstall: function() {
+            return update.downloadAndInstall();
+          },
+        };
+      }),
+
     ensureMicrophonePermission: () =>
       invoke("ensure_microphone_permission"),
 

@@ -43,7 +43,7 @@
     ],
     "security": {
       "freezePrototype": true,
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost http://127.0.0.1:1420 http://localhost:1420 ws://127.0.0.1:1420 ws://localhost:1420 ws://127.0.0.1:1421 ws://localhost:1421 https://*.soniox.com wss://*.soniox.com; img-src 'self' asset: http://asset.localhost blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; media-src 'self' blob: data:; worker-src 'self' blob:; child-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost http://127.0.0.1:1420 http://localhost:1420 ws://127.0.0.1:1420 ws://localhost:1420 ws://127.0.0.1:1421 ws://localhost:1421 https://*.soniox.com wss://*.soniox.com https://github.com; img-src 'self' asset: http://asset.localhost blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; media-src 'self' blob: data:; worker-src 'self' blob:; child-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
       "capabilities": ["default", "bar"]
     }
   },
@@ -60,6 +60,14 @@
       "hardenedRuntime": true,
       "exceptionDomain": "",
       "frameworks": []
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQyRUJCNDU4QUIzQTgwRTUKUldUbGdEcXJXTFRyUXZQMTZNM0JzMmlvb0ZRMkVIa1VDbFMyZzVwaFE3aGxOS0Q0S1ptc3NFWE8K",
+      "endpoints": [
+        "https://github.com/dtateks/stt/releases/latest/download/latest.json"
+      ]
     }
   }
 }

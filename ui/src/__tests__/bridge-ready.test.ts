@@ -31,6 +31,7 @@ function createBridge(): VoiceToTextBridge {
         stop_word: "thank you",
       },
     })),
+    checkForUpdate: vi.fn(async () => null),
     ensureMicrophonePermission: vi.fn(async () => ({ granted: true })),
     ensureAccessibilityPermission: vi.fn(async () => ({ granted: true })),
     ensureTextInsertionPermission: vi.fn(async () => ({ granted: true })),

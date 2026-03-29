@@ -76,6 +76,13 @@ export interface AppConfig {
   voice: VoiceConfig;
 }
 
+export interface AppUpdate {
+  version: string;
+  date?: string;
+  body?: string;
+  downloadAndInstall(): Promise<void>;
+}
+
 export interface PermissionsStatus {
   microphone: boolean;
   accessibility: boolean;
@@ -96,6 +103,7 @@ export interface VoiceToTextBridge {
   hasGeminiKey(): Promise<boolean>;
   hasOpenaiCompatibleKey(): Promise<boolean>;
   getConfig(): Promise<AppConfig>;
+  checkForUpdate(): Promise<AppUpdate | null>;
   ensureMicrophonePermission(): Promise<PermissionResult>;
   ensureAccessibilityPermission(): Promise<PermissionResult>;
   ensureTextInsertionPermission(): Promise<PermissionResult>;

@@ -129,6 +129,20 @@
         <span id="prefs-permission-text">Some permissions are missing. Enable in System Settings → Privacy &amp; Security.</span>
       </div>
 
+      <div
+        id="update-banner"
+        class="update-banner is-hidden"
+        role="status"
+        aria-live="polite"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M21 12a9 9 0 1 1-6.219-8.563"/>
+          <path d="M21 3v9h-9"/>
+        </svg>
+        <span id="update-banner-text">Update available</span>
+        <button id="update-banner-action" class="btn-sm" type="button">Update</button>
+      </div>
+
       <!-- ── Tab navigation ──────────────────────────────────────────────── -->
       <nav class="tab-bar" role="tablist" aria-label="Settings sections">
         <button

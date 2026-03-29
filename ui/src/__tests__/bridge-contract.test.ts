@@ -5,10 +5,12 @@ import type { InsertTextResult, PermissionResult, PermissionsStatus } from "../t
 function installTauriRuntime(
   invoke: ReturnType<typeof vi.fn>,
   listen: ReturnType<typeof vi.fn>,
+  updater?: { check: ReturnType<typeof vi.fn> },
 ): void {
   (window as Window & { __TAURI__?: unknown }).__TAURI__ = {
     core: { invoke },
     event: { listen },
+    updater,
   };
 }
 
@@ -238,6 +240,27 @@ describe("tauri bridge command contract", () => {
 
     await expect(window.voiceToText.listSonioxModels()).resolves.toEqual(models);
     expect(invoke).toHaveBeenCalledWith("list_soniox_models", undefined);
+  });
+
+  it("wires checkForUpdate through the updater plugin bridge", async () => {
+    const downloadAndInstall = vi.fn(async () => undefined);
+    const updaterCheck = vi.fn(async () => ({
+      version: "1.2.3",
+      date: "2026-03-29",
+      body: "Update notes",
+      downloadAndInstall,
+    }));
+    const invoke = vi.fn(async () => undefined);
+    const listen = vi.fn(async () => () => {});
+    installTauriRuntime(invoke, listen, { check: updaterCheck });
+
+    const update = await window.voiceToText.checkForUpdate();
+    expect(update).not.toBeNull();
+    expect(update?.version).toBe("1.2.3");
+    await update?.downloadAndInstall();
+
+    expect(updaterCheck).toHaveBeenCalledTimes(1);
+    expect(downloadAndInstall).toHaveBeenCalledTimes(1);
   });
 
   it("wires checkPermissionsStatus and relaunchApp through invoke", async () => {

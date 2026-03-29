@@ -5,6 +5,7 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "updater:default",
     "allow-get-config",
     "allow-has-soniox-key",
     "allow-create-soniox-temporary-key",

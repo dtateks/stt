@@ -21,6 +21,7 @@ tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 base64 = "0.22"
 block2 = "0.6"

@@ -6,7 +6,7 @@
  */
 
 import "./main.css";
-import type { LlmProvider, OutputLang } from "./types.ts";
+import type { AppUpdate, LlmProvider, OutputLang } from "./types.ts";
 import {
   readShortcutRecorderShortcut,
   renderShortcutRecorderState,
@@ -124,6 +124,9 @@ const aiSettingsFieldset = q<HTMLFieldSetElement>("#ai-settings-fieldset");
 // Permission banner (prefs screen)
 const permissionBanner = q<HTMLDivElement>("#prefs-permission-banner");
 const permissionBannerText = q<HTMLSpanElement>("#prefs-permission-text");
+const updateBanner = q<HTMLDivElement>("#update-banner");
+const updateBannerText = q<HTMLSpanElement>("#update-banner-text");
+const updateBannerAction = q<HTMLButtonElement>("#update-banner-action");
 
 // Vocabulary count badge
 const vocabCountBadge = q<HTMLSpanElement>("#vocab-count");
@@ -171,6 +174,10 @@ const SETUP_BUTTON_LABEL = "Get Started";
 const SETUP_BUTTON_SAVING_LABEL = "Saving…";
 const MISSING_SONIOX_KEY_SETUP_MESSAGE = "Soniox API key is missing. Add your key to continue.";
 const CREDENTIAL_VERIFICATION_FAILED_MESSAGE = "Saved credentials could not be verified. Soniox API key still appears to be missing.";
+const UPDATE_BUTTON_LABEL = "Update";
+const UPDATE_DOWNLOADING_LABEL = "Downloading…";
+const UPDATE_RETRY_LABEL = "Retry";
+const UPDATE_RESTARTING_LABEL = "Restarting…";
 
 let aiStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let stopWordStatusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -178,6 +185,8 @@ let sonioxKeyStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let sonioxModelStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let modelStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let providerKeyStatusTimer: ReturnType<typeof setTimeout> | null = null;
+let updateAvailable: AppUpdate | null = null;
+let updateDownloading = false;
 let defaultStopWord = "thank you";
 let defaultLlmProvider: LlmProvider = XAI_PROVIDER;
 let defaultLlmBaseUrl = DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
@@ -191,6 +200,7 @@ async function init(): Promise<void> {
   bindDialog();
   bindTabs();
   bindShortcutRecorder();
+  bindUpdateBanner();
 
   let bridge: Awaited<ReturnType<typeof waitForVoiceToTextBridge>>;
   try {
@@ -221,6 +231,7 @@ async function init(): Promise<void> {
 
   if (hasKey) {
     showPrefsScreen();
+    void checkForAppUpdate();
   } else {
     showSetupScreen();
   }
@@ -1303,6 +1314,59 @@ function showPermissionBanner(deniedNames: string[]): void {
 
 function hidePermissionBanner(): void {
   permissionBanner.classList.add("is-hidden");
+}
+
+async function checkForAppUpdate(): Promise<void> {
+  try {
+    const update = await window.voiceToText.checkForUpdate();
+    if (!update) {
+      return;
+    }
+
+    updateAvailable = update;
+    showUpdateBanner(update.version);
+  } catch {
+    hideUpdateBanner();
+  }
+}
+
+function showUpdateBanner(version: string): void {
+  updateBannerText.textContent = `Update available: v${version}`;
+  updateBannerAction.textContent = UPDATE_BUTTON_LABEL;
+  updateBannerAction.disabled = false;
+  updateBanner.classList.remove("is-hidden");
+}
+
+function hideUpdateBanner(): void {
+  updateBanner.classList.add("is-hidden");
+}
+
+function bindUpdateBanner(): void {
+  updateBannerAction.addEventListener("click", () => {
+    void handleUpdateInstall();
+  });
+}
+
+async function handleUpdateInstall(): Promise<void> {
+  if (!updateAvailable || updateDownloading) {
+    return;
+  }
+
+  updateDownloading = true;
+  updateBannerAction.textContent = UPDATE_DOWNLOADING_LABEL;
+  updateBannerAction.disabled = true;
+
+  try {
+    await updateAvailable.downloadAndInstall();
+    updateBannerAction.textContent = UPDATE_RESTARTING_LABEL;
+    await window.voiceToText.relaunchApp();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    updateBannerText.textContent = `Update failed: ${message}`;
+    updateBannerAction.textContent = UPDATE_RETRY_LABEL;
+    updateBannerAction.disabled = false;
+    updateDownloading = false;
+  }
 }
 
 // ─── Action buttons ───────────────────────────────────────────────────────

@@ -127,9 +127,10 @@ function createBridge(): {
      hasSonioxKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasSonioxKey"]>>;
      createSonioxTemporaryKey: ReturnType<typeof vi.fn<VoiceToTextBridge["createSonioxTemporaryKey"]>>;
       hasXaiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasXaiKey"]>>;
-      hasGeminiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasGeminiKey"]>>;
-      hasOpenaiCompatibleKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasOpenaiCompatibleKey"]>>;
-     getConfig: ReturnType<typeof vi.fn<VoiceToTextBridge["getConfig"]>>;
+    hasGeminiKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasGeminiKey"]>>;
+    hasOpenaiCompatibleKey: ReturnType<typeof vi.fn<VoiceToTextBridge["hasOpenaiCompatibleKey"]>>;
+    getConfig: ReturnType<typeof vi.fn<VoiceToTextBridge["getConfig"]>>;
+    checkForUpdate: ReturnType<typeof vi.fn<VoiceToTextBridge["checkForUpdate"]>>;
     ensureMicrophonePermission: ReturnType<typeof vi.fn<VoiceToTextBridge["ensureMicrophonePermission"]>>;
     ensureAccessibilityPermission: ReturnType<typeof vi.fn<VoiceToTextBridge["ensureAccessibilityPermission"]>>;
     ensureTextInsertionPermission: ReturnType<typeof vi.fn<VoiceToTextBridge["ensureTextInsertionPermission"]>>;
@@ -163,6 +164,7 @@ function createBridge(): {
     hasGeminiKey: vi.fn(async () => false),
     hasOpenaiCompatibleKey: vi.fn(async () => false),
     getConfig: vi.fn(async () => DEFAULT_CONFIG),
+    checkForUpdate: vi.fn(async () => null),
     ensureMicrophonePermission: vi.fn(async () => createPermissionResult(true)),
     ensureAccessibilityPermission: vi.fn(async () => createPermissionResult(true)),
     ensureTextInsertionPermission: vi.fn(async () => createPermissionResult(true)),
@@ -196,6 +198,7 @@ function createBridge(): {
     hasGeminiKey: mocks.hasGeminiKey,
     hasOpenaiCompatibleKey: mocks.hasOpenaiCompatibleKey,
     getConfig: mocks.getConfig,
+    checkForUpdate: mocks.checkForUpdate,
     ensureMicrophonePermission: mocks.ensureMicrophonePermission,
     ensureAccessibilityPermission: mocks.ensureAccessibilityPermission,
     ensureTextInsertionPermission: mocks.ensureTextInsertionPermission,

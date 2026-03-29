@@ -65,6 +65,7 @@ function createBridge(): VoiceToTextBridge {
     hasGeminiKey: vi.fn(async () => true),
     hasOpenaiCompatibleKey: vi.fn(async () => true),
     getConfig: vi.fn(async () => DEFAULT_CONFIG),
+    checkForUpdate: vi.fn(async () => null),
     ensureMicrophonePermission: vi.fn(async () => ({ granted: true })),
     ensureAccessibilityPermission: vi.fn(async () => ({ granted: true })),
     ensureTextInsertionPermission: vi.fn(async () => ({ granted: true })),
