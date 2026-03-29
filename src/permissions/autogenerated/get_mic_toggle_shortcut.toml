@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-mic-toggle-shortcut"
+description = "Enables the get_mic_toggle_shortcut command without any pre-configured scope."
+commands.allow = ["get_mic_toggle_shortcut"]
+
+[[permission]]
+identifier = "deny-get-mic-toggle-shortcut"
+description = "Denies the get_mic_toggle_shortcut command without any pre-configured scope."
+commands.deny = ["get_mic_toggle_shortcut"]
