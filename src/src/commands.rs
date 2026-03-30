@@ -1,4 +1,5 @@
 use std::fs;
+use std::future::Future;
 use std::sync::OnceLock;
 
 use serde_json::Value;
@@ -15,6 +16,33 @@ use crate::BAR_WINDOW_LABEL;
 
 const MAIN_WINDOW_LABEL: &str = "main";
 static CACHED_LLM_CONFIG: OnceLock<Result<llm_service::LlmConfig, String>> = OnceLock::new();
+const SONIOX_KEY_REQUIRED_MESSAGE: &str = "Soniox API key is required";
+
+fn trimmed_soniox_key(soniox_key: String) -> String {
+    soniox_key.trim().to_string()
+}
+
+async fn validate_soniox_key_for_persistence_with<F, Fut>(
+    soniox_key: String,
+    validate_temporary_key: F,
+) -> Result<String, String>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: Future<Output = Result<soniox_auth::SonioxTemporaryKey, String>>,
+{
+    let trimmed_key = trimmed_soniox_key(soniox_key);
+    if trimmed_key.is_empty() {
+        return Err(SONIOX_KEY_REQUIRED_MESSAGE.to_string());
+    }
+
+    validate_temporary_key(trimmed_key.clone()).await?;
+    Ok(trimmed_key)
+}
+
+async fn validate_soniox_key_for_persistence(soniox_key: String) -> Result<String, String> {
+    validate_soniox_key_for_persistence_with(soniox_key, soniox_auth::create_temporary_api_key)
+        .await
+}
 
 fn cached_llm_config(app: &AppHandle) -> Result<llm_service::LlmConfig, String> {
     match CACHED_LLM_CONFIG.get_or_init(|| {
@@ -64,11 +92,12 @@ pub async fn create_soniox_temporary_key(
     app: AppHandle,
 ) -> Result<SonioxTemporaryApiKeyResult, String> {
     let credentials = credentials::get_credentials(&app)?;
-    if credentials.soniox_key.trim().is_empty() {
+    let soniox_key = trimmed_soniox_key(credentials.soniox_key);
+    if soniox_key.is_empty() {
         return Err("Soniox API key is missing. Open Settings and add your key.".to_string());
     }
 
-    let temporary_key = soniox_auth::create_temporary_api_key(credentials.soniox_key).await?;
+    let temporary_key = soniox_auth::create_temporary_api_key(soniox_key).await?;
 
     Ok(SonioxTemporaryApiKeyResult {
         api_key: temporary_key.api_key,
@@ -94,8 +123,13 @@ pub fn has_openai_compatible_key(app: AppHandle, provider: Option<String>) -> Re
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn save_credentials(app: AppHandle, xai_key: String, soniox_key: String) -> Result<(), String> {
-    credentials::save_credentials(&app, xai_key, soniox_key)
+pub async fn save_credentials(
+    app: AppHandle,
+    xai_key: String,
+    soniox_key: String,
+) -> Result<(), String> {
+    let validated_soniox_key = validate_soniox_key_for_persistence(soniox_key).await?;
+    credentials::save_credentials(&app, xai_key, validated_soniox_key)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -117,8 +151,9 @@ pub fn update_openai_compatible_key(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn update_soniox_key(app: AppHandle, soniox_key: String) -> Result<(), String> {
-    credentials::save_soniox_key(&app, soniox_key)
+pub async fn update_soniox_key(app: AppHandle, soniox_key: String) -> Result<(), String> {
+    let validated_soniox_key = validate_soniox_key_for_persistence(soniox_key).await?;
+    credentials::save_soniox_key(&app, validated_soniox_key)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -287,4 +322,56 @@ pub fn get_mic_toggle_shortcut(app: AppHandle) -> Result<String, String> {
 #[tauri::command(rename_all = "snake_case")]
 pub fn update_mic_toggle_shortcut(app: AppHandle, shortcut: String) -> Result<String, String> {
     crate::update_mic_toggle_shortcut(&app, &shortcut)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_soniox_key_for_persistence_with, SONIOX_KEY_REQUIRED_MESSAGE};
+    use crate::soniox_auth::SonioxTemporaryKey;
+
+    #[test]
+    fn soniox_save_validation_rejects_empty_trimmed_key() {
+        let result = tauri::async_runtime::block_on(validate_soniox_key_for_persistence_with(
+            "   ".to_string(),
+            |_| async {
+                Ok(SonioxTemporaryKey {
+                    api_key: "temporary".to_string(),
+                    expires_at: None,
+                    expires_in_seconds: Some(3600),
+                })
+            },
+        ));
+
+        assert_eq!(result, Err(SONIOX_KEY_REQUIRED_MESSAGE.to_string()));
+    }
+
+    #[test]
+    fn soniox_save_validation_trims_before_temporary_key_mint() {
+        let result = tauri::async_runtime::block_on(validate_soniox_key_for_persistence_with(
+            "  soniox-live-key  ".to_string(),
+            |received_key| async move {
+                assert_eq!(received_key, "soniox-live-key");
+                Ok(SonioxTemporaryKey {
+                    api_key: "temporary".to_string(),
+                    expires_at: None,
+                    expires_in_seconds: Some(3600),
+                })
+            },
+        ));
+
+        assert_eq!(result, Ok("soniox-live-key".to_string()));
+    }
+
+    #[test]
+    fn soniox_save_validation_propagates_temporary_key_errors() {
+        let result = tauri::async_runtime::block_on(validate_soniox_key_for_persistence_with(
+            "soniox-live-key".to_string(),
+            |_| async { Err("Soniox temporary key request failed (401): invalid key".to_string()) },
+        ));
+
+        assert_eq!(
+            result,
+            Err("Soniox temporary key request failed (401): invalid key".to_string())
+        );
+    }
 }

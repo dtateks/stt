@@ -343,8 +343,9 @@ fn commands_with_multiword_args_opt_into_snake_case_deserialization() {
     let commands_rs = read_file("src/commands.rs");
 
     assert!(
-        commands_rs
-            .contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn save_credentials"),
+        commands_rs.contains(
+            "#[tauri::command(rename_all = \"snake_case\")]\npub async fn save_credentials"
+        ),
         "save_credentials must opt into snake_case arg deserialization"
     );
     assert!(
@@ -359,8 +360,9 @@ fn commands_with_multiword_args_opt_into_snake_case_deserialization() {
         "update_openai_compatible_key must opt into snake_case arg deserialization"
     );
     assert!(
-        commands_rs
-            .contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn update_soniox_key"),
+        commands_rs.contains(
+            "#[tauri::command(rename_all = \"snake_case\")]\npub async fn update_soniox_key"
+        ),
         "update_soniox_key must opt into snake_case arg deserialization"
     );
     assert!(
@@ -386,6 +388,20 @@ fn commands_with_multiword_args_opt_into_snake_case_deserialization() {
         commands_rs
             .contains("#[tauri::command(rename_all = \"snake_case\")]\npub fn set_mic_state"),
         "set_mic_state must opt into snake_case arg deserialization"
+    );
+}
+
+#[test]
+fn soniox_save_commands_validate_through_temporary_key_flow() {
+    let commands_rs = read_file("src/commands.rs");
+
+    assert!(
+        commands_rs.contains("validate_soniox_key_for_persistence(soniox_key).await?;"),
+        "save/update Soniox commands must validate keys through temporary-key minting before persistence"
+    );
+    assert!(
+        commands_rs.contains("let soniox_key = trimmed_soniox_key(credentials.soniox_key);"),
+        "temporary-key minting should trim stored Soniox key values at the Rust boundary"
     );
 }
 

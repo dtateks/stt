@@ -8,6 +8,7 @@ const SONIOX_TEMP_KEY_ENDPOINT: &str = "https://api.soniox.com/v1/auth/temporary
 const SONIOX_TEMP_KEY_USAGE_TYPE: &str = "transcribe_websocket";
 const SONIOX_TEMP_KEY_EXPIRATION_SECONDS: u64 = 3_600;
 const REQUEST_TIMEOUT_SECONDS: u64 = 15;
+const SONIOX_KEY_REQUIRED_MESSAGE: &str = "Soniox API key is required";
 
 #[derive(Debug, Clone)]
 pub struct SonioxTemporaryKey {
@@ -40,11 +41,16 @@ fn soniox_auth_http_client() -> Result<&'static Client, String> {
 pub async fn create_temporary_api_key(
     long_lived_api_key: String,
 ) -> Result<SonioxTemporaryKey, String> {
+    let trimmed_long_lived_api_key = long_lived_api_key.trim().to_string();
+    if trimmed_long_lived_api_key.is_empty() {
+        return Err(SONIOX_KEY_REQUIRED_MESSAGE.to_string());
+    }
+
     let client = soniox_auth_http_client()?;
 
     let response = client
         .post(SONIOX_TEMP_KEY_ENDPOINT)
-        .bearer_auth(long_lived_api_key)
+        .bearer_auth(trimmed_long_lived_api_key)
         .json(&temporary_api_key_request_payload())
         .send()
         .await
@@ -116,7 +122,7 @@ pub async fn create_temporary_api_key(
 
 #[cfg(test)]
 mod tests {
-    use super::temporary_api_key_request_payload;
+    use super::{create_temporary_api_key, temporary_api_key_request_payload, SONIOX_KEY_REQUIRED_MESSAGE};
     use serde_json::json;
 
     #[test]
@@ -128,5 +134,13 @@ mod tests {
                 "expires_in_seconds": 3600,
             })
         );
+    }
+
+    #[test]
+    fn create_temporary_api_key_rejects_blank_long_lived_key() {
+        let error = tauri::async_runtime::block_on(create_temporary_api_key("   ".to_string()))
+            .expect_err("blank Soniox keys should fail before network call");
+
+        assert_eq!(error, SONIOX_KEY_REQUIRED_MESSAGE);
     }
 }

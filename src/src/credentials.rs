@@ -85,13 +85,14 @@ pub fn save_credentials(
     xai_key: String,
     soniox_key: String,
 ) -> Result<(), String> {
-    if soniox_key.trim().is_empty() {
+    let trimmed_soniox_key = soniox_key.trim().to_string();
+    if trimmed_soniox_key.is_empty() {
         return Err("Soniox API key is required".to_string());
     }
 
     let mut current = read_store(app)?;
     current.xai_key = xai_key;
-    current.soniox_key = soniox_key;
+    current.soniox_key = trimmed_soniox_key;
     write_store_with_readback_verification(app, &current)
 }
 
@@ -117,8 +118,13 @@ pub fn save_gemini_key(app: &AppHandle, gemini_key: String) -> Result<(), String
 }
 
 pub fn save_soniox_key(app: &AppHandle, soniox_key: String) -> Result<(), String> {
+    let trimmed_soniox_key = soniox_key.trim().to_string();
+    if trimmed_soniox_key.is_empty() {
+        return Err("Soniox API key is required".to_string());
+    }
+
     let mut current = read_store(app)?;
-    current.soniox_key = soniox_key;
+    current.soniox_key = trimmed_soniox_key;
     write_store_with_readback_verification(app, &current)
 }
 

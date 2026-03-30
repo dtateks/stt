@@ -89,6 +89,14 @@ function createBridge(): VoiceToTextBridge {
     hideBar: vi.fn(async () => {}),
     setMouseEvents: vi.fn(async () => {}),
     showSettings: vi.fn(async () => {}),
+    getPlatformRuntimeInfo: vi.fn(async () => ({
+      os: "macos",
+      shortcutDisplay: "macos",
+      permissionFlow: "macos",
+      backgroundRecovery: "dockless",
+      supportsFullscreenHud: true,
+      requiresPrivilegedInsertionHelper: false,
+    })),
     getMicToggleShortcut: vi.fn(async () => "Control+Alt+Super+V"),
     updateMicToggleShortcut: vi.fn(async (shortcut: string) => shortcut),
   };
@@ -204,6 +212,33 @@ describe("main credential screen sync", () => {
     expect(setupScreen.classList.contains("is-active")).toBe(true);
     expect(prefsScreen.classList.contains("is-active")).toBe(false);
     expect(setupError.textContent).toContain("Stored credentials could not be verified after save");
+  });
+
+  it("rejects Soniox keys that fail temporary-key validation during setup save", async () => {
+    const bridge = createBridge();
+    vi.mocked(bridge.hasSonioxKey).mockResolvedValueOnce(false);
+    vi.mocked(bridge.saveCredentials).mockRejectedValueOnce(
+      new Error("Soniox temporary key request failed (401): invalid key"),
+    );
+
+    await bootMain(bridge);
+
+    const setupScreen = document.getElementById("screen-setup") as HTMLDivElement;
+    const prefsScreen = document.getElementById("screen-prefs") as HTMLDivElement;
+    const sonioxInput = document.getElementById("setup-soniox-key") as HTMLInputElement;
+    const setupError = document.getElementById("setup-error") as HTMLDivElement;
+
+    sonioxInput.value = "soniox-live-key";
+    (document.getElementById("setup-submit") as HTMLButtonElement).click();
+    await flushMainUi();
+
+    expect(bridge.saveCredentials).toHaveBeenCalledWith("", "soniox-live-key");
+    expect(bridge.hasSonioxKey).toHaveBeenCalledTimes(1);
+    expect(setupScreen.classList.contains("is-active")).toBe(true);
+    expect(prefsScreen.classList.contains("is-active")).toBe(false);
+    expect(setupError.textContent).toContain(
+      "Soniox temporary key request failed (401): invalid key",
+    );
   });
 
   it("switches to prefs only after post-save verification succeeds", async () => {
