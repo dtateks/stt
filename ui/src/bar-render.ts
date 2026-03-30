@@ -23,6 +23,8 @@ export const STATE_LABELS: Record<BarState, string> = {
   ERROR:      "Error",
 };
 
+const LIVE_TRANSCRIPT_PENDING_SUFFIX = "…";
+const LIVE_TRANSCRIPT_PENDING_SUFFIX_PATTERN = /(?:\.{3}|…)+\s*$/;
 const WAVEFORM_BAR_COUNT = 12;
 const WAVEFORM_BAR_WIDTH = 2;
 const WAVEFORM_MAX_BAR_HEIGHT_RATIO = 0.85;
@@ -98,9 +100,32 @@ export function applyTranscript(
     state === "SUCCESS";
 
   if (!isTranscriptVisibleState) return;
-  transcriptFinalEl.textContent = result.finalText;
-  transcriptInterimEl.textContent = result.interimText;
+
+  transcriptFinalEl.textContent = buildVisibleTranscriptText(state, result);
+  transcriptInterimEl.textContent = "";
   syncPromptVisibility(hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
+  scrollTranscriptToEnd(transcriptFinalEl);
+}
+
+export function buildVisibleTranscriptText(state: string | undefined, result: TranscriptResult): string {
+  const visibleTranscript = [result.finalText, result.interimText].filter(Boolean).join(" ");
+  const hasPendingInterimTranscript = state === "LISTENING" && result.interimText.trim().length > 0;
+
+  if (!hasPendingInterimTranscript || visibleTranscript.length === 0) {
+    return visibleTranscript;
+  }
+
+  if (LIVE_TRANSCRIPT_PENDING_SUFFIX_PATTERN.test(visibleTranscript)) {
+    return visibleTranscript;
+  }
+
+  return `${visibleTranscript}${LIVE_TRANSCRIPT_PENDING_SUFFIX}`;
+}
+
+export function scrollTranscriptToEnd(textEl: HTMLElement): void {
+  const container = textEl.parentElement;
+  if (!container) return;
+  container.scrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
 }
 
 export function applyErrorMessage(

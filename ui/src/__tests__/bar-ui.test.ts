@@ -30,8 +30,10 @@ import {
   applyTranscript,
   applyErrorMessage,
   applyOverlayMode,
+  buildVisibleTranscriptText,
   createWaveformLayout,
   syncPromptVisibility,
+  scrollTranscriptToEnd,
   resizeCanvasWithContext,
   waveformShouldRun,
   STATE_LABELS,
@@ -223,15 +225,15 @@ describe("applyTranscript — transcript content updates", () => {
   beforeEach(buildHudDom);
   afterEach(() => { document.body.innerHTML = ""; });
 
-  it("sets final and interim text when state is LISTENING", () => {
+  it("combines final and interim into continuous text when LISTENING", () => {
     const hud = getHud();
     hud.dataset.state = "LISTENING";
     applyTranscript(
-      { finalText: "Hello world", interimText: "typing..." },
+      { finalText: "Hello world", interimText: "typing" },
       hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
     );
-    expect(getTranscriptFinal().textContent).toBe("Hello world");
-    expect(getTranscriptInterim().textContent).toBe("typing...");
+    expect(getTranscriptFinal().textContent).toBe("Hello world typing…");
+    expect(getTranscriptInterim().textContent).toBe("");
   });
 
   it("updates transcript during active post-stop states", () => {
@@ -272,6 +274,85 @@ describe("applyTranscript — transcript content updates", () => {
     );
     expect(getTranscriptPrompt().hidden).toBe(true);
   });
+
+  it("renders only interim text in final slot when final is empty", () => {
+    const hud = getHud();
+    hud.dataset.state = "LISTENING";
+    applyTranscript(
+      { finalText: "", interimText: "just started" },
+      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+    );
+    expect(getTranscriptFinal().textContent).toBe("just started…");
+    expect(getTranscriptInterim().textContent).toBe("");
+    expect(getTranscriptPrompt().hidden).toBe(true);
+  });
+
+  it("renders only final text without trailing ellipsis once interim text is final", () => {
+    const hud = getHud();
+    hud.dataset.state = "LISTENING";
+    applyTranscript(
+      { finalText: "Finalized text", interimText: "" },
+      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+    );
+    expect(getTranscriptFinal().textContent).toBe("Finalized text");
+    expect(getTranscriptInterim().textContent).toBe("");
+  });
+
+  it("removes the trailing ellipsis once listening has advanced to PROCESSING", () => {
+    const hud = getHud();
+    hud.dataset.state = "PROCESSING";
+    applyTranscript(
+      { finalText: "Finalized text", interimText: "" },
+      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+    );
+    expect(getTranscriptFinal().textContent).toBe("Finalized text");
+    expect(getTranscriptInterim().textContent).toBe("");
+  });
+
+  it("does not introduce extra whitespace when both parts are empty", () => {
+    const hud = getHud();
+    hud.dataset.state = "LISTENING";
+    applyTranscript(
+      { finalText: "", interimText: "" },
+      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+    );
+    expect(getTranscriptFinal().textContent).toBe("");
+    expect(getTranscriptInterim().textContent).toBe("");
+  });
+});
+
+// ─── buildVisibleTranscriptText ───────────────────────────────────────────────
+
+describe("buildVisibleTranscriptText — live transcript suffix", () => {
+  it("adds a trailing ellipsis while LISTENING with interim transcript text", () => {
+    expect(
+      buildVisibleTranscriptText("LISTENING", { finalText: "hello", interimText: "world" }),
+    ).toBe("hello world…");
+  });
+
+  it("does not add a trailing ellipsis when LISTENING but interim text is already final", () => {
+    expect(
+      buildVisibleTranscriptText("LISTENING", { finalText: "hello world", interimText: "" }),
+    ).toBe("hello world");
+  });
+
+  it("does not add a trailing ellipsis outside LISTENING", () => {
+    expect(
+      buildVisibleTranscriptText("PROCESSING", { finalText: "hello", interimText: "world" }),
+    ).toBe("hello world");
+  });
+
+  it("keeps empty transcript text empty while LISTENING", () => {
+    expect(
+      buildVisibleTranscriptText("LISTENING", { finalText: "", interimText: "" }),
+    ).toBe("");
+  });
+
+  it("does not duplicate an existing trailing ellipsis while LISTENING", () => {
+    expect(
+      buildVisibleTranscriptText("LISTENING", { finalText: "hello", interimText: "world..." }),
+    ).toBe("hello world...");
+  });
 });
 
 // ─── applyErrorMessage ────────────────────────────────────────────────────────
@@ -306,6 +387,20 @@ describe("applyErrorMessage — error display semantics", () => {
     expect(getTranscriptPrompt().hidden).toBe(true);
   });
 
+  it("does not pin long error text to the right edge", () => {
+    const transcriptContainer = getTranscriptFinal().parentElement as HTMLDivElement;
+    Object.defineProperty(transcriptContainer, "scrollWidth", { value: 500, configurable: true });
+    Object.defineProperty(transcriptContainer, "clientWidth", { value: 200, configurable: true });
+    transcriptContainer.scrollLeft = 50;
+
+    applyErrorMessage(
+      "A very long error message that should keep its leading text visible.",
+      getHud(), getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+    );
+
+    expect(transcriptContainer.scrollLeft).toBe(50);
+  });
+
   it("clears both transcript slots when called with null", () => {
     getTranscriptFinal().textContent = "previous error";
     getTranscriptInterim().textContent = "something";
@@ -315,6 +410,29 @@ describe("applyErrorMessage — error display semantics", () => {
     );
     expect(getTranscriptFinal().textContent).toBe("");
     expect(getTranscriptInterim().textContent).toBe("");
+  });
+});
+
+// ─── scrollTranscriptToEnd ────────────────────────────────────────────────────
+
+describe("scrollTranscriptToEnd — pins newest text into view", () => {
+  it("scrolls parent container to show rightmost content", () => {
+    const container = { scrollLeft: 0, scrollWidth: 500, clientWidth: 200 } as unknown as HTMLElement;
+    const textEl = { parentElement: container } as unknown as HTMLElement;
+    scrollTranscriptToEnd(textEl);
+    expect(container.scrollLeft).toBe(300);
+  });
+
+  it("does not throw when element has no parent", () => {
+    const textEl = { parentElement: null } as unknown as HTMLElement;
+    expect(() => scrollTranscriptToEnd(textEl)).not.toThrow();
+  });
+
+  it("scrolls to zero when content fits within container", () => {
+    const container = { scrollLeft: 50, scrollWidth: 200, clientWidth: 200 } as unknown as HTMLElement;
+    const textEl = { parentElement: container } as unknown as HTMLElement;
+    scrollTranscriptToEnd(textEl);
+    expect(container.scrollLeft).toBe(0);
   });
 });
 
@@ -841,5 +959,14 @@ describe("tokens.css — required tokens present in production source", () => {
     for (const token of REQUIRED_TOKENS) {
       expect(token).toMatch(/^--/);
     }
+  });
+});
+
+describe("bar.css — error transcript keeps start-visible truncation", () => {
+  const barCssPath = resolve(__dirname, "../bar.css");
+  const barCssSource = readFileSync(barCssPath, "utf-8");
+
+  it("keeps ellipsis truncation in the ERROR transcript rule", () => {
+    expect(barCssSource).toMatch(/\.hud\[data-state="ERROR"\]\s+\.transcript-final\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/s);
   });
 });

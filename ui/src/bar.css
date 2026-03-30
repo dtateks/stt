@@ -166,31 +166,21 @@ body {
 .hud-transcript {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   overflow: hidden;
 }
 
 .transcript-final {
+  display: block;
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-medium);
   color: var(--text-primary);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   line-height: var(--line-height-tight);
   letter-spacing: -0.01em;
 }
 
 .transcript-interim {
-  font-size: var(--font-size-sm);
-  color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: var(--line-height-tight);
-  font-style: italic;
+  display: none;
 }
 
 .transcript-prompt {
@@ -206,6 +196,8 @@ body {
 
 .hud[data-state="ERROR"] .transcript-final {
   color: var(--color-error-300);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hud[data-state="PROCESSING"] .transcript-final,
