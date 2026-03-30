@@ -106,7 +106,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | macOS signing bootstrap | `scripts/bootstrap-local-review-signing-cert.sh` | creates or reuses the stable local-review code-signing identity used for TCC-persistent review installs |
 | Tauri build/security | `src/tauri.conf.json` | Vite hooks, CSP, `frontendDist`, bundle resources, active capability set |
 | App entitlements | `src/Info.plist`, `src/Entitlements.plist`, install/signing flow + Tauri bundle | packaged app needs audio-input + automation.apple-events entitlements, plus matching usage strings for microphone and Apple Events; `LSUIElement` keeps the app Dockless |
-| macOS signing / install / release | `scripts/sign-macos-app.sh`, `install.sh`, `scripts/release.sh`, `.github/workflows/release-main.yml` | stable local-review signing is the preferred review lane; updater artifacts and `latest.json` are published only when release signing is explicit and stable |
+| macOS signing / install / release | `scripts/sign-macos-app.sh`, `install.sh`, `install-review.sh`, `scripts/release.sh`, `.github/workflows/release-main.yml` | public installer keeps downloaded release signatures intact; `install-review.sh` owns TCC-persistent review installs; `scripts/sign-macos-app.sh` accepts explicit signing-mode selection; updater artifacts and `latest.json` are published only when release signing is explicit and stable |
 
 ## RELEASE FLOW
 | Path | Behavior | Notes |
@@ -272,17 +272,17 @@ npm test
 - `.github/workflows/release-main.yml` publishes non-prerelease GitHub Releases from every push to `main`; installers should treat `latest` as the release channel, not a special case.
 - `git push` on `main` now routes through the version-controlled pre-push hook in `.githooks/pre-push`; `scripts/install-git-hooks.sh` installs it into `.git/hooks/pre-push` so local arm64 release/signing runs before the push completes.
 - CI release attachment is split by availability: when the local arm64 release exists, CI builds x64 and attaches it to that same GitHub Release; when it does not, CI creates the release itself.
-- `scripts/bootstrap-local-review-signing-cert.sh` seeds the stable local-review signing identity in the login keychain; `install.sh` prefers explicit `APPLE_SIGNING_IDENTITY`, then that stable local-review identity, then ad-hoc fallback, and re-signs the downloaded or source-built app before install.
+- `scripts/bootstrap-local-review-signing-cert.sh` seeds the stable local-review signing identity in the login keychain; `install-review.sh` is the TCC-persistent lane, while `install.sh` preserves downloaded release signatures and only signs the source-build fallback when needed.
 - `scripts/bootstrap-local-review-signing-cert.sh` and the signing scripts use real `codesign` probes as the source of truth for local-review usability; `security find-identity -v -p codesigning` is not reliable enough for this review cert on this machine.
-- `scripts/sign-macos-app.sh` resolves signing identity in the same order: explicit `APPLE_SIGNING_IDENTITY`, stable local-review identity, then ad-hoc fallback.
-- `install.sh` reports whether the chosen lane is explicit, stable local-review, or ad-hoc so permission persistence expectations stay visible during review installs.
+- `scripts/sign-macos-app.sh` resolves signing identity by explicit signing mode so callers can choose local-review signing or public source-fallback signing.
+- `install.sh` reports whether the chosen lane is release-download or source-build fallback so signature preservation stays visible.
 - `install.sh` validates TCC persistence against the installed `/Applications/Voice to Text.app` path; repo-path build bundles under `src/target/release/bundle/macos/Voice to Text.app` are build artifacts, not the install target.
 - `install.sh` must terminate the installed `/Applications/Voice to Text.app` process before relaunching it; an already-running app keeps the stale in-memory binary even after the bundle on disk is replaced.
 - `scripts/release.sh` and `.github/workflows/release-main.yml` gate macOS updater archives and `latest.json` on explicit stable release signing configuration; ad-hoc-only release runs publish stable zip/exe assets but skip updater metadata.
 - Release asset names are stable: `Voice-to-Text-darwin-arm64.zip`, `Voice-to-Text-darwin-x64.zip`, and `Voice-to-Text-windows-x64-setup.exe`.
 - `install.sh` downloads assets from `releases/latest/download/{asset}` and falls back to source build when release download, bundle-id, or entitlement validation fails.
 - Plain `tauri build` without Apple signing identity does not embed the macOS entitlements the installer expects.
-- Local/source-build fallback still re-signs the built `.app` before installer verification; ad-hoc fallback is expected only when no stable identity is available.
+- Public installer keeps downloaded release signatures intact; only the source-build fallback gets signed locally through `scripts/sign-macos-app.sh`.
 - HUD/runtime semantics are encoded in `src/src/lib.rs`, `src/src/commands.rs`, `ui/src/bar-session-controller.ts`, and `ui/src/soniox-client.ts`.
 - `ui/src/__tests__/bar-ui.test.ts` parses the real `ui/bar.html` body; keep HUD IDs and structure stable.
 - `src/tests/command_bridge_contract.rs` and `ui/src/__tests__/bridge-contract.test.ts` are the contract source of truth for command names, keys, and result shapes.
