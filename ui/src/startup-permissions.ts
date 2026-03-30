@@ -1,4 +1,4 @@
-import type { VoiceToTextBridge } from "./types.ts";
+import type { PermissionResult, VoiceToTextBridge } from "./types.ts";
 
 type StartupPermissionBridge = Pick<
   VoiceToTextBridge,
@@ -12,6 +12,9 @@ export type PermissionName = "microphone" | "accessibility" | "textInsertion";
 export interface PermissionPrimingResult {
   permission: PermissionName;
   granted: boolean;
+  code?: string;
+  openedSettings?: boolean;
+  message?: string;
   error?: string;
 }
 
@@ -41,11 +44,17 @@ export async function requestStartupPermissions(
 
 async function primeSinglePermission(
   permission: PermissionName,
-  request: () => Promise<{ granted: boolean }>,
+  request: () => Promise<PermissionResult>,
 ): Promise<PermissionPrimingResult> {
   try {
     const result = await request();
-    return { permission, granted: result.granted };
+    return {
+      permission,
+      granted: result.granted,
+      code: result.code,
+      openedSettings: result.openedSettings,
+      message: result.message,
+    };
   } catch (err) {
     // Startup permission priming is best-effort; individual flows still
     // re-check permissions when the feature is actually used.

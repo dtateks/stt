@@ -6,11 +6,17 @@
  */
 
 import "./main.css";
-import type { AppUpdate, LlmProvider, OutputLang } from "./types.ts";
+import type {
+  AppUpdate,
+  LlmProvider,
+  OutputLang,
+  PlatformRuntimeInfo,
+} from "./types.ts";
 import {
   readShortcutRecorderShortcut,
   renderShortcutRecorderState,
 } from "./shortcut-recorder-logic.ts";
+import type { ShortcutDisplayMode } from "./shortcut-display.ts";
 import {
   DEFAULT_MIC_TOGGLE_SHORTCUT,
   loadPreferences,
@@ -124,6 +130,7 @@ const aiSettingsFieldset = q<HTMLFieldSetElement>("#ai-settings-fieldset");
 // Permission banner (prefs screen)
 const permissionBanner = q<HTMLDivElement>("#prefs-permission-banner");
 const permissionBannerText = q<HTMLSpanElement>("#prefs-permission-text");
+const backgroundRecoveryText = q<HTMLSpanElement>("#runtime-background-recovery");
 const updateBanner = q<HTMLDivElement>("#update-banner");
 const updateBannerText = q<HTMLSpanElement>("#update-banner-text");
 const updateBannerAction = q<HTMLButtonElement>("#update-banner-action");
@@ -190,6 +197,15 @@ let updateDownloading = false;
 let defaultStopWord = "thank you";
 let defaultLlmProvider: LlmProvider = XAI_PROVIDER;
 let defaultLlmBaseUrl = DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
+const DEFAULT_PLATFORM_RUNTIME_INFO: PlatformRuntimeInfo = {
+  os: "macos",
+  shortcutDisplay: "macos",
+  permissionFlow: "system-settings-privacy",
+  backgroundRecovery: "dockless-reopen",
+  supportsFullscreenHud: true,
+  requiresPrivilegedInsertionHelper: false,
+};
+let platformRuntimeInfo: PlatformRuntimeInfo = DEFAULT_PLATFORM_RUNTIME_INFO;
 
 // ─── Initialization ───────────────────────────────────────────────────────
 
@@ -213,6 +229,9 @@ async function init(): Promise<void> {
   }
 
   bindCredentialScreenRevalidation();
+
+  platformRuntimeInfo = await loadPlatformRuntimeInfo(bridge);
+  applyPlatformRuntimeInfo(platformRuntimeInfo);
 
   const shortcutSyncError = await syncStoredMicToggleShortcut(bridge);
   await hydrateRuntimeDefaults(bridge);
@@ -245,11 +264,11 @@ async function init(): Promise<void> {
   const permResults = await requestStartupPermissions(bridge);
   const anyDenied = permResults.some((r) => !r.granted);
   if (anyDenied) {
-    const deniedNames = permResults
-      .filter((r) => !r.granted)
-      .map((r) => r.permission);
-    const deniedList = deniedNames.join(", ");
-    const permissionMessage = `Some permissions were not granted (${deniedList}). Voice to Text may not function correctly. Enable them in System Settings → Privacy & Security.`;
+    const deniedResults = permResults.filter((result) => !result.granted);
+    const permissionMessage = buildStartupPermissionMessage(
+      deniedResults,
+      platformRuntimeInfo,
+    );
     startupErrorMessage = startupErrorMessage
       ? `${startupErrorMessage} — ${permissionMessage}`
       : permissionMessage;
@@ -258,9 +277,78 @@ async function init(): Promise<void> {
       setupError,
       sonioxInput,
     );
-    showPermissionBanner(deniedNames);
+    showPermissionBanner(deniedResults, platformRuntimeInfo);
     startPermissionPolling();
   }
+}
+
+async function loadPlatformRuntimeInfo(
+  bridge: Pick<typeof window.voiceToText, "getPlatformRuntimeInfo">,
+): Promise<PlatformRuntimeInfo> {
+  try {
+    return await bridge.getPlatformRuntimeInfo();
+  } catch {
+    return DEFAULT_PLATFORM_RUNTIME_INFO;
+  }
+}
+
+function applyPlatformRuntimeInfo(runtimeInfo: PlatformRuntimeInfo): void {
+  backgroundRecoveryText.textContent = getBackgroundRecoveryMessage(runtimeInfo);
+}
+
+function getShortcutDisplayMode(runtimeInfo: PlatformRuntimeInfo): ShortcutDisplayMode {
+  return runtimeInfo.shortcutDisplay === "windows" ? "windows" : "macos";
+}
+
+function getPermissionSettingsLabel(runtimeInfo: PlatformRuntimeInfo): string {
+  return runtimeInfo.os === "windows"
+    ? "Windows Settings → Privacy & security"
+    : "System Settings → Privacy & Security";
+}
+
+function getBackgroundRecoveryMessage(runtimeInfo: PlatformRuntimeInfo): string {
+  return runtimeInfo.backgroundRecovery === "tray-reopen"
+    ? "If the app is running in the background, reopen settings from the Windows notification area."
+    : "If the app is running in the background, reopen the app to show settings again.";
+}
+
+function formatPermissionName(permission: string): string {
+  return permission === "textInsertion" ? "text insertion" : permission;
+}
+
+function buildPermissionSummary(deniedResults: Array<{ permission: string }>): string {
+  return deniedResults.map((result) => formatPermissionName(result.permission)).join(", ");
+}
+
+function buildPermissionDetailMessage(
+  deniedResults: Array<{ message?: string }>,
+): string | null {
+  const details = deniedResults
+    .map((result) => result.message?.trim())
+    .filter((message): message is string => Boolean(message));
+
+  if (details.length === 0) {
+    return null;
+  }
+
+  return details.join(" ");
+}
+
+function buildStartupPermissionMessage(
+  deniedResults: Array<{ permission: string; message?: string }>,
+  runtimeInfo: PlatformRuntimeInfo,
+): string {
+  const summary = buildPermissionSummary(deniedResults);
+  const detailMessage = buildPermissionDetailMessage(deniedResults);
+  const settingsLabel = getPermissionSettingsLabel(runtimeInfo);
+
+  return [
+    `Some permissions were not granted (${summary}). Voice to Text may not function correctly.`,
+    detailMessage,
+    `Review them in ${settingsLabel}.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 async function checkHasSonioxKey(
@@ -1043,7 +1131,11 @@ function renderCurrentShortcut(): void {
 }
 
 function renderShortcutRecorder(shortcut: string): void {
-  renderShortcutRecorderState(micShortcutRecorder, shortcut);
+  renderShortcutRecorderState(
+    micShortcutRecorder,
+    shortcut,
+    getShortcutDisplayMode(platformRuntimeInfo),
+  );
 }
 
 async function saveRecordedShortcut(shortcut: string): Promise<void> {
@@ -1306,9 +1398,20 @@ function updateVocabCount(): void {
 
 // ─── Permission banner (prefs screen) ─────────────────────────────────────
 
-function showPermissionBanner(deniedNames: string[]): void {
-  const deniedList = deniedNames.join(", ");
-  permissionBannerText.textContent = `Missing permissions: ${deniedList}. Enable in System Settings → Privacy & Security.`;
+function showPermissionBanner(
+  deniedResults: Array<{ permission: string; message?: string }>,
+  runtimeInfo: PlatformRuntimeInfo,
+): void {
+  const deniedList = buildPermissionSummary(deniedResults);
+  const detailMessage = buildPermissionDetailMessage(deniedResults);
+  const settingsLabel = getPermissionSettingsLabel(runtimeInfo);
+  permissionBannerText.textContent = [
+    `Missing permissions: ${deniedList}.`,
+    detailMessage,
+    `Review them in ${settingsLabel}.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
   permissionBanner.classList.remove("is-hidden");
 }
 

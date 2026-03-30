@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AppConfig,
   PermissionResult,
+  PlatformRuntimeInfo,
   SonioxContext,
   TranscriptResult,
   VoiceToTextBridge,
@@ -31,6 +32,14 @@ const DEFAULT_CONFIG: AppConfig = {
 };
 
 const MICROTASK_FLUSH_ITERATIONS = 8;
+const DEFAULT_PLATFORM_RUNTIME_INFO: PlatformRuntimeInfo = {
+  os: "macos",
+  shortcutDisplay: "macos",
+  permissionFlow: "system-settings-privacy",
+  backgroundRecovery: "dockless-reopen",
+  supportsFullscreenHud: true,
+  requiresPrivilegedInsertionHelper: false,
+};
 
 type SonioxMock = {
   onTranscript: ((result: TranscriptResult) => void) | null;
@@ -150,6 +159,7 @@ function createBridge(): {
     hideBar: ReturnType<typeof vi.fn<VoiceToTextBridge["hideBar"]>>;
     setMouseEvents: ReturnType<typeof vi.fn<VoiceToTextBridge["setMouseEvents"]>>;
     showSettings: ReturnType<typeof vi.fn<VoiceToTextBridge["showSettings"]>>;
+    getPlatformRuntimeInfo: ReturnType<typeof vi.fn<VoiceToTextBridge["getPlatformRuntimeInfo"]>>;
     getMicToggleShortcut: ReturnType<typeof vi.fn<VoiceToTextBridge["getMicToggleShortcut"]>>;
     updateMicToggleShortcut: ReturnType<typeof vi.fn<VoiceToTextBridge["updateMicToggleShortcut"]>>;
   };
@@ -184,6 +194,7 @@ function createBridge(): {
     hideBar: vi.fn(async () => {}),
     setMouseEvents: vi.fn(async (_ignore: boolean) => {}),
     showSettings: vi.fn(async () => {}),
+    getPlatformRuntimeInfo: vi.fn(async () => DEFAULT_PLATFORM_RUNTIME_INFO),
     getMicToggleShortcut: vi.fn(async () => "Control+Alt+Super+V"),
     updateMicToggleShortcut: vi.fn(async (shortcut: string) => shortcut),
   };
@@ -218,6 +229,7 @@ function createBridge(): {
     hideBar: mocks.hideBar,
     setMouseEvents: mocks.setMouseEvents,
     showSettings: mocks.showSettings,
+    getPlatformRuntimeInfo: mocks.getPlatformRuntimeInfo,
     getMicToggleShortcut: mocks.getMicToggleShortcut,
     updateMicToggleShortcut: mocks.updateMicToggleShortcut,
   };

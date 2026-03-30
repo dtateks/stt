@@ -32,6 +32,17 @@ describe("shortcut recorder logic", () => {
     expect(recorder.dataset.shortcut).toBe("Control+Alt+Super+K");
   });
 
+  it("renders Windows labels while keeping the canonical shortcut in dataset storage", () => {
+    renderShortcutRecorderState(recorder, "Control+Alt+Super+K", "windows");
+
+    const renderedKeys = Array.from(recorder.querySelectorAll(".shortcut-key")).map(
+      (el) => el.textContent,
+    );
+
+    expect(renderedKeys).toEqual(["Ctrl", "Alt", "Win", "K"]);
+    expect(recorder.dataset.shortcut).toBe("Control+Alt+Super+K");
+  });
+
   it("reads the canonical shortcut back from dataset storage", () => {
     renderShortcutRecorderState(recorder, "Control+Alt+Shift+Super+K");
 

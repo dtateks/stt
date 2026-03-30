@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "../../tauri-bridge.js";
-import type { InsertTextResult, PermissionResult, PermissionsStatus } from "../types.ts";
+import type {
+  InsertTextResult,
+  PermissionResult,
+  PermissionsStatus,
+  PlatformRuntimeInfo,
+} from "../types.ts";
 
 function installTauriRuntime(
   invoke: ReturnType<typeof vi.fn>,
@@ -40,6 +45,7 @@ describe("tauri bridge command contract", () => {
     await window.voiceToText.listSonioxModels();
     await window.voiceToText.hasGeminiKey();
     await window.voiceToText.hasOpenaiCompatibleKey();
+    await window.voiceToText.getPlatformRuntimeInfo();
     await window.voiceToText.updateMicToggleShortcut("Control+Alt+Super+M");
 
     expect(invoke).toHaveBeenCalledWith("set_mic_state", { is_active: true });
@@ -77,6 +83,7 @@ describe("tauri bridge command contract", () => {
     expect(invoke).toHaveBeenCalledWith("has_openai_compatible_key", {
       provider: "openai_compatible",
     });
+    expect(invoke).toHaveBeenCalledWith("get_platform_runtime_info", undefined);
     expect(invoke).toHaveBeenCalledWith("update_mic_toggle_shortcut", {
       shortcut: "Control+Alt+Super+M",
     });
@@ -283,5 +290,22 @@ describe("tauri bridge command contract", () => {
 
     await window.voiceToText.relaunchApp();
     expect(invoke).toHaveBeenCalledWith("relaunch_app", undefined);
+  });
+
+  it("wires getPlatformRuntimeInfo through invoke", async () => {
+    const runtimeInfo: PlatformRuntimeInfo = {
+      os: "macos",
+      shortcutDisplay: "macos",
+      permissionFlow: "system-settings-privacy",
+      backgroundRecovery: "dockless-reopen",
+      supportsFullscreenHud: true,
+      requiresPrivilegedInsertionHelper: false,
+    };
+    const invoke = vi.fn(async () => runtimeInfo);
+    const listen = vi.fn(async () => () => {});
+    installTauriRuntime(invoke, listen);
+
+    await expect(window.voiceToText.getPlatformRuntimeInfo()).resolves.toEqual(runtimeInfo);
+    expect(invoke).toHaveBeenCalledWith("get_platform_runtime_info", undefined);
   });
 });

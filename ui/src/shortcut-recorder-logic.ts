@@ -1,10 +1,14 @@
-import { shortcutCanonicalToDisplay } from "./shortcut-display.ts";
+import {
+  shortcutCanonicalToDisplay,
+  type ShortcutDisplayMode,
+} from "./shortcut-display.ts";
 
 const SHORTCUT_PLACEHOLDER_HTML = "<span class=\"shortcut-placeholder\">Click to record shortcut</span>";
 
 export function renderShortcutRecorderState(
   recorder: HTMLElement,
   shortcut: string,
+  shortcutDisplay: ShortcutDisplayMode = "macos",
 ): void {
   if (!shortcut || shortcut === "Press keys…") {
     delete recorder.dataset.shortcut;
@@ -14,7 +18,7 @@ export function renderShortcutRecorderState(
 
   recorder.dataset.shortcut = shortcut;
 
-  const parts = shortcutCanonicalToDisplay(shortcut).split("+");
+  const parts = shortcutCanonicalToDisplay(shortcut, shortcutDisplay).split("+");
   const html = parts
     .map((part) => `<span class="shortcut-key">${escapeHtml(part)}</span>`)
     .join('<span class="shortcut-separator">+</span>');

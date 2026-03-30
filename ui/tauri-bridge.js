@@ -177,6 +177,9 @@
     showSettings: () =>
       invoke("show_settings"),
 
+    getPlatformRuntimeInfo: () =>
+      invoke("get_platform_runtime_info"),
+
     getMicToggleShortcut: () =>
       invoke("get_mic_toggle_shortcut"),
 

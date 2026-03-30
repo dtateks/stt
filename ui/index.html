@@ -115,7 +115,7 @@
         </div>
       </header>
 
-      <!-- ── Permission banner (shown when macOS permissions are missing) ── -->
+      <!-- ── Permission banner (shown when runtime permissions are missing) ── -->
       <div
         id="prefs-permission-banner"
         class="permission-banner is-hidden"
@@ -126,7 +126,11 @@
           <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
           <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
-        <span id="prefs-permission-text">Some permissions are missing. Enable in System Settings → Privacy &amp; Security.</span>
+        <span id="prefs-permission-text">Some permissions are missing. Review the platform privacy guidance.</span>
+      </div>
+
+      <div class="pref-status-line" id="runtime-background-recovery" aria-live="polite">
+        If the app is running in the background, reopen the app to show settings again.
       </div>
 
       <div

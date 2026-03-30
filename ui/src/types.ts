@@ -89,6 +89,15 @@ export interface PermissionsStatus {
   automation: boolean;
 }
 
+export interface PlatformRuntimeInfo {
+  os: string;
+  shortcutDisplay: string;
+  permissionFlow: string;
+  backgroundRecovery: string;
+  supportsFullscreenHud: boolean;
+  requiresPrivilegedInsertionHelper: boolean;
+}
+
 export interface VoiceToTextBridge {
   setMicState(isActive: boolean): Promise<void>;
   insertText(text: string, opts?: InsertTextOptions): Promise<InsertTextResult>;
@@ -123,6 +132,7 @@ export interface VoiceToTextBridge {
   hideBar(): Promise<void>;
   setMouseEvents(ignore: boolean): Promise<void>;
   showSettings(): Promise<void>;
+  getPlatformRuntimeInfo(): Promise<PlatformRuntimeInfo>;
   getMicToggleShortcut(): Promise<string>;
   updateMicToggleShortcut(shortcut: string): Promise<string>;
 }

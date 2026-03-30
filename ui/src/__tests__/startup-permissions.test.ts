@@ -49,4 +49,40 @@ describe("requestStartupPermissions", () => {
 
     expect(calls).toEqual(["microphone", "accessibility", "text-insertion"]);
   });
+
+  it("preserves backend permission details for downstream platform-aware copy", async () => {
+    const bridge = {
+      ensureMicrophonePermission: vi.fn(async () => ({ granted: true })),
+      ensureAccessibilityPermission: vi.fn(async () => ({
+        granted: false,
+        code: "accessibility-required",
+        openedSettings: true,
+        message: "Enable Accessibility in System Settings.",
+      })),
+      ensureTextInsertionPermission: vi.fn(async () => ({
+        granted: false,
+        code: "windows-helper-required",
+        openedSettings: false,
+        message: "Admin apps require the privileged insertion helper.",
+      })),
+    };
+
+    await expect(requestStartupPermissions(bridge)).resolves.toEqual([
+      { permission: "microphone", granted: true },
+      {
+        permission: "accessibility",
+        granted: false,
+        code: "accessibility-required",
+        openedSettings: true,
+        message: "Enable Accessibility in System Settings.",
+      },
+      {
+        permission: "textInsertion",
+        granted: false,
+        code: "windows-helper-required",
+        openedSettings: false,
+        message: "Admin apps require the privileged insertion helper.",
+      },
+    ]);
+  });
 });
