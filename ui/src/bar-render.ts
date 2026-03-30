@@ -24,7 +24,7 @@ export const STATE_LABELS: Record<BarState, string> = {
 };
 
 const LIVE_TRANSCRIPT_PENDING_SUFFIX = "…";
-const LIVE_TRANSCRIPT_PENDING_SUFFIX_PATTERN = /(?:\.{3}|…)+\s*$/;
+const LIVE_TRANSCRIPT_TERMINAL_PUNCTUATION_PATTERN = /(?:\.{3}|…|[.!?。！？])+\s*$/;
 const INTERIM_TRANSCRIPT_MEANINGFUL_CONTENT_PATTERN = /[\p{L}\p{N}]/u;
 const WAVEFORM_BAR_COUNT = 12;
 const WAVEFORM_BAR_WIDTH = 2;
@@ -119,7 +119,7 @@ export function buildVisibleTranscriptText(state: string | undefined, result: Tr
     return visibleTranscript;
   }
 
-  if (LIVE_TRANSCRIPT_PENDING_SUFFIX_PATTERN.test(visibleTranscript)) {
+  if (LIVE_TRANSCRIPT_TERMINAL_PUNCTUATION_PATTERN.test(visibleTranscript)) {
     return visibleTranscript;
   }
 

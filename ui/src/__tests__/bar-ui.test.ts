@@ -359,6 +359,12 @@ describe("buildVisibleTranscriptText — live transcript suffix", () => {
       buildVisibleTranscriptText("LISTENING", { finalText: "Hello. Một 2 3 4 5.", interimText: "..." }),
     ).toBe("Hello. Một 2 3 4 5.");
   });
+
+  it("does not append pending ellipsis when interim already ends with a sentence period", () => {
+    expect(
+      buildVisibleTranscriptText("LISTENING", { finalText: "Hello. Một 2 3 4", interimText: "5." }),
+    ).toBe("Hello. Một 2 3 4 5.");
+  });
 });
 
 // ─── applyErrorMessage ────────────────────────────────────────────────────────
