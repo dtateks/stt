@@ -8,7 +8,7 @@ LOCAL_REVIEW_SIGNING_IDENTITY_DEFAULT="Voice to Text Local Review Signing"
 LOCAL_REVIEW_SIGNING_IDENTITY="${STT_LOCAL_REVIEW_SIGNING_IDENTITY:-$LOCAL_REVIEW_SIGNING_IDENTITY_DEFAULT}"
 SIGNING_MODE_LOCAL_REVIEW="local-review"
 SIGNING_MODE_SOURCE_FALLBACK="source-fallback"
-SIGNING_MODE="${STT_SIGNING_MODE:-$SIGNING_MODE_LOCAL_REVIEW}"
+SIGNING_MODE="${STT_SIGNING_MODE:-}"
 SIGNING_SOURCE_EXPLICIT="explicit"
 SIGNING_SOURCE_LOCAL_REVIEW="local-review"
 SIGNING_SOURCE_AD_HOC="ad-hoc"
@@ -61,6 +61,11 @@ resolve_local_review_signing_identity() {
 }
 
 resolve_signing_identity() {
+	if [ -z "$SIGNING_MODE" ]; then
+		echo "Error: STT_SIGNING_MODE is required. Use '$SIGNING_MODE_LOCAL_REVIEW' or '$SIGNING_MODE_SOURCE_FALLBACK'." >&2
+		exit 1
+	fi
+
 	case "$SIGNING_MODE" in
 	"$SIGNING_MODE_LOCAL_REVIEW")
 		resolve_local_review_signing_identity

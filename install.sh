@@ -12,22 +12,14 @@ INSTALL_PATH="/Applications/$APP_NAME"
 APP_EXECUTABLE_PATH="$INSTALL_PATH/Contents/MacOS/voice_to_text"
 APP_EXECUTABLE_PATH_PATTERN="${APP_EXECUTABLE_PATH//./\\.}"
 APP_QUIT_WAIT_SECONDS=10
-INSTALL_MODE_PUBLIC="public"
-INSTALL_MODE_LOCAL_REVIEW="local-review"
-INSTALL_MODE="${STT_INSTALL_MODE:-$INSTALL_MODE_PUBLIC}"
 APP_BUNDLE_SOURCE_DOWNLOADED_RELEASE="downloaded-release"
 APP_BUNDLE_SOURCE_SOURCE_BUILD="source-build"
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SIGN_SCRIPT_PATH="$SCRIPT_ROOT/scripts/sign-macos-app.sh"
-LOCAL_REVIEW_BOOTSTRAP_SCRIPT_PATH="$SCRIPT_ROOT/scripts/bootstrap-local-review-signing-cert.sh"
 ENTITLEMENTS_PATH="$SCRIPT_ROOT/src/Entitlements.plist"
-LOCAL_REVIEW_SIGNING_IDENTITY_DEFAULT="Voice to Text Local Review Signing"
-LOCAL_REVIEW_SIGNING_IDENTITY="${STT_LOCAL_REVIEW_SIGNING_IDENTITY:-$LOCAL_REVIEW_SIGNING_IDENTITY_DEFAULT}"
-SIGNING_MODE_LOCAL_REVIEW="local-review"
 SIGNING_MODE_SOURCE_FALLBACK="source-fallback"
 SIGNING_LANE_PRESERVED_RELEASE="preserved-release"
 SIGNING_LANE_EXPLICIT="explicit"
-SIGNING_LANE_LOCAL_REVIEW="local-review"
 SIGNING_LANE_AD_HOC="ad-hoc"
 SIGNING_LANE_NOT_CONFIGURED="not-configured"
 TEMP_DIR=""
@@ -51,18 +43,6 @@ can_codesign_bundle_with_identity() {
 	local bundle_path="$1"
 	local identity_name="$2"
 	codesign --dryrun --force --sign "$identity_name" --entitlements "$ENTITLEMENTS_PATH" "$bundle_path" >/dev/null 2>&1
-}
-
-validate_install_mode() {
-	case "$INSTALL_MODE" in
-	"$INSTALL_MODE_PUBLIC" | "$INSTALL_MODE_LOCAL_REVIEW")
-		return 0
-		;;
-	*)
-		echo "Error: unsupported install mode '$INSTALL_MODE'. Use '$INSTALL_MODE_PUBLIC' or '$INSTALL_MODE_LOCAL_REVIEW'." >&2
-		return 1
-		;;
-	esac
 }
 
 sign_bundle_with_mode() {
@@ -245,36 +225,6 @@ install_app_bundle() {
 	fi
 }
 
-prepare_local_review_signing_lane() {
-	local bundle_path="$1"
-
-	if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
-		if ! can_codesign_bundle_with_identity "$bundle_path" "$APPLE_SIGNING_IDENTITY"; then
-			echo "Error: explicit APPLE_SIGNING_IDENTITY is unavailable for codesign: $APPLE_SIGNING_IDENTITY" >&2
-			return 1
-		fi
-
-		INSTALL_SIGNING_LANE="$SIGNING_LANE_EXPLICIT"
-		return 0
-	fi
-
-	if [ ! -x "$LOCAL_REVIEW_BOOTSTRAP_SCRIPT_PATH" ]; then
-		echo "Error: local-review install mode requires bootstrap script at $LOCAL_REVIEW_BOOTSTRAP_SCRIPT_PATH" >&2
-		return 1
-	fi
-
-	echo "Preparing stable local-review signing identity for macOS TCC persistence..."
-	"$LOCAL_REVIEW_BOOTSTRAP_SCRIPT_PATH"
-
-	if ! can_codesign_bundle_with_identity "$bundle_path" "$LOCAL_REVIEW_SIGNING_IDENTITY"; then
-		echo "Error: local-review signing identity is unavailable for codesign: $LOCAL_REVIEW_SIGNING_IDENTITY" >&2
-		return 1
-	fi
-
-	INSTALL_SIGNING_LANE="$SIGNING_LANE_LOCAL_REVIEW"
-	return 0
-}
-
 sign_source_build_for_public_install() {
 	local bundle_path="$1"
 
@@ -296,13 +246,6 @@ sign_source_build_for_public_install() {
 prepare_app_bundle_for_install() {
 	local bundle_path="$1"
 	local bundle_source="$2"
-
-	if [ "$INSTALL_MODE" = "$INSTALL_MODE_LOCAL_REVIEW" ]; then
-		prepare_local_review_signing_lane "$bundle_path" || return 1
-		echo "Signing install bundle for local-review mode..."
-		sign_bundle_with_mode "$bundle_path" "$SIGNING_MODE_LOCAL_REVIEW"
-		return 0
-	fi
 
 	if [ "$bundle_source" = "$APP_BUNDLE_SOURCE_SOURCE_BUILD" ]; then
 		sign_source_build_for_public_install "$bundle_path"
@@ -359,13 +302,12 @@ terminate_running_installed_app() {
 	return 1
 }
 
-validate_install_mode
-
-if [ "$INSTALL_MODE" = "$INSTALL_MODE_LOCAL_REVIEW" ]; then
-	echo "Installing Voice to Text (local-review mode)..."
-else
-	echo "Installing Voice to Text..."
+if [ "$#" -ne 0 ]; then
+	echo "Error: install.sh does not accept arguments." >&2
+	exit 1
 fi
+
+echo "Installing Voice to Text..."
 
 TEMP_DIR=$(mktemp -d "/tmp/stt-install.XXXXXX")
 RELEASE_ARCH=$(detect_release_arch)
@@ -409,9 +351,6 @@ echo "Voice to Text installed to /Applications!"
 case "$INSTALL_SIGNING_LANE" in
 "$SIGNING_LANE_PRESERVED_RELEASE")
 	echo "Install preserved the shipped release signature."
-	;;
-"$SIGNING_LANE_LOCAL_REVIEW")
-	echo "Install used stable local-review signing for this machine; TCC grants should persist across installs."
 	;;
 "$SIGNING_LANE_EXPLICIT")
 	echo "Install used explicit signing identity from APPLE_SIGNING_IDENTITY."
