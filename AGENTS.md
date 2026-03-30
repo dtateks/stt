@@ -106,7 +106,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | macOS signing bootstrap | `scripts/bootstrap-local-review-signing-cert.sh` | creates or reuses the stable local-review code-signing identity used for TCC-persistent review installs |
 | Tauri build/security | `src/tauri.conf.json` | Vite hooks, CSP, `frontendDist`, bundle resources, active capability set |
 | App entitlements | `src/Info.plist`, `src/Entitlements.plist`, install/signing flow + Tauri bundle | packaged app needs audio-input + automation.apple-events entitlements, plus matching usage strings for microphone and Apple Events; `LSUIElement` keeps the app Dockless |
-| macOS signing / install / release | `scripts/sign-macos-app.sh`, `install.sh`, `install-review.sh`, `scripts/release.sh`, `.github/workflows/release-main.yml` | public installer keeps downloaded release signatures intact; `install-review.sh` owns TCC-persistent review installs; `scripts/sign-macos-app.sh` accepts explicit signing-mode selection; updater artifacts and `latest.json` are published only when release signing is explicit and stable |
+| macOS signing / install / release | `scripts/sign-macos-app.sh`, `install.sh`, `scripts/release.sh`, `.github/workflows/release-main.yml` | public installer keeps downloaded release signatures intact and only signs source-build fallback bundles; `scripts/sign-macos-app.sh` accepts explicit signing-mode selection; updater artifacts and `latest.json` are published only when release signing is explicit and stable |
 
 ## RELEASE FLOW
 | Path | Behavior | Notes |
@@ -272,7 +272,7 @@ npm test
 - `.github/workflows/release-main.yml` publishes non-prerelease GitHub Releases from every push to `main`; installers should treat `latest` as the release channel, not a special case.
 - `git push` on `main` now routes through the version-controlled pre-push hook in `.githooks/pre-push`; `scripts/install-git-hooks.sh` installs it into `.git/hooks/pre-push` so local arm64 release/signing runs before the push completes.
 - CI release attachment is split by availability: when the local arm64 release exists, CI builds x64 and attaches it to that same GitHub Release; when it does not, CI creates the release itself.
-- `scripts/bootstrap-local-review-signing-cert.sh` seeds the stable local-review signing identity in the login keychain; `install-review.sh` is the TCC-persistent lane, while `install.sh` preserves downloaded release signatures and only signs the source-build fallback when needed.
+- `scripts/bootstrap-local-review-signing-cert.sh` seeds the stable local-review signing identity in the login keychain for review builds; `install.sh` preserves downloaded release signatures and only signs the source-build fallback when needed.
 - `scripts/bootstrap-local-review-signing-cert.sh` and the signing scripts use real `codesign` probes as the source of truth for local-review usability; `security find-identity -v -p codesigning` is not reliable enough for this review cert on this machine.
 - `scripts/sign-macos-app.sh` resolves signing identity by explicit signing mode so callers can choose local-review signing or public source-fallback signing.
 - `install.sh` reports whether the chosen lane is release-download or source-build fallback so signature preservation stays visible.
