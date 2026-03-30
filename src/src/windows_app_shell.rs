@@ -1,4 +1,4 @@
-use tauri::{AppHandle, RunEvent, WebviewWindow};
+use tauri::{AppHandle, Manager, RunEvent, WebviewWindow};
 
 const MAIN_WINDOW_LABEL: &str = "main";
 
@@ -62,11 +62,6 @@ fn reopen_main_window(app: &AppHandle) {
 }
 
 pub fn handle_runtime_event(app: &AppHandle, event: RunEvent) {
-    if let RunEvent::Reopen {
-        has_visible_windows,
-        ..
-    } = event
-    {
-        crate::run_windows_reopen_window_sequence(has_visible_windows, || reopen_main_window(app));
-    }
+    let _ = app;
+    let _ = event;
 }

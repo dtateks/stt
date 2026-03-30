@@ -339,6 +339,7 @@ where
     hide_bar_window()
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn show_bar_window_with_runtime_invariants(
     app: &AppHandle,
     bar_window: &WebviewWindow,
@@ -360,6 +361,19 @@ pub(crate) fn show_bar_window_with_runtime_invariants(
                 Ok(())
             })
         },
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn show_bar_window_with_runtime_invariants(
+    app: &AppHandle,
+    bar_window: &WebviewWindow,
+) -> tauri::Result<()> {
+    run_bar_show_sequence(
+        || configure_bar_webview_transparency(bar_window),
+        || position_bar_window_bottom_center(app, bar_window),
+        || bar_window.show(),
+        || run_bar_order_front_without_focus_steal(|| bar_window.set_always_on_top(true)),
     )
 }
 
@@ -750,8 +764,10 @@ pub fn run() {
     #[cfg(desktop)]
     let app = app.plugin(tauri_plugin_updater::Builder::new().build());
 
+    #[cfg(target_os = "macos")]
+    let app = app.plugin(tauri_nspanel::init());
+
     let app = app
-        .plugin(tauri_nspanel::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(MicToggleShortcutState::default())
         .setup(|app| {
