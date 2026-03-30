@@ -6,6 +6,9 @@ ENTITLEMENTS_PATH="${2:-src/Entitlements.plist}"
 AD_HOC_SIGNING_IDENTITY="-"
 LOCAL_REVIEW_SIGNING_IDENTITY_DEFAULT="Voice to Text Local Review Signing"
 LOCAL_REVIEW_SIGNING_IDENTITY="${STT_LOCAL_REVIEW_SIGNING_IDENTITY:-$LOCAL_REVIEW_SIGNING_IDENTITY_DEFAULT}"
+SIGNING_MODE_LOCAL_REVIEW="local-review"
+SIGNING_MODE_SOURCE_FALLBACK="source-fallback"
+SIGNING_MODE="${STT_SIGNING_MODE:-$SIGNING_MODE_LOCAL_REVIEW}"
 SIGNING_SOURCE_EXPLICIT="explicit"
 SIGNING_SOURCE_LOCAL_REVIEW="local-review"
 SIGNING_SOURCE_AD_HOC="ad-hoc"
@@ -19,7 +22,23 @@ can_codesign_bundle_with_identity() {
 	codesign --dryrun --force --sign "$identity_name" --entitlements "$ENTITLEMENTS_PATH" "$bundle_path" >/dev/null 2>&1
 }
 
-resolve_signing_identity() {
+resolve_source_fallback_signing_identity() {
+	if [ -n "$SIGNING_IDENTITY_ENV" ]; then
+		if ! can_codesign_bundle_with_identity "$SIGNING_IDENTITY_ENV" "$APP_BUNDLE_PATH"; then
+			echo "Error: explicit signing identity is unavailable for codesign: $SIGNING_IDENTITY_ENV" >&2
+			exit 1
+		fi
+
+		SIGNING_IDENTITY="$SIGNING_IDENTITY_ENV"
+		SIGNING_SOURCE="$SIGNING_SOURCE_EXPLICIT"
+		return
+	fi
+
+	SIGNING_IDENTITY="$AD_HOC_SIGNING_IDENTITY"
+	SIGNING_SOURCE="$SIGNING_SOURCE_AD_HOC"
+}
+
+resolve_local_review_signing_identity() {
 	if [ -n "$SIGNING_IDENTITY_ENV" ]; then
 		if ! can_codesign_bundle_with_identity "$SIGNING_IDENTITY_ENV" "$APP_BUNDLE_PATH"; then
 			echo "Error: explicit signing identity is unavailable for codesign: $SIGNING_IDENTITY_ENV" >&2
@@ -39,6 +58,21 @@ resolve_signing_identity() {
 
 	SIGNING_IDENTITY="$AD_HOC_SIGNING_IDENTITY"
 	SIGNING_SOURCE="$SIGNING_SOURCE_AD_HOC"
+}
+
+resolve_signing_identity() {
+	case "$SIGNING_MODE" in
+	"$SIGNING_MODE_LOCAL_REVIEW")
+		resolve_local_review_signing_identity
+		;;
+	"$SIGNING_MODE_SOURCE_FALLBACK")
+		resolve_source_fallback_signing_identity
+		;;
+	*)
+		echo "Error: unsupported signing mode '$SIGNING_MODE'" >&2
+		exit 1
+		;;
+	esac
 }
 
 print_signing_mode_message() {

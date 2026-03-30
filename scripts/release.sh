@@ -7,6 +7,7 @@ UPDATER_ARCHIVE_ASSET="Voice-to-Text-darwin-arm64.app.tar.gz"
 UPDATER_SIGNATURE_ASSET="${UPDATER_ARCHIVE_ASSET}.sig"
 UPDATER_MANIFEST_NAME="latest.json"
 SIGN_SCRIPT="scripts/sign-macos-app.sh"
+SIGNING_MODE_LOCAL_REVIEW="local-review"
 DEFAULT_REMOTE="origin"
 UPDATER_SIGNING_KEY_PATH="${HOME}/.tauri/stt-updater.key"
 BOOL_TRUE="true"
@@ -103,9 +104,9 @@ build_and_package_local_arm64_release() {
 
 	echo "▸ Signing macOS app bundle…"
 	if has_explicit_release_signing_identity; then
-		APPLE_SIGNING_IDENTITY="$EXPLICIT_RELEASE_SIGNING_IDENTITY" "./$SIGN_SCRIPT" "$APP_BUNDLE"
+		STT_SIGNING_MODE="$SIGNING_MODE_LOCAL_REVIEW" APPLE_SIGNING_IDENTITY="$EXPLICIT_RELEASE_SIGNING_IDENTITY" "./$SIGN_SCRIPT" "$APP_BUNDLE"
 	else
-		"./$SIGN_SCRIPT" "$APP_BUNDLE"
+		STT_SIGNING_MODE="$SIGNING_MODE_LOCAL_REVIEW" "./$SIGN_SCRIPT" "$APP_BUNDLE"
 	fi
 
 	if [[ "$UPDATER_PUBLISH_ALLOWED" == "$BOOL_TRUE" ]]; then
