@@ -277,6 +277,7 @@ npm test
 - `scripts/sign-macos-app.sh` resolves signing identity in the same order: explicit `APPLE_SIGNING_IDENTITY`, stable local-review identity, then ad-hoc fallback.
 - `install.sh` reports whether the chosen lane is explicit, stable local-review, or ad-hoc so permission persistence expectations stay visible during review installs.
 - `install.sh` validates TCC persistence against the installed `/Applications/Voice to Text.app` path; repo-path build bundles under `src/target/release/bundle/macos/Voice to Text.app` are build artifacts, not the install target.
+- `install.sh` must terminate the installed `/Applications/Voice to Text.app` process before relaunching it; an already-running app keeps the stale in-memory binary even after the bundle on disk is replaced.
 - `scripts/release.sh` and `.github/workflows/release-main.yml` gate macOS updater archives and `latest.json` on explicit stable release signing configuration; ad-hoc-only release runs publish stable zip/exe assets but skip updater metadata.
 - Release asset names are stable: `Voice-to-Text-darwin-arm64.zip`, `Voice-to-Text-darwin-x64.zip`, and `Voice-to-Text-windows-x64-setup.exe`.
 - `install.sh` downloads assets from `releases/latest/download/{asset}` and falls back to source build when release download, bundle-id, or entitlement validation fails.
