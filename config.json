@@ -12,7 +12,7 @@
     ],
     "context_text": "The user speaks short dictation snippets, app names, and command-like phrases for macOS text insertion.",
     "enable_endpoint_detection": true,
-    "max_endpoint_delay_ms": 500,
+    "max_endpoint_delay_ms": 1800,
     "max_non_final_tokens_duration_ms": 1800,
     "language_hints": ["vi", "en"],
     "language_hints_strict": true
