@@ -128,7 +128,7 @@ jobs:
            echo "STT_EXPLICIT_RELEASE_SIGNING=true" >> "$GITHUB_ENV"
 
       - name: Sign macOS app bundle with entitlements
-        run: ./scripts/sign-macos-app.sh "src/target/release/bundle/macos/Voice to Text.app" "src/Entitlements.plist"
+        run: STT_SIGNING_MODE=local-review ./scripts/sign-macos-app.sh "src/target/release/bundle/macos/Voice to Text.app" "src/Entitlements.plist"
 
       - name: Verify signed macOS entitlements
         run: |
