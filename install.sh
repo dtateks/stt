@@ -9,6 +9,9 @@ GITHUB_RELEASES_DOWNLOAD_BASE="https://github.com/$GITHUB_REPO/releases/latest/d
 RELEASE_ZIP_ARM64="Voice-to-Text-darwin-arm64.zip"
 RELEASE_ZIP_X64="Voice-to-Text-darwin-x64.zip"
 INSTALL_PATH="/Applications/$APP_NAME"
+APP_EXECUTABLE_PATH="$INSTALL_PATH/Contents/MacOS/voice_to_text"
+APP_EXECUTABLE_PATH_PATTERN="${APP_EXECUTABLE_PATH//./\\.}"
+APP_QUIT_WAIT_SECONDS=10
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SIGN_SCRIPT_PATH="$SCRIPT_ROOT/scripts/sign-macos-app.sh"
 LOCAL_REVIEW_BOOTSTRAP_SCRIPT_PATH="$SCRIPT_ROOT/scripts/bootstrap-local-review-signing-cert.sh"
@@ -262,6 +265,52 @@ install_app_bundle() {
 	fi
 }
 
+is_installed_app_running() {
+	pgrep -f "$APP_EXECUTABLE_PATH_PATTERN" >/dev/null 2>&1
+}
+
+wait_for_installed_app_exit() {
+	local remaining_seconds="$APP_QUIT_WAIT_SECONDS"
+
+	while [ "$remaining_seconds" -gt 0 ]; do
+		if ! is_installed_app_running; then
+			return 0
+		fi
+
+		sleep 1
+		remaining_seconds=$((remaining_seconds - 1))
+	done
+
+	if is_installed_app_running; then
+		return 1
+	fi
+
+	return 0
+}
+
+terminate_running_installed_app() {
+	if ! is_installed_app_running; then
+		return 0
+	fi
+
+	echo "Quitting existing Voice to Text instance before relaunch..."
+	osascript -e "tell application id \"$APP_BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+
+	if wait_for_installed_app_exit; then
+		return 0
+	fi
+
+	echo "Force-stopping stale Voice to Text process..."
+	pkill -TERM -f "$APP_EXECUTABLE_PATH_PATTERN" >/dev/null 2>&1 || true
+
+	if wait_for_installed_app_exit; then
+		return 0
+	fi
+
+	echo "Error: existing Voice to Text process did not exit before relaunch." >&2
+	return 1
+}
+
 echo "Installing Voice to Text..."
 
 TEMP_DIR=$(mktemp -d "/tmp/stt-install.XXXXXX")
@@ -297,6 +346,7 @@ configure_install_signing_lane "$APP_BUNDLE"
 sign_bundle_for_install "$APP_BUNDLE"
 validate_app_bundle "$APP_BUNDLE"
 install_app_bundle "$APP_BUNDLE"
+terminate_running_installed_app
 
 echo ""
 echo "Voice to Text installed to /Applications!"
