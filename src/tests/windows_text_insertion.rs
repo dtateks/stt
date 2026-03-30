@@ -39,6 +39,26 @@ fn windows_text_insertion_contract_uses_standard_fallback_order() {
 }
 
 #[test]
+fn windows_text_insertion_enter_mode_contract_sends_double_enter_with_repeat_delay() {
+    let windows_inserter = read_src_file("src/windows_inserter.rs");
+
+    assert!(
+        windows_inserter.contains("const DOUBLE_ENTER_REPEAT_DELAY_MS: u64 = 230;"),
+        "Windows enter mode must keep the configured repeat-enter delay"
+    );
+    assert!(
+        windows_inserter
+            .contains("thread::sleep(Duration::from_millis(DOUBLE_ENTER_REPEAT_DELAY_MS));"),
+        "Windows enter mode must wait before sending the second Enter"
+    );
+    assert!(
+        windows_inserter.contains("run_powershell_script(ENTER_KEY_SEND_SCRIPT)?;")
+            && windows_inserter.contains("run_powershell_script(ENTER_KEY_SEND_SCRIPT)"),
+        "Windows enter mode must send Enter twice"
+    );
+}
+
+#[test]
 fn windows_text_insertion_helper_escalation_contract_runs_in_order() {
     let steps = RefCell::new(Vec::new());
 

@@ -38,10 +38,12 @@ const WINDOWS_HELPER_REQUIRED_MESSAGE: &str = "Text insertion into elevated Wind
 const CLIPBOARD_RESTORE_FAILED_CODE: &str = "clipboard-restore-failed";
 const SHORT_INSERTION_DELAY_MS: u64 = 200;
 const LONG_INSERTION_DELAY_MS: u64 = 700;
+const DOUBLE_ENTER_REPEAT_DELAY_MS: u64 = 230;
 const POST_INSERTION_DELAY_MS: u64 = 100;
 const LONG_INSERTION_TEXT_THRESHOLD: usize = 200;
 const SYSTEM_EVENTS_RETRY_DELAY_MS: u64 = 75;
 const SYSTEM_EVENTS_RETRY_ATTEMPTS: usize = 2;
+const SYSTEM_EVENTS_RETURN_KEY_SCRIPT: &str = r#"tell application "System Events" to key code 36"#;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InsertTextResult {
@@ -310,11 +312,30 @@ fn perform_insertion(text: &str, enter_mode: bool) -> Result<(), String> {
     thread::sleep(Duration::from_millis(insertion_delay_ms));
 
     if enter_mode {
-        run_system_events_osascript(r#"tell application "System Events" to key code 36"#)?;
+        run_double_enter_sequence()?;
     }
 
     thread::sleep(Duration::from_millis(POST_INSERTION_DELAY_MS));
     Ok(())
+}
+
+fn run_double_enter_sequence() -> Result<(), String> {
+    run_double_enter_sequence_with(run_system_events_osascript, |delay| {
+        thread::sleep(delay);
+    })
+}
+
+fn run_double_enter_sequence_with<RunScript, SleepBeforeRepeat>(
+    mut run_script: RunScript,
+    mut sleep_before_repeat: SleepBeforeRepeat,
+) -> Result<(), String>
+where
+    RunScript: FnMut(&str) -> Result<(), String>,
+    SleepBeforeRepeat: FnMut(Duration),
+{
+    run_script(SYSTEM_EVENTS_RETURN_KEY_SCRIPT)?;
+    sleep_before_repeat(Duration::from_millis(DOUBLE_ENTER_REPEAT_DELAY_MS));
+    run_script(SYSTEM_EVENTS_RETURN_KEY_SCRIPT)
 }
 
 /// Non-prompting automation status check.
@@ -571,13 +592,15 @@ mod tests {
     use super::{
         build_insert_text_result, build_text_insertion_permission_result,
         format_system_events_error_message, is_system_events_accessibility_denied,
-        is_system_events_automation_denied, run_system_events_osascript_with,
-        validate_clipboard_snapshot, validate_pasteboard_change_count,
-        ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE, AUTOMATION_PERMISSION_REQUIRED_CODE,
-        AUTOMATION_PERMISSION_REQUIRED_MESSAGE,
+        is_system_events_automation_denied, run_double_enter_sequence_with,
+        run_system_events_osascript_with, validate_clipboard_snapshot,
+        validate_pasteboard_change_count, ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE,
+        AUTOMATION_PERMISSION_REQUIRED_CODE, AUTOMATION_PERMISSION_REQUIRED_MESSAGE,
+        DOUBLE_ENTER_REPEAT_DELAY_MS, SYSTEM_EVENTS_RETURN_KEY_SCRIPT,
     };
     #[cfg(target_os = "macos")]
     use super::{restore_clipboard, ClipboardSnapshot};
+    use std::time::Duration;
 
     #[test]
     fn detects_system_events_automation_denial() {
@@ -739,6 +762,55 @@ mod tests {
         );
         assert_eq!(attempts, 2);
         assert_eq!(sleeps, 1);
+    }
+
+    #[test]
+    fn double_enter_sequence_sends_return_twice_with_repeat_delay() {
+        let mut scripts = Vec::new();
+        let mut delays = Vec::new();
+
+        let result = run_double_enter_sequence_with(
+            |script| {
+                scripts.push(script.to_string());
+                Ok(())
+            },
+            |delay| {
+                delays.push(delay);
+            },
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(
+            scripts.as_slice(),
+            [
+                SYSTEM_EVENTS_RETURN_KEY_SCRIPT,
+                SYSTEM_EVENTS_RETURN_KEY_SCRIPT
+            ]
+        );
+        assert_eq!(
+            delays.as_slice(),
+            [Duration::from_millis(DOUBLE_ENTER_REPEAT_DELAY_MS)]
+        );
+    }
+
+    #[test]
+    fn double_enter_sequence_stops_when_first_return_fails() {
+        let mut attempts = 0;
+        let mut delays = Vec::new();
+
+        let result = run_double_enter_sequence_with(
+            |_script| {
+                attempts += 1;
+                Err("first enter failed".to_string())
+            },
+            |delay| {
+                delays.push(delay);
+            },
+        );
+
+        assert_eq!(result.err().as_deref(), Some("first enter failed"));
+        assert_eq!(attempts, 1);
+        assert!(delays.is_empty());
     }
 
     #[test]

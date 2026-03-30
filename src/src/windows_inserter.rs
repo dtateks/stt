@@ -4,6 +4,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
@@ -29,6 +31,8 @@ const WINDOWS_HELPER_LAUNCH_FAILED: &str = "windows-helper-launch-failed";
 const VALUE_PATTERN_SCRIPT: &str = "Add-Type -AssemblyName UIAutomationClient; $text=[Console]::In.ReadToEnd(); $focused=[System.Windows.Automation.AutomationElement]::FocusedElement; if ($null -eq $focused) { throw 'No focused element is available for UIAutomation.' }; $valuePatternType=[System.Windows.Automation.ValuePattern]::Pattern; $patternObj=$null; if (-not $focused.TryGetCurrentPattern($valuePatternType, [ref]$patternObj)) { throw 'Focused element does not support ValuePattern.' }; $valuePattern=[System.Windows.Automation.ValuePattern]$patternObj; $valuePattern.SetValue($text);";
 const SEND_INPUT_SCRIPT: &str = "Add-Type -AssemblyName System.Windows.Forms; $text=[Console]::In.ReadToEnd(); [System.Windows.Forms.SendKeys]::SendWait($text);";
 const HELPER_TRANSPORT_CREATE_ATTEMPTS: usize = 8;
+const DOUBLE_ENTER_REPEAT_DELAY_MS: u64 = 230;
+const ENTER_KEY_SEND_SCRIPT: &str = "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')";
 
 static HELPER_TRANSPORT_NONCE: AtomicU64 = AtomicU64::new(0);
 
@@ -101,9 +105,7 @@ fn try_value_pattern_set_value(text: &str, enter_mode: bool) -> Result<(), Strin
     run_powershell_script_with_stdin(VALUE_PATTERN_SCRIPT, text)?;
 
     if enter_mode {
-        run_powershell_script(
-            "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')",
-        )?;
+        run_double_enter_sequence()?;
     }
 
     Ok(())
@@ -113,9 +115,7 @@ fn try_send_input(text: &str, enter_mode: bool) -> Result<(), String> {
     run_powershell_script_with_stdin(SEND_INPUT_SCRIPT, text)?;
 
     if enter_mode {
-        run_powershell_script(
-            "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')",
-        )?;
+        run_double_enter_sequence()?;
     }
 
     Ok(())
@@ -128,12 +128,16 @@ fn try_clipboard_paste(text: &str, enter_mode: bool) -> Result<(), String> {
     )?;
 
     if enter_mode {
-        run_powershell_script(
-            "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')",
-        )?;
+        run_double_enter_sequence()?;
     }
 
     Ok(())
+}
+
+fn run_double_enter_sequence() -> Result<(), String> {
+    run_powershell_script(ENTER_KEY_SEND_SCRIPT)?;
+    thread::sleep(Duration::from_millis(DOUBLE_ENTER_REPEAT_DELAY_MS));
+    run_powershell_script(ENTER_KEY_SEND_SCRIPT)
 }
 
 pub(super) fn run_windows_insertion_helper_mode(
