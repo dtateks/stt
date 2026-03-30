@@ -18,7 +18,7 @@ const DEFAULT_CONFIG: AppConfig = {
     audio_format: "pcm_s16le",
     chunk_size: 4_096,
     enable_endpoint_detection: true,
-    max_endpoint_delay_ms: 500,
+    max_endpoint_delay_ms: 1800,
     max_non_final_tokens_duration_ms: 1800,
   },
   llm: {
@@ -32,6 +32,7 @@ const DEFAULT_CONFIG: AppConfig = {
 };
 
 const MICROTASK_FLUSH_ITERATIONS = 8;
+const STOP_WORD_FINALIZE_TIMEOUT_MS = 1_000;
 const DEFAULT_PLATFORM_RUNTIME_INFO: PlatformRuntimeInfo = {
   os: "macos",
   shortcutDisplay: "macos",
@@ -241,6 +242,13 @@ async function flushMicrotasks(): Promise<void> {
   for (let iteration = 0; iteration < MICROTASK_FLUSH_ITERATIONS; iteration += 1) {
     await Promise.resolve();
   }
+}
+
+async function settleStopWordFinalization(
+  ms = 0,
+): Promise<void> {
+  await vi.advanceTimersByTimeAsync(ms);
+  await flushMicrotasks();
 }
 
 function dispatchStorageEvent(key: string): void {
@@ -492,6 +500,7 @@ describe("BarSessionController", () => {
 
     transcriptHandler?.({ finalText: "thank you", interimText: "" });
     await flushMicrotasks();
+    await settleStopWordFinalization();
 
     expect(mocks.insertText).not.toHaveBeenCalled();
     expect(soniox.instance.resetTranscript).toHaveBeenCalled();
@@ -518,16 +527,12 @@ describe("BarSessionController", () => {
     expect(mocks.createSonioxTemporaryKey).toHaveBeenCalledTimes(2);
   });
 
-  it("strips stop word immediately without waiting for Soniox finalization", async () => {
+  it("finalizes the stop-word transcript before insert", async () => {
     const { bridge, mocks } = createBridge();
-    const stopMicDeferred = createDeferred<void>();
-    mocks.setMicState.mockImplementation(async (isActive: boolean) => {
-      if (isActive) {
-        return;
-      }
-
-      await stopMicDeferred.promise;
-    });
+    const finalizedTranscript = createDeferred<string>();
+    soniox.instance.finalizeCurrentUtterance.mockImplementationOnce(
+      async (_fallbackTranscript: string) => finalizedTranscript.promise,
+    );
     storage.loadPreferences.mockReturnValue({
       enterMode: true,
       outputLang: "auto",
@@ -546,11 +551,72 @@ describe("BarSessionController", () => {
     });
     await flushMicrotasks();
 
-    expect(soniox.instance.finalizeCurrentUtterance).not.toHaveBeenCalled();
     expect(controller.getCurrentState()).toBe("PROCESSING");
+    expect(soniox.instance.stop).not.toHaveBeenCalled();
 
-    stopMicDeferred.resolve();
+    await settleStopWordFinalization();
+
+    expect(soniox.instance.finalizeCurrentUtterance).toHaveBeenCalledWith("send update thank you");
+    expect(mocks.insertText).not.toHaveBeenCalled();
+    expect(soniox.instance.stop).not.toHaveBeenCalled();
+
+    finalizedTranscript.resolve("send update from final thank you");
     await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.insertText).toHaveBeenCalledWith("send update from final", { enterMode: true });
+  });
+
+  it("falls back to the detected transcript when stop-word finalization fails", async () => {
+    const { bridge, mocks } = createBridge();
+    soniox.instance.finalizeCurrentUtterance.mockRejectedValueOnce(new Error("finalize failed"));
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      skipLlm: true,
+    });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "send update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await settleStopWordFinalization();
+
+    expect(mocks.insertText).toHaveBeenCalledWith("send update", { enterMode: true });
+  });
+
+  it("falls back to the detected transcript when stop-word finalization times out", async () => {
+    const { bridge, mocks } = createBridge();
+    const neverResolves = new Promise<string>(() => {});
+    soniox.instance.finalizeCurrentUtterance.mockImplementationOnce(
+      async () => neverResolves,
+    );
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      skipLlm: true,
+    });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "send update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await settleStopWordFinalization(STOP_WORD_FINALIZE_TIMEOUT_MS);
+
     expect(mocks.insertText).toHaveBeenCalledWith("send update", { enterMode: true });
   });
 
@@ -597,8 +663,7 @@ describe("BarSessionController", () => {
       interimText: "done now",
     });
     await flushMicrotasks();
-    await flushMicrotasks();
-    await flushMicrotasks();
+    await settleStopWordFinalization();
 
     expect(mocks.insertText).toHaveBeenCalledWith("send update", { enterMode: true });
   });
@@ -627,7 +692,7 @@ describe("BarSessionController", () => {
       interimText: "done now",
     });
     await flushMicrotasks();
-    await flushMicrotasks();
+    await settleStopWordFinalization();
 
     expect(storage.loadCustomStopWordPreference).toHaveBeenCalledTimes(1);
   });
@@ -661,7 +726,7 @@ describe("BarSessionController", () => {
       interimText: "done now",
     });
     await flushMicrotasks();
-    await flushMicrotasks();
+    await settleStopWordFinalization();
 
     expect(mocks.correctTranscript).not.toHaveBeenCalled();
     expect(mocks.insertText).toHaveBeenCalledWith("send update", { enterMode: false });
@@ -669,6 +734,10 @@ describe("BarSessionController", () => {
 
   it("keeps frozen command transcript while stop-word finalization is running", async () => {
     const { bridge, mocks } = createBridge();
+    const finalizedTranscript = createDeferred<string>();
+    soniox.instance.finalizeCurrentUtterance.mockImplementationOnce(
+      async () => finalizedTranscript.promise,
+    );
     storage.loadPreferences.mockReturnValue({
       enterMode: true,
       outputLang: "auto",
@@ -698,9 +767,11 @@ describe("BarSessionController", () => {
     });
     await flushMicrotasks();
 
-    expect(controller.getCurrentState()).toBe("INSERTING");
+    expect(controller.getCurrentState()).toBe("PROCESSING");
     expect(transcriptChanges).toEqual([{ finalText: "send update", interimText: "" }]);
 
+    finalizedTranscript.resolve("send update thank you");
+    await flushMicrotasks();
     insertDeferred.resolve({ success: true });
     await flushMicrotasks();
   });
@@ -788,6 +859,7 @@ describe("BarSessionController", () => {
       interimText: "thank you",
     });
     await flushMicrotasks();
+    await settleStopWordFinalization();
     await flushMicrotasks();
 
     expect(mocks.insertText).toHaveBeenCalledTimes(1);
@@ -830,6 +902,7 @@ describe("BarSessionController", () => {
       interimText: "thank you",
     });
     await flushMicrotasks();
+    await settleStopWordFinalization();
 
     storage.loadPreferences.mockReturnValue({
       enterMode: false,
@@ -850,7 +923,7 @@ describe("BarSessionController", () => {
       interimText: "done now",
     });
     await flushMicrotasks();
-    await flushMicrotasks();
+    await settleStopWordFinalization();
 
     expect(mocks.insertText).toHaveBeenNthCalledWith(2, "second command", { enterMode: false });
   });
@@ -882,6 +955,7 @@ describe("BarSessionController", () => {
       interimText: "thank you",
     });
     await flushMicrotasks();
+    await settleStopWordFinalization();
     await flushMicrotasks();
     await flushMicrotasks();
 
@@ -911,6 +985,7 @@ describe("BarSessionController", () => {
       interimText: "thank you",
     });
     await flushMicrotasks();
+    await settleStopWordFinalization();
 
     expect(mocks.hasXaiKey).not.toHaveBeenCalled();
     expect(mocks.correctTranscript).not.toHaveBeenCalled();
@@ -938,6 +1013,7 @@ describe("BarSessionController", () => {
       interimText: "thank you",
     });
     await flushMicrotasks();
+    await settleStopWordFinalization();
     await flushMicrotasks();
 
     expect(mocks.hasOpenaiCompatibleKey).not.toHaveBeenCalled();
@@ -971,6 +1047,7 @@ describe("BarSessionController", () => {
       interimText: "thank you",
     });
     await flushMicrotasks();
+    await settleStopWordFinalization();
     await flushMicrotasks();
 
     expect(mocks.hasGeminiKey).not.toHaveBeenCalled();
@@ -1004,6 +1081,7 @@ describe("BarSessionController", () => {
       interimText: "thank you",
     });
     await flushMicrotasks();
+    await settleStopWordFinalization();
     await flushMicrotasks();
 
     expect(mocks.correctTranscript).toHaveBeenCalledWith("ship update", "auto", {
@@ -1034,6 +1112,7 @@ describe("BarSessionController", () => {
       interimText: "thank you",
     });
     await flushMicrotasks();
+    await settleStopWordFinalization();
     await flushMicrotasks();
 
     expect(mocks.correctTranscript).toHaveBeenCalledWith("ship update", "auto", {
@@ -1094,6 +1173,7 @@ describe("BarSessionController", () => {
       interimText: "thank you",
     });
     await flushMicrotasks();
+    await settleStopWordFinalization();
     await flushMicrotasks();
     await flushMicrotasks();
 
@@ -1136,6 +1216,7 @@ describe("BarSessionController", () => {
       interimText: "thank you",
     });
     await flushMicrotasks();
+    await settleStopWordFinalization();
     await flushMicrotasks();
     await flushMicrotasks();
 

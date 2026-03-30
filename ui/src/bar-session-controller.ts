@@ -62,6 +62,7 @@ const DEFAULT_XAI_MODEL = "grok-4-1-fast-non-reasoning";
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
 const DEFAULT_SONIOX_MODEL = "stt-rt-v4";
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
+const STOP_WORD_FINALIZE_TIMEOUT_MS = 1_000;
 
 export type OverlayMode = "PASSIVE" | "INTERACTIVE";
 
@@ -455,7 +456,18 @@ export class BarSessionController {
     await this.applyEvent("STOP_WORD_DETECTED"); // LISTENING → PROCESSING
     this.stopReminderBeep();
 
-    const commandText = stripStopWord(rawTranscript, sessionPreferences.stopWord);
+    const previewCommandText = stripStopWord(rawTranscript, sessionPreferences.stopWord);
+
+    if (previewCommandText.trim()) {
+      this.onTranscriptChange?.({ finalText: previewCommandText, interimText: "" });
+    }
+
+    const finalizedTranscript = await this.finalizeStopWordTranscript(rawTranscript);
+    if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
+      return;
+    }
+
+    const commandText = stripStopWord(finalizedTranscript, sessionPreferences.stopWord);
     this.client.resetTranscript();
 
     if (!commandText.trim()) {
@@ -464,7 +476,9 @@ export class BarSessionController {
       return;
     }
 
-    this.onTranscriptChange?.({ finalText: commandText, interimText: "" });
+    if (commandText !== previewCommandText) {
+      this.onTranscriptChange?.({ finalText: commandText, interimText: "" });
+    }
 
     await this.stopAudioPipeline().catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed during stop-word finalization", error);
@@ -566,6 +580,27 @@ export class BarSessionController {
       this.setErrorMessage(result.error ?? INSERT_FAILED_ERROR_MESSAGE);
       this.isFinalizingAfterStopWord = false;
       this.applyPendingActiveSessionPreferencesRefresh();
+    }
+  }
+
+  private async finalizeStopWordTranscript(rawTranscript: string): Promise<string> {
+    const finalizeTimedOut = Symbol("stop-word-finalize-timeout");
+
+    try {
+      const finalizedTranscript = await Promise.race<string | typeof finalizeTimedOut>([
+        this.client.finalizeCurrentUtterance(rawTranscript),
+        delay(STOP_WORD_FINALIZE_TIMEOUT_MS).then(() => finalizeTimedOut),
+      ]);
+
+      if (finalizedTranscript === finalizeTimedOut) {
+        console.error("[session] stop-word finalization timed out; using detected transcript");
+        return rawTranscript;
+      }
+
+      return finalizedTranscript;
+    } catch (error) {
+      console.error("[session] stop-word finalization failed; using detected transcript", error);
+      return rawTranscript;
     }
   }
 
@@ -747,6 +782,10 @@ export class BarSessionController {
 
 function combineTranscriptText(finalText: string, interimText: string): string {
   return `${finalText} ${interimText}`.trim();
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function playReminderBeep(): void {
