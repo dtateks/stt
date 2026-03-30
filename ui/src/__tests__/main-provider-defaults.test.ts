@@ -26,7 +26,7 @@ const DEFAULT_CONFIG: AppConfig = {
     audio_format: "pcm_s16le",
     chunk_size: 4_096,
     enable_endpoint_detection: true,
-    max_endpoint_delay_ms: 500,
+    max_endpoint_delay_ms: 1800,
     max_non_final_tokens_duration_ms: 1800,
   },
   llm: {
@@ -98,6 +98,14 @@ function createBridge(): VoiceToTextBridge {
     hideBar: vi.fn(async () => {}),
     setMouseEvents: vi.fn(async () => {}),
     showSettings: vi.fn(async () => {}),
+    getPlatformRuntimeInfo: vi.fn(async () => ({
+      os: "macos",
+      shortcutDisplay: "macos",
+      permissionFlow: "system-settings-privacy",
+      backgroundRecovery: "dockless-reopen",
+      supportsFullscreenHud: true,
+      requiresPrivilegedInsertionHelper: false,
+    })),
     getMicToggleShortcut: vi.fn(async () => "Control+Alt+Super+V"),
     updateMicToggleShortcut: vi.fn(async (shortcut: string) => shortcut),
   };

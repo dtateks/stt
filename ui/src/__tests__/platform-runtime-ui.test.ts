@@ -21,7 +21,7 @@ const DEFAULT_CONFIG: AppConfig = {
     audio_format: "pcm_s16le",
     chunk_size: 4_096,
     enable_endpoint_detection: true,
-    max_endpoint_delay_ms: 500,
+    max_endpoint_delay_ms: 1800,
     max_non_final_tokens_duration_ms: 1800,
   },
   llm: {
