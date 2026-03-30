@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Updated:** 2026-03-30 13:00
-**Commit:** 6c75dc25
+**Updated:** 2026-03-31 00:00
+**Commit:** 00000000
 **Branch:** main
 
 ## OVERVIEW
@@ -81,6 +81,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | Transcript correction | `src/src/llm_service.rs`, `src/src/credentials.rs`, `src/src/shell_credentials.rs`, `src/src/commands.rs`, `ui/src/main.ts`, `ui/src/storage.ts`, `ui/src/types.ts`, `ui/src/bar-session-controller.ts` | xAI/Gemini/OpenAI-compatible provider policy, per-provider defaults, provider-scoped key storage, shell/env credential fallback, correction prefs, and skip-LLM toggle |
 | Voice shortcuts / reminders | `src/src/commands.rs`, `ui/src/main.ts`, `ui/src/storage.ts`, `src/src/lib.rs` | custom mic toggle shortcut, stop-word reminders, reminder beep prefs, and global mic shortcut replacement |
 | Text insertion | `src/src/text_inserter.rs` | clipboard swap + Rust-based AppleScript paste + System Events automation gating |
+| Windows text insertion | `src/src/windows_inserter.rs`, `src/src/text_inserter.rs` | enter mode sends Enter twice after paste; the second Enter is delayed by 230ms; preserve paste-before-enter ordering on both macOS and Windows |
 | macOS permissions | `src/src/permissions.rs`, `src/src/text_inserter.rs`, `ui/src/main.ts`, `ui/src/startup-permissions.ts`, `ui/src/bar-session-controller.ts` | app-specific Accessibility trust via `AXIsProcessTrustedWithOptions`, mic auth via `AVCaptureDevice`, startup permission checks for mic/accessibility/text insertion, pre-session mic/accessibility checks |
 | Windows shell/HUD | `src/src/windows_app_shell.rs`, `src/src/platform_app_shell.rs` | Windows adapter with topmost window, tray-assisted recovery via reopen visibility gate, non-focus-stealing HUD show, whole-window passive/interactive mouse toggling |
 | Windows insertion/helper | `src/src/windows_inserter.rs`, `src/src/helper_mode.rs`, `src/src/windows_permissions.rs` | SendInput/clipboard fallback insertion, elevated target support via privileged helper (PowerShell `Start-Process -Verb RunAs`), hardened temp file transport, UIPI bypass |
@@ -89,7 +90,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | Shortcut recorder | `ui/src/shortcut-display.ts`, `ui/src/shortcut-recorder-logic.ts`, `ui/src/main.ts` | canonical shortcut tokens stay in storage; recorder renders macOS-native labels |
 | Floating HUD shell / clipping | `ui/bar.html`, `ui/src/bar.css`, `ui/src/bar-render.ts` | HTML/body/root sizing and clipping; keep the webview shell transparent, rounded, and render-only |
 | HUD render/state | `ui/src/bar.ts`, `ui/src/bar-render.ts` | orchestration only in `bar.ts`; render helpers keep cleaned command text frozen through PROCESSING/INSERTING/SUCCESS |
-| HUD session control | `ui/src/bar-session-controller.ts` | overlay mode, timers, STT, stop-word gating, live session preference refresh, deferred refresh during finalization, error recovery, selective LLM retry fallback |
+| HUD session control | `ui/src/bar-session-controller.ts` | overlay mode, timers, STT, stop-word gating, live session preference refresh, deferred refresh during finalization, immediate stop-word `finalizeCurrentUtterance()` with timeout fallback, error recovery, selective LLM retry fallback |
 | HUD positioning / macOS window setup | `src/src/lib.rs`, `src/src/commands.rs` | bottom-center placement, Retina scale-factor correction, `tauri-nspanel` panel API, `HUDPanel`/`tauri_panel!`, `ManagerExt::get_webview_panel`, panel-level mouse events, transparent panel/webview setup |
 | HUD state machine | `ui/src/bar-state-machine.ts` | pure state transitions for bar lifecycle |
 | UI persistence/defaults | `ui/src/storage.ts`, `ui/tauri-bridge.js` | localStorage helpers + shared defaults |
@@ -102,8 +103,10 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | Rust invariant tests | `src/tests/*.rs` | RefCell-backed closure order checks, file-backed contract assertions, and macOS permission/credential contract tests |
 | UI build pipeline | `package.json`, `vite.config.mjs`, `tsconfig.json`, `ui/tsconfig.json` | multi-page Vite root and scripts |
 | Git hooks | `.githooks/pre-push`, `scripts/install-git-hooks.sh` | version-controlled pre-push hook source; installer copies it into `.git/hooks/pre-push` |
+| macOS signing bootstrap | `scripts/bootstrap-local-review-signing-cert.sh` | creates or reuses the stable local-review code-signing identity used for TCC-persistent review installs |
 | Tauri build/security | `src/tauri.conf.json` | Vite hooks, CSP, `frontendDist`, bundle resources, active capability set |
 | App entitlements | `src/Info.plist`, `src/Entitlements.plist`, install/signing flow + Tauri bundle | packaged app needs audio-input + automation.apple-events entitlements, plus matching usage strings for microphone and Apple Events; `LSUIElement` keeps the app Dockless |
+| macOS signing / install / release | `scripts/sign-macos-app.sh`, `install.sh`, `scripts/release.sh`, `.github/workflows/release-main.yml` | stable local-review signing is the preferred review lane; updater artifacts and `latest.json` are published only when release signing is explicit and stable |
 
 ## RELEASE FLOW
 | Path | Behavior | Notes |
@@ -142,13 +145,14 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | macOS HUD transparency | Transparency depends on both `configure_bar_panel()` and `configure_bar_webview_transparency()`; the panel and WKWebView both must be cleared.
 | HUD chrome | `html`, `body`, and the HUD root must fill the full window, stay transparent, and use `overflow: hidden` so the rounded webview shell clips to the pill radius.
 | HUD render split | `bar.ts` binds DOM refs and delegates pure DOM updates to `bar-render.ts`; keep render helpers free of module-scope side effects.
+| HUD transcript flow | `ui/src/bar-render.ts`, `ui/src/bar.css`, `ui/src/__tests__/bar-ui.test.ts` | visible bar renders final+interim as one continuous line with newest text pinned in view and older text clipped on the left; trailing pending ellipsis appears only while LISTENING and interim transcript text is non-empty; it disappears once the token is final or interim text is empty; error-state transcript keeps start-visible truncation and is not right-pinned |
 | Session recovery | Startup failures and failed stream restarts keep the HUD visible in `ERROR` with actionable guidance until the user closes or retries.
 | Startup permission denial recovery | Permission-denied startup paths hide the HUD back to `HIDDEN`/`PASSIVE` so the next toggle can retry immediately after the user grants access; non-permission startup failures stay visible in `ERROR`.
 | Finalization flow | Stop-word detection uses combined final+interim transcript in the controller; success path freezes the cleaned command text through PROCESSING, INSERTING, and SUCCESS.
 | State ownership | `bar-session-controller.ts` owns timers, mouse events, and session lifecycle; `bar.ts` stays rendering-focused.
 | Stop-word finalization | `ui/src/bar-session-controller.ts` stops the Soniox pipeline before insert/correction, restarts listening only after a successful insert, and invalidates stale transcript/error callbacks with `transcriptGeneration` so one utterance cannot insert twice.
 | Soniox WS init | `ui/src/soniox-client.ts` sends the official Soniox context object shape with transcription vocabulary hints in `terms` only; do not use `translation_terms` in this app’s transcription pipeline. Manual finalization uses `<fin>` / `<end>` markers plus endpoint-detection config, not ad hoc transcript heuristics. |
-| Soniox endpoint delay | `ui/src/soniox-client.ts`, `ui/src/bar-session-controller.ts` | `max_endpoint_delay_ms` must stay within Soniox's documented 500-3000 range; values below 500 can make start requests fail or look like silent listening because stream errors collapse into generic reconnect handling. |
+| Soniox endpoint delay | `ui/src/soniox-client.ts`, `ui/src/bar-session-controller.ts`, `config.json` | `max_endpoint_delay_ms` intentionally sits at 1800 for less aggressive dictation endpointing; keep it aligned with the immediate stop-word `finalizeCurrentUtterance()` flow. |
 | LLM correction fallback | When transcript correction fails, retry only transient/recoverable failures (timeouts, transport/network issues, provider 408/429/5xx); deterministic failures fall back to raw after the first failed attempt, then insert raw text with normal success timing and no extra linger.
 | Main window split | `main.ts` owns async orchestration; `main-logic.ts` stays pure and accepts explicit element parameters.
 | Main window reopen sequence | `src/src/lib.rs` restores a hidden main window with `unminimize() -> show() -> set_focus()`; single-instance and explicit show flows use the same sequence.
@@ -198,6 +202,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 - Routing Gemini through OpenAI-compatible transport, response parsing, or credential checks; Gemini uses its own endpoint and API key path.
 - Freezing stop-word or correction prefs for the entire HUD session; active prefs now refresh from storage changes and may apply after stop-word finalization completes.
 - Hiding AI correction failures during HUD finalization; raw transcript fallback now retries only transient/recoverable failures, then proceeds silently with normal success timing.
+- Changing enter-mode insertion order or delay; paste still happens before Enter, and Enter mode sends Enter twice with a 230ms repeat delay on both macOS and Windows.
 - Treating unexpected System Events execution errors as permanent insertion failures; the success path retries once after a short delay, but automation-denied errors still fail immediately.
 - Moving provider-key preflight into the UI correction hot path; the UI now attempts correction directly.
 - Recreating reqwest clients or LLM config per correction request; the Rust path now shares both.
@@ -233,6 +238,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 - Treating stored credential lookup failures as fatal instead of falling through to env/shell lookup.
 - Treating Gemini as an alias of OpenAI-compatible in storage, bridge, or LLM transport.
 - Treating Soniox key presence as sufficient for save/update; persistence must validate by minting a temporary key first.
+- Validating local-review signing usability with `security find-identity -v -p codesigning`; use a real `codesign` probe instead.
 - Treating non-zero shell exit status as an automatic credential miss when the marker payload is present.
 - Caching empty shell credential reads; retry shell lookup until real credentials are found.
 - Looking for credentials in removed legacy support dirs instead of the current `voice-to-text/credentials.json` path.
@@ -244,6 +250,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 - Reintroducing visible-on-launch main settings behavior on cold launch; autostart/login launches stay hidden behind the autostart flag.
 - Copying `Info.plist` via `bundle.macOS.files`; it replaces Tauri's generated plist and breaks app launch.
 - Forcing unsigned macOS package builds in install/signing flow; packaged identity must stay valid so TCC permissions appear in System Settings.
+- Verifying TCC persistence against the repo-path build bundle instead of the installed `/Applications/Voice to Text.app` bundle.
 - Skipping `com.apple.security.device.audio-input` on the packaged app; mic/TCC registration fails without it.
 - Bypassing the Rust bridge and calling `__TAURI__` directly from app code.
 
@@ -263,11 +270,16 @@ npm test
 - `.github/workflows/release-main.yml` publishes non-prerelease GitHub Releases from every push to `main`; installers should treat `latest` as the release channel, not a special case.
 - `git push` on `main` now routes through the version-controlled pre-push hook in `.githooks/pre-push`; `scripts/install-git-hooks.sh` installs it into `.git/hooks/pre-push` so local arm64 release/signing runs before the push completes.
 - CI release attachment is split by availability: when the local arm64 release exists, CI builds x64 and attaches it to that same GitHub Release; when it does not, CI creates the release itself.
-- `.github/workflows/release-main.yml` currently ad-hoc signs the built `.app` with `src/Entitlements.plist` before zipping/uploading stable assets; notarization is not configured until an Apple Developer account exists.
+- `scripts/bootstrap-local-review-signing-cert.sh` seeds the stable local-review signing identity in the login keychain; `install.sh` prefers explicit `APPLE_SIGNING_IDENTITY`, then that stable local-review identity, then ad-hoc fallback, and re-signs the downloaded or source-built app before install.
+- `scripts/bootstrap-local-review-signing-cert.sh` and the signing scripts use real `codesign` probes as the source of truth for local-review usability; `security find-identity -v -p codesigning` is not reliable enough for this review cert on this machine.
+- `scripts/sign-macos-app.sh` resolves signing identity in the same order: explicit `APPLE_SIGNING_IDENTITY`, stable local-review identity, then ad-hoc fallback.
+- `install.sh` reports whether the chosen lane is explicit, stable local-review, or ad-hoc so permission persistence expectations stay visible during review installs.
+- `install.sh` validates TCC persistence against the installed `/Applications/Voice to Text.app` path; repo-path build bundles under `src/target/release/bundle/macos/Voice to Text.app` are build artifacts, not the install target.
+- `scripts/release.sh` and `.github/workflows/release-main.yml` gate macOS updater archives and `latest.json` on explicit stable release signing configuration; ad-hoc-only release runs publish stable zip/exe assets but skip updater metadata.
 - Release asset names are stable: `Voice-to-Text-darwin-arm64.zip`, `Voice-to-Text-darwin-x64.zip`, and `Voice-to-Text-windows-x64-setup.exe`.
 - `install.sh` downloads assets from `releases/latest/download/{asset}` and falls back to source build when release download, bundle-id, or entitlement validation fails.
 - Plain `tauri build` without Apple signing identity does not embed the macOS entitlements the installer expects.
-- Local/source-build fallback signs the built `.app` ad-hoc with `src/Entitlements.plist` before installer verification.
+- Local/source-build fallback still re-signs the built `.app` before installer verification; ad-hoc fallback is expected only when no stable identity is available.
 - HUD/runtime semantics are encoded in `src/src/lib.rs`, `src/src/commands.rs`, `ui/src/bar-session-controller.ts`, and `ui/src/soniox-client.ts`.
 - `ui/src/__tests__/bar-ui.test.ts` parses the real `ui/bar.html` body; keep HUD IDs and structure stable.
 - `src/tests/command_bridge_contract.rs` and `ui/src/__tests__/bridge-contract.test.ts` are the contract source of truth for command names, keys, and result shapes.
@@ -283,8 +295,9 @@ npm test
 - `ui/src/soniox-client.ts` now sends the official Soniox context payload shape and treats `<fin>` / `<end>` as the manual-finalization boundary, alongside endpoint-detection config.
 - `ui/src/bridge-ready.ts` gates startup work until `window.voiceToText` is injected.
 - `ui/src/bar-session-controller.ts` now checks stop words against combined final + interim transcript, refreshes active session prefs from storage changes in place, and applies pending updates after finalization.
+- `ui/src/bar-session-controller.ts` now calls `finalizeCurrentUtterance()` immediately after stop-word detection, falls back to the detected transcript on timeout/error, and stops audio only after the finalization attempt.
 - `ui/src/bar-session-controller.ts` now retries LLM correction only for transient/recoverable failures, and deterministic failures fall back to raw after the first attempt with normal success timing.
-- `ui/src/bar-session-controller.ts` clear/reset now restarts listening in place, resets transcript/error state, and drops stale async finalization after reset.
+- `config.json` keeps `soniox.max_endpoint_delay_ms` at 1800; `max_non_final_tokens_duration_ms` stays unchanged because upstream docs still do not cover it.
 - `ui/src/storage.ts` defaults `skipLlm` to true so LLM correction stays off the default path.
 - `ui/src/storage.ts` normalizes provider defaults so Gemini gets its own model slot and openai_compatible retains the base-url path.
 - `ui/src/shortcut-recorder-logic.ts` keeps recorder storage canonical while `ui/src/shortcut-display.ts` handles macOS label rendering.
