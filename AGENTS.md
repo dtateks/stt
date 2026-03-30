@@ -275,6 +275,7 @@ npm test
 - `scripts/bootstrap-local-review-signing-cert.sh` seeds the stable local-review signing identity in the login keychain for review builds; `install.sh` preserves downloaded release signatures and only signs the source-build fallback when needed.
 - `scripts/bootstrap-local-review-signing-cert.sh` and the signing scripts use real `codesign` probes as the source of truth for local-review usability; `security find-identity -v -p codesigning` is not reliable enough for this review cert on this machine.
 - `scripts/sign-macos-app.sh` resolves signing identity by explicit signing mode so callers can choose local-review signing or public source-fallback signing.
+- `scripts/release.sh` and `.github/workflows/release-main.yml` must pass `STT_SIGNING_MODE` when invoking `scripts/sign-macos-app.sh`; the signer no longer guesses a default lane.
 - `install.sh` reports whether the chosen lane is release-download or source-build fallback so signature preservation stays visible.
 - `install.sh` validates TCC persistence against the installed `/Applications/Voice to Text.app` path; repo-path build bundles under `src/target/release/bundle/macos/Voice to Text.app` are build artifacts, not the install target.
 - `install.sh` must terminate the installed `/Applications/Voice to Text.app` process before relaunching it; an already-running app keeps the stale in-memory binary even after the bundle on disk is replaced.
