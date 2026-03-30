@@ -16,16 +16,26 @@ jobs:
       tag: ${{ steps.release-meta.outputs.tag }}
       release_name: ${{ steps.release-meta.outputs.release_name }}
       build_matrix: ${{ steps.release-meta.outputs.build_matrix }}
+      publish_updater_assets: ${{ steps.release-meta.outputs.publish_updater_assets }}
     steps:
       - name: Build release plan for this push
         id: release-meta
         env:
           GH_TOKEN: ${{ github.token }}
+          MACOS_RELEASE_SIGNING_CERT_B64: ${{ secrets.MACOS_RELEASE_SIGNING_CERT_B64 }}
+          MACOS_RELEASE_SIGNING_CERT_PASSWORD: ${{ secrets.MACOS_RELEASE_SIGNING_CERT_PASSWORD }}
+          MACOS_RELEASE_SIGNING_IDENTITY: ${{ secrets.MACOS_RELEASE_SIGNING_IDENTITY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           short_sha="${GITHUB_SHA::7}"
           local_tag="local-${short_sha}"
           local_asset="Voice-to-Text-darwin-arm64.zip"
           local_release_ready="false"
+          publish_updater_assets="false"
+
+          if [[ -n "$MACOS_RELEASE_SIGNING_CERT_B64" && -n "$MACOS_RELEASE_SIGNING_CERT_PASSWORD" && -n "$MACOS_RELEASE_SIGNING_IDENTITY" && "$MACOS_RELEASE_SIGNING_IDENTITY" != "-" && -n "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            publish_updater_assets="true"
+          fi
 
           if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${local_tag}" >/dev/null 2>&1; then
             echo "Found ${local_tag}; waiting for local arm64 release asset…"
@@ -53,6 +63,7 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "release_name=Voice to Text $tag" >> "$GITHUB_OUTPUT"
           echo "build_matrix=$build_matrix" >> "$GITHUB_OUTPUT"
+          echo "publish_updater_assets=$publish_updater_assets" >> "$GITHUB_OUTPUT"
 
   build-macos:
     name: Build ${{ matrix.arch }} macOS bundle
@@ -81,6 +92,41 @@ jobs:
       - name: Build macOS app bundle
         run: npm run build
 
+      - name: Configure explicit macOS release signing lane
+        env:
+          MACOS_RELEASE_SIGNING_CERT_B64: ${{ secrets.MACOS_RELEASE_SIGNING_CERT_B64 }}
+          MACOS_RELEASE_SIGNING_CERT_PASSWORD: ${{ secrets.MACOS_RELEASE_SIGNING_CERT_PASSWORD }}
+          MACOS_RELEASE_SIGNING_IDENTITY: ${{ secrets.MACOS_RELEASE_SIGNING_IDENTITY }}
+        run: |
+          keychain_path="$RUNNER_TEMP/stt-release-signing.keychain-db"
+          cert_path="$RUNNER_TEMP/stt-release-signing-cert.p12"
+
+          if [[ "${{ needs.prepare-release.outputs.publish_updater_assets }}" != "true" ]]; then
+            echo "STT_EXPLICIT_RELEASE_SIGNING=false" >> "$GITHUB_ENV"
+            echo "No explicit release signing identity configured; macOS updater artifacts will be skipped."
+            exit 0
+          fi
+
+          echo "$MACOS_RELEASE_SIGNING_CERT_B64" | base64 --decode > "$cert_path"
+          security create-keychain -p "" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" "${HOME}/Library/Keychains/login.keychain-db"
+          security default-keychain -s "$keychain_path"
+           security import "$cert_path" \
+             -k "$keychain_path" \
+             -P "$MACOS_RELEASE_SIGNING_CERT_PASSWORD" \
+             -T /usr/bin/codesign \
+             -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "" \
+            "$keychain_path"
+
+           echo "APPLE_SIGNING_IDENTITY=$MACOS_RELEASE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+           echo "STT_EXPLICIT_RELEASE_SIGNING=true" >> "$GITHUB_ENV"
+
       - name: Sign macOS app bundle with entitlements
         run: ./scripts/sign-macos-app.sh "src/target/release/bundle/macos/Voice to Text.app" "src/Entitlements.plist"
 
@@ -105,6 +151,7 @@ jobs:
           ditto -c -k --keepParent --sequesterRsrc "$app_path" "${{ matrix.asset_name }}"
 
       - name: Package updater artifacts
+        if: needs.prepare-release.outputs.publish_updater_assets == 'true'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -130,6 +177,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload updater artifacts
+        if: needs.prepare-release.outputs.publish_updater_assets == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: updater-${{ matrix.arch }}
@@ -209,6 +257,7 @@ jobs:
           merge-multiple: true
 
       - name: Generate merged updater manifest
+        if: needs.prepare-release.outputs.publish_updater_assets == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
@@ -286,7 +335,8 @@ jobs:
           X64_SIGNATURE="$x64_signature" \
           node -e 'const fs=require("node:fs"); const path=require("node:path"); const releaseTag=process.env.RELEASE_TAG; const repo=process.env.RELEASE_REPOSITORY; const releaseDir=process.env.RELEASE_DIR; const version=process.env.VERSION; const pubDate=process.env.PUB_DATE; const arm64Archive=process.env.ARM64_ARCHIVE_ASSET || ""; const arm64Signature=process.env.ARM64_SIGNATURE || ""; const x64Archive=process.env.X64_ARCHIVE_ASSET || ""; const x64Signature=process.env.X64_SIGNATURE || ""; const platforms={}; if (arm64Archive && arm64Signature) { platforms["darwin-aarch64"] = { signature: arm64Signature, url: `https://github.com/${repo}/releases/download/${releaseTag}/${arm64Archive.replace(/ /g, "%20")}` }; } if (x64Archive && x64Signature) { platforms["darwin-x86_64"] = { signature: x64Signature, url: `https://github.com/${repo}/releases/download/${releaseTag}/${x64Archive.replace(/ /g, "%20")}` }; } const manifest={ version, notes: "", pub_date: pubDate, platforms }; fs.writeFileSync(path.join(releaseDir, "latest.json"), JSON.stringify(manifest, null, 2) + "\n");'
 
-      - name: Create release and upload stable assets
+      - name: Create release and upload stable + updater assets
+        if: needs.prepare-release.outputs.publish_updater_assets == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare-release.outputs.tag }}
@@ -302,3 +352,18 @@ jobs:
             release-assets/*.app.tar.gz
             release-assets/*.app.tar.gz.sig
             release-assets/latest.json
+
+      - name: Create release and upload bootstrap assets only
+        if: needs.prepare-release.outputs.publish_updater_assets != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: ${{ needs.prepare-release.outputs.release_name }}
+          target_commitish: ${{ github.sha }}
+          prerelease: false
+          make_latest: true
+          generate_release_notes: true
+          overwrite_files: true
+          files: |
+            release-assets/*.zip
+            release-assets/*.exe

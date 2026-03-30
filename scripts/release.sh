@@ -9,6 +9,28 @@ UPDATER_MANIFEST_NAME="latest.json"
 SIGN_SCRIPT="scripts/sign-macos-app.sh"
 DEFAULT_REMOTE="origin"
 UPDATER_SIGNING_KEY_PATH="${HOME}/.tauri/stt-updater.key"
+BOOL_TRUE="true"
+BOOL_FALSE="false"
+AD_HOC_SIGNING_IDENTITY="-"
+EXPLICIT_RELEASE_SIGNING_IDENTITY="${STT_RELEASE_SIGNING_IDENTITY:-${APPLE_SIGNING_IDENTITY:-}}"
+UPDATER_PUBLISH_ALLOWED="$BOOL_FALSE"
+
+has_explicit_release_signing_identity() {
+	[[ -n "$EXPLICIT_RELEASE_SIGNING_IDENTITY" && "$EXPLICIT_RELEASE_SIGNING_IDENTITY" != "$AD_HOC_SIGNING_IDENTITY" ]]
+}
+
+configure_release_signing_mode() {
+	if has_explicit_release_signing_identity; then
+		UPDATER_PUBLISH_ALLOWED="$BOOL_TRUE"
+		echo "Release signing mode: explicit identity ($EXPLICIT_RELEASE_SIGNING_IDENTITY)"
+		echo "Updater publishing: enabled"
+		return
+	fi
+
+	UPDATER_PUBLISH_ALLOWED="$BOOL_FALSE"
+	echo "WARNING: no explicit release signing identity configured."
+	echo "WARNING: macOS updater artifacts and latest.json will NOT be published as stable assets."
+}
 
 repo_slug_from_remote_url() {
 	local remote_url="$1"
@@ -59,6 +81,10 @@ ensure_prerequisites() {
 		exit 1
 	fi
 
+	if [[ "$UPDATER_PUBLISH_ALLOWED" != "$BOOL_TRUE" ]]; then
+		return
+	fi
+
 	if [[ ! -f "$UPDATER_SIGNING_KEY_PATH" ]]; then
 		echo "ERROR: updater signing key not found at: $UPDATER_SIGNING_KEY_PATH" >&2
 		echo "Generate it with: npx tauri signer generate -w \"$UPDATER_SIGNING_KEY_PATH\" -p \"\"" >&2
@@ -76,16 +102,25 @@ build_and_package_local_arm64_release() {
 	fi
 
 	echo "▸ Signing macOS app bundle…"
-	"./$SIGN_SCRIPT" "$APP_BUNDLE"
+	if has_explicit_release_signing_identity; then
+		APPLE_SIGNING_IDENTITY="$EXPLICIT_RELEASE_SIGNING_IDENTITY" "./$SIGN_SCRIPT" "$APP_BUNDLE"
+	else
+		"./$SIGN_SCRIPT" "$APP_BUNDLE"
+	fi
 
-	echo "▸ Packaging updater archive…"
-	rm -f "$UPDATER_ARCHIVE_ASSET" "$UPDATER_SIGNATURE_ASSET"
-	COPYFILE_DISABLE=1 tar -czf "$UPDATER_ARCHIVE_ASSET" -C "$(dirname "$APP_BUNDLE")" "$(basename "$APP_BUNDLE")"
+	if [[ "$UPDATER_PUBLISH_ALLOWED" == "$BOOL_TRUE" ]]; then
+		echo "▸ Packaging updater archive…"
+		rm -f "$UPDATER_ARCHIVE_ASSET" "$UPDATER_SIGNATURE_ASSET"
+		COPYFILE_DISABLE=1 tar -czf "$UPDATER_ARCHIVE_ASSET" -C "$(dirname "$APP_BUNDLE")" "$(basename "$APP_BUNDLE")"
 
-	echo "▸ Signing updater archive…"
-	TAURI_SIGNING_PRIVATE_KEY_PATH="$UPDATER_SIGNING_KEY_PATH" \
-		TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
-		npx tauri signer sign "$UPDATER_ARCHIVE_ASSET"
+		echo "▸ Signing updater archive…"
+		TAURI_SIGNING_PRIVATE_KEY_PATH="$UPDATER_SIGNING_KEY_PATH" \
+			TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+			npx tauri signer sign "$UPDATER_ARCHIVE_ASSET"
+	else
+		rm -f "$UPDATER_ARCHIVE_ASSET" "$UPDATER_SIGNATURE_ASSET" "$UPDATER_MANIFEST_NAME"
+		echo "▸ Skipping updater archive/signature packaging without explicit release signing identity"
+	fi
 
 	echo "▸ Packaging zip…"
 	rm -f "$ASSET_NAME"
@@ -156,6 +191,12 @@ tauri_app_version() {
 generate_updater_manifest() {
 	local tag="$1"
 	local repo_slug="$2"
+
+	if [[ "$UPDATER_PUBLISH_ALLOWED" != "$BOOL_TRUE" ]]; then
+		echo "▸ Skipping ${UPDATER_MANIFEST_NAME}: explicit release signing identity is required"
+		rm -f "$UPDATER_MANIFEST_NAME"
+		return 0
+	fi
 
 	if [[ ! -f "$UPDATER_ARCHIVE_ASSET" || ! -f "$UPDATER_SIGNATURE_ASSET" ]]; then
 		echo "WARN: updater artifacts not found — skipping ${UPDATER_MANIFEST_NAME} generation" >&2
@@ -234,6 +275,7 @@ run_manual_release() {
 	local tag
 	local repo_slug
 
+	configure_release_signing_mode
 	ensure_prerequisites
 	build_and_package_local_arm64_release
 	repo_slug="$(repo_slug_from_remote_name "$DEFAULT_REMOTE")"
@@ -257,6 +299,7 @@ run_pre_push_release() {
 		refspecs+=("$refspec")
 	done < <(refspecs_from_pre_push_input "$ref_file")
 
+	configure_release_signing_mode
 	ensure_prerequisites
 	build_and_package_local_arm64_release
 	repo_slug="$(repo_slug_from_remote_url "$remote_url")"

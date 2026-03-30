@@ -67,6 +67,14 @@ const REQUIRED_PLUGIN_AUTOSTART: &str = "tauri-plugin-autostart";
 const UNUSED_PLUGIN_SHELL_INIT: &str = "tauri_plugin_shell::init";
 const UNUSED_PLUGIN_HTTP_INIT: &str = "tauri_plugin_http::init";
 const UNUSED_PLUGIN_CLIPBOARD_INIT: &str = "tauri_plugin_clipboard_manager::init";
+const LOCAL_REVIEW_SIGNING_IDENTITY_LABEL: &str = "Voice to Text Local Review Signing";
+const EXPLICIT_SIGNING_SOURCE_LABEL: &str = "SIGNING_SOURCE_EXPLICIT=\"explicit\"";
+const LOCAL_REVIEW_SIGNING_SOURCE_LABEL: &str = "SIGNING_SOURCE_LOCAL_REVIEW=\"local-review\"";
+const AD_HOC_SIGNING_SOURCE_LABEL: &str = "SIGNING_SOURCE_AD_HOC=\"ad-hoc\"";
+const CODESIGN_DRYRUN_LABEL: &str = "codesign --dryrun --force --sign \"$identity_name\"";
+const FIND_IDENTITY_CODESIGNING_LABEL: &str = "find-identity -v -p codesigning";
+const SIGNING_PROBE_COPY_LABEL: &str = "cp /usr/bin/true \"$probe_path\"";
+const RELEASE_UPDATER_GATING_LABEL: &str = "needs.prepare-release.outputs.publish_updater_assets";
 
 fn read_project_file(relative_path: &str) -> String {
     let absolute_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
@@ -75,6 +83,135 @@ fn read_project_file(relative_path: &str) -> String {
 
 fn read_json(relative_path: &str) -> Value {
     serde_json::from_str(&read_project_file(relative_path)).expect("json should parse")
+}
+
+#[test]
+fn macos_sign_script_prefers_explicit_then_local_review_then_ad_hoc() {
+    let sign_script = read_project_file("../scripts/sign-macos-app.sh");
+
+    assert!(
+        sign_script.contains(LOCAL_REVIEW_SIGNING_IDENTITY_LABEL),
+        "sign script should keep a stable local-review identity label"
+    );
+    assert!(
+        sign_script.contains(EXPLICIT_SIGNING_SOURCE_LABEL),
+        "sign script should declare explicit signing source"
+    );
+    assert!(
+        sign_script.contains(LOCAL_REVIEW_SIGNING_SOURCE_LABEL),
+        "sign script should declare local-review signing source"
+    );
+    assert!(
+        sign_script.contains(AD_HOC_SIGNING_SOURCE_LABEL),
+        "sign script should declare ad-hoc signing source"
+    );
+    assert!(
+        sign_script.contains(CODESIGN_DRYRUN_LABEL),
+        "sign script should probe signing identities with codesign before choosing a fallback"
+    );
+    assert!(
+        !sign_script.contains(FIND_IDENTITY_CODESIGNING_LABEL),
+        "sign script should not rely on keychain identity listings that miss self-signed review certs"
+    );
+
+    let explicit_source_index = sign_script
+        .find("if [ -n \"$SIGNING_IDENTITY_ENV\" ]; then")
+        .expect("signing resolver should check explicit identity first");
+    let local_review_source_index = sign_script
+        .find("if can_codesign_bundle_with_identity \"$LOCAL_REVIEW_SIGNING_IDENTITY\" \"$APP_BUNDLE_PATH\"; then")
+        .expect("signing resolver should check local-review identity second");
+    let ad_hoc_source_index = sign_script
+        .find("SIGNING_IDENTITY=\"$AD_HOC_SIGNING_IDENTITY\"")
+        .expect("signing resolver should fall back to ad-hoc last");
+
+    assert!(
+        explicit_source_index < local_review_source_index,
+        "explicit signing identity should be preferred over local-review signing"
+    );
+    assert!(
+        local_review_source_index < ad_hoc_source_index,
+        "local-review signing identity should be preferred over ad-hoc fallback"
+    );
+}
+
+#[test]
+fn install_script_bootstraps_local_review_signing_before_bundle_install() {
+    let install_script = read_project_file("../install.sh");
+
+    assert!(
+        install_script.contains("bootstrap-local-review-signing-cert.sh"),
+        "installer should call the local-review signing bootstrap script"
+    );
+    assert!(
+        install_script.contains("configure_install_signing_lane"),
+        "installer should choose a signing lane before install"
+    );
+    assert!(
+        install_script.contains(CODESIGN_DRYRUN_LABEL),
+        "installer should probe signing identities with codesign before falling back to ad-hoc"
+    );
+    assert!(
+        !install_script.contains(FIND_IDENTITY_CODESIGNING_LABEL),
+        "installer should not rely on keychain identity listings that miss self-signed review certs"
+    );
+    assert!(
+        install_script.contains("sign_bundle_for_install \"$APP_BUNDLE\""),
+        "installer should sign the selected app bundle before copying to /Applications"
+    );
+    assert!(
+        install_script.contains("configure_install_signing_lane \"$APP_BUNDLE\""),
+        "installer should choose a signing lane using the actual app bundle that will be signed"
+    );
+}
+
+#[test]
+fn bootstrap_script_validates_local_review_signing_with_codesign_probe() {
+    let bootstrap_script = read_project_file("../scripts/bootstrap-local-review-signing-cert.sh");
+
+    assert!(
+        bootstrap_script.contains(SIGNING_PROBE_COPY_LABEL),
+        "bootstrap script should create a real executable probe before validating local-review signing"
+    );
+    assert!(
+        bootstrap_script.contains("codesign --force --sign \"$identity_name\" \"$probe_path\""),
+        "bootstrap script should verify the local-review identity by actually running codesign"
+    );
+    assert!(
+        !bootstrap_script.contains(FIND_IDENTITY_CODESIGNING_LABEL),
+        "bootstrap script should not treat keychain identity listings as proof that the review cert is usable"
+    );
+}
+
+#[test]
+fn release_pipeline_gates_updater_assets_on_explicit_release_signing() {
+    let release_script = read_project_file("../scripts/release.sh");
+    let workflow = read_project_file("../.github/workflows/release-main.yml");
+
+    assert!(
+        release_script.contains("STT_RELEASE_SIGNING_IDENTITY"),
+        "release script should read explicit release signing identity from environment"
+    );
+    assert!(
+        release_script
+            .contains("\"$EXPLICIT_RELEASE_SIGNING_IDENTITY\" != \"$AD_HOC_SIGNING_IDENTITY\""),
+        "release script should reject ad-hoc signing identity for updater publishing"
+    );
+    assert!(
+        release_script.contains("Skipping ${UPDATER_MANIFEST_NAME}"),
+        "release script should skip updater manifest generation without explicit release signing"
+    );
+    assert!(
+        workflow.contains("publish_updater_assets"),
+        "release workflow should compute updater publish gating"
+    );
+    assert!(
+        workflow.contains(RELEASE_UPDATER_GATING_LABEL),
+        "release workflow should gate updater packaging/publishing on explicit release signing"
+    );
+    assert!(
+        workflow.contains("Create release and upload bootstrap assets only"),
+        "release workflow should keep non-updater assets publishable when updater lane is disabled"
+    );
 }
 
 #[test]
