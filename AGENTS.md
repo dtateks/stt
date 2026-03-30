@@ -202,6 +202,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 - Routing Gemini through OpenAI-compatible transport, response parsing, or credential checks; Gemini uses its own endpoint and API key path.
 - Freezing stop-word or correction prefs for the entire HUD session; active prefs now refresh from storage changes and may apply after stop-word finalization completes.
 - Hiding AI correction failures during HUD finalization; raw transcript fallback now retries only transient/recoverable failures, then proceeds silently with normal success timing.
+- Leaving residual non-final Soniox tokens in `interimText` when a `<fin>` / `<end>` marker arrives in the same message; promote them into final text first so the HUD does not keep the pending ellipsis after finalization.
 - Changing enter-mode insertion order or delay; paste still happens before Enter, and Enter mode sends Enter twice with a 230ms repeat delay on both macOS and Windows.
 - Treating unexpected System Events execution errors as permanent insertion failures; the success path retries once after a short delay, but automation-denied errors still fail immediately.
 - Moving provider-key preflight into the UI correction hot path; the UI now attempts correction directly.
@@ -292,7 +293,7 @@ npm test
 - `ui/src/main.ts` blocks setup advancement on credential-save verification failure and rechecks setup vs prefs on focus/visibility regain.
 - `src/src/commands.rs` checks Soniox key presence before temporary-key issuance; renderer flow should rely on `has_soniox_key` / `create_soniox_temporary_key`, not direct long-lived-key reads.
 - `src/src/soniox_auth.rs` sends `usage_type=transcribe_websocket` and `expires_in_seconds=3600` in temporary-key requests.
-- `ui/src/soniox-client.ts` now sends the official Soniox context payload shape and treats `<fin>` / `<end>` as the manual-finalization boundary, alongside endpoint-detection config.
+- `ui/src/soniox-client.ts` now sends the official Soniox context payload shape, treats `<fin>` / `<end>` as the manual-finalization boundary, and promotes residual non-final tokens in the same message into final transcript text before clearing `interimText`.
 - `ui/src/bridge-ready.ts` gates startup work until `window.voiceToText` is injected.
 - `ui/src/bar-session-controller.ts` now checks stop words against combined final + interim transcript, refreshes active session prefs from storage changes in place, and applies pending updates after finalization.
 - `ui/src/bar-session-controller.ts` now calls `finalizeCurrentUtterance()` immediately after stop-word detection, falls back to the detected transcript on timeout/error, and stops audio only after the finalization attempt.

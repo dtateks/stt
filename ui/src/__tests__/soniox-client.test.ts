@@ -4,7 +4,7 @@ import type { SonioxConfig, TranscriptResult } from "../types.ts";
 import { SonioxClient } from "../soniox-client.ts";
 
 describe("SonioxClient", () => {
-  it("keeps marker tokens out of visible transcript text", () => {
+  it("promotes pending transcript text into final text when a finalization marker arrives", () => {
     const client = new SonioxClient();
     const transcriptUpdates: TranscriptResult[] = [];
     client.onTranscript = (result) => transcriptUpdates.push(result);
@@ -24,8 +24,8 @@ describe("SonioxClient", () => {
 
     expect(transcriptUpdates).toEqual([
       {
-        finalText: "hello ",
-        interimText: "world",
+        finalText: "hello world",
+        interimText: "",
       },
     ]);
   });
@@ -82,7 +82,7 @@ describe("SonioxClient", () => {
     );
   });
 
-  it("sends Soniox terms without translation_terms in the init frame", () => {
+  it("sends Soniox terms without translation_terms in the init frame", async () => {
     const sentFrames: string[] = [];
 
     class MockWebSocket {
@@ -129,22 +129,22 @@ describe("SonioxClient", () => {
 
     expect(sentFrames).toHaveLength(0);
 
-    return Promise.resolve().then(() => {
-      expect(sentFrames).toHaveLength(1);
-      expect(JSON.parse(sentFrames[0])).toEqual({
-        api_key: "temporary-key",
-        model: "stt-rt-v4",
-        sample_rate: 16_000,
-        num_channels: 1,
-        audio_format: "pcm_s16le",
-        context: {
-          general: [{ key: "domain", value: "software" }],
-          text: "CLI tools and code terms",
-          terms: ["Claude Code", "tmux"],
-        },
-      });
-      expect(sentFrames[0]).not.toContain("translation_terms");
-      vi.unstubAllGlobals();
+    await Promise.resolve();
+
+    expect(sentFrames).toHaveLength(1);
+    expect(JSON.parse(sentFrames[0])).toEqual({
+      api_key: "temporary-key",
+      model: "stt-rt-v4",
+      sample_rate: 16_000,
+      num_channels: 1,
+      audio_format: "pcm_s16le",
+      context: {
+        general: [{ key: "domain", value: "software" }],
+        text: "CLI tools and code terms",
+        terms: ["Claude Code", "tmux"],
+      },
     });
+    expect(sentFrames[0]).not.toContain("translation_terms");
+    vi.unstubAllGlobals();
   });
 });

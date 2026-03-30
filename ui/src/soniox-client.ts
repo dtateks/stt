@@ -259,6 +259,11 @@ export class SonioxClient implements SonioxSTTClient {
       }
     }
 
+    if (receivedFinalizationMarker && newInterim.length > 0) {
+      newFinal += newInterim;
+      newInterim = "";
+    }
+
     this.finalText = newFinal;
     this.interimText = newInterim;
     this.emitTranscript();
