@@ -74,9 +74,9 @@ describe("storage — readJson fallback behavior", () => {
     window.localStorage.clear();
   });
 
-  it("returns the default enterMode (true) when key is absent", () => {
+  it("returns the default enterMode (false) when key is absent", () => {
     const prefs = loadPreferences();
-    expect(prefs.enterMode).toBe(true);
+    expect(prefs.enterMode).toBe(false);
   });
 
   it("returns default outputLang ('auto') when key is absent", () => {
@@ -92,7 +92,7 @@ describe("storage — readJson fallback behavior", () => {
   it("returns the fallback when stored value is corrupt JSON", () => {
     window.localStorage.setItem("enterMode", "not-valid-json{{{");
     const prefs = loadPreferences();
-    expect(prefs.enterMode).toBe(true);
+    expect(prefs.enterMode).toBe(false);
   });
 
   it("returns the persisted value when it is valid JSON", () => {

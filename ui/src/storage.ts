@@ -50,7 +50,7 @@ export function loadPreferences(): UserPreferences {
   const defaults = window.voiceToTextDefaults;
 
   return {
-    enterMode: readJson<boolean>(KEYS.enterMode, true),
+    enterMode: readJson<boolean>(KEYS.enterMode, false),
     outputLang: readJson<OutputLang>(KEYS.outputLang, "auto"),
     sonioxTerms: readJson<string[]>(KEYS.sonioxTerms, defaults.terms),
     skipLlm: readJson<boolean>(KEYS.skipLlm, true),
