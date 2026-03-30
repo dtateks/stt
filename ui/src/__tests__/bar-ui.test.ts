@@ -353,6 +353,12 @@ describe("buildVisibleTranscriptText — live transcript suffix", () => {
       buildVisibleTranscriptText("LISTENING", { finalText: "hello", interimText: "world..." }),
     ).toBe("hello world...");
   });
+
+  it("ignores punctuation-only interim transcript while LISTENING", () => {
+    expect(
+      buildVisibleTranscriptText("LISTENING", { finalText: "Hello. Một 2 3 4 5.", interimText: "..." }),
+    ).toBe("Hello. Một 2 3 4 5.");
+  });
 });
 
 // ─── applyErrorMessage ────────────────────────────────────────────────────────

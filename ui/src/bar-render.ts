@@ -25,6 +25,7 @@ export const STATE_LABELS: Record<BarState, string> = {
 
 const LIVE_TRANSCRIPT_PENDING_SUFFIX = "…";
 const LIVE_TRANSCRIPT_PENDING_SUFFIX_PATTERN = /(?:\.{3}|…)+\s*$/;
+const INTERIM_TRANSCRIPT_MEANINGFUL_CONTENT_PATTERN = /[\p{L}\p{N}]/u;
 const WAVEFORM_BAR_COUNT = 12;
 const WAVEFORM_BAR_WIDTH = 2;
 const WAVEFORM_MAX_BAR_HEIGHT_RATIO = 0.85;
@@ -108,8 +109,11 @@ export function applyTranscript(
 }
 
 export function buildVisibleTranscriptText(state: string | undefined, result: TranscriptResult): string {
-  const visibleTranscript = [result.finalText, result.interimText].filter(Boolean).join(" ");
-  const hasPendingInterimTranscript = state === "LISTENING" && result.interimText.trim().length > 0;
+  const hasMeaningfulInterimTranscript = hasMeaningfulTranscriptContent(result.interimText);
+  const visibleTranscript = [result.finalText, hasMeaningfulInterimTranscript ? result.interimText : ""]
+    .filter(Boolean)
+    .join(" ");
+  const hasPendingInterimTranscript = state === "LISTENING" && hasMeaningfulInterimTranscript;
 
   if (!hasPendingInterimTranscript || visibleTranscript.length === 0) {
     return visibleTranscript;
@@ -120,6 +124,10 @@ export function buildVisibleTranscriptText(state: string | undefined, result: Tr
   }
 
   return `${visibleTranscript}${LIVE_TRANSCRIPT_PENDING_SUFFIX}`;
+}
+
+function hasMeaningfulTranscriptContent(text: string): boolean {
+  return INTERIM_TRANSCRIPT_MEANINGFUL_CONTENT_PATTERN.test(text.trim());
 }
 
 export function scrollTranscriptToEnd(textEl: HTMLElement): void {
