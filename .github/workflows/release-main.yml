@@ -138,11 +138,64 @@ jobs:
             Voice-to-Text-darwin-${{ matrix.arch }}.app.tar.gz.sig
           if-no-files-found: ignore
 
+  build-windows:
+    name: Build Windows NSIS installer
+    needs: prepare-release
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows NSIS installer
+        env:
+          TAURI_APP_PATH: src
+        run: npx tauri build --bundles nsis
+
+      - name: Package Windows installer as stable exe asset
+        shell: pwsh
+        run: |
+          $bundleDir = "src/target/release/bundle/nsis"
+          if (-not (Test-Path $bundleDir)) {
+            throw "Missing NSIS bundle directory: $bundleDir"
+          }
+
+          $installers = Get-ChildItem -Path $bundleDir -Filter "*-setup.exe"
+          if ($installers.Count -eq 0) {
+            throw "Missing NSIS installer in: $bundleDir"
+          }
+
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one NSIS installer in $bundleDir but found $($installers.Count)"
+          }
+
+          Copy-Item $installers[0].FullName "Voice-to-Text-windows-x64-setup.exe"
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voice-to-Text-windows-x64-setup.exe
+          path: Voice-to-Text-windows-x64-setup.exe
+          if-no-files-found: error
+
   publish-release:
     name: Publish GitHub Release
     needs:
       - prepare-release
       - build-macos
+      - build-windows
     runs-on: ubuntu-latest
 
     steps:
@@ -245,6 +298,7 @@ jobs:
           overwrite_files: true
           files: |
             release-assets/*.zip
+            release-assets/*.exe
             release-assets/*.app.tar.gz
             release-assets/*.app.tar.gz.sig
             release-assets/latest.json

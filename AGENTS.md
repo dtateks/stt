@@ -111,6 +111,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | `git push` on `main` | pre-push hook runs local release build/sign path before push completes | installed from `.githooks/pre-push` via `scripts/install-git-hooks.sh`; opt out with `STT_SKIP_PRE_PUSH_RELEASE=1` |
 | local arm64 release available | CI builds x64 and attaches it to the same GitHub Release | same-release attachment depends on the local release existing first |
 | local arm64 release absent | CI creates the release itself | fallback path remains CI-driven release creation |
+| every `main` push | CI also builds and uploads a Windows NSIS installer asset | `windows-latest` publishes `Voice-to-Text-windows-x64-setup.exe`; Windows is not included in `latest.json` yet |
 
 ## CONVENTIONS
 | Rule | Detail |
@@ -262,7 +263,7 @@ npm test
 - `git push` on `main` now routes through the version-controlled pre-push hook in `.githooks/pre-push`; `scripts/install-git-hooks.sh` installs it into `.git/hooks/pre-push` so local arm64 release/signing runs before the push completes.
 - CI release attachment is split by availability: when the local arm64 release exists, CI builds x64 and attaches it to that same GitHub Release; when it does not, CI creates the release itself.
 - `.github/workflows/release-main.yml` currently ad-hoc signs the built `.app` with `src/Entitlements.plist` before zipping/uploading stable assets; notarization is not configured until an Apple Developer account exists.
-- Release asset names are stable: `Voice-to-Text-darwin-arm64.zip` and `Voice-to-Text-darwin-x64.zip`.
+- Release asset names are stable: `Voice-to-Text-darwin-arm64.zip`, `Voice-to-Text-darwin-x64.zip`, and `Voice-to-Text-windows-x64-setup.exe`.
 - `install.sh` downloads assets from `releases/latest/download/{asset}` and falls back to source build when release download, bundle-id, or entitlement validation fails.
 - Plain `tauri build` without Apple signing identity does not embed the macOS entitlements the installer expects.
 - Local/source-build fallback signs the built `.app` ad-hoc with `src/Entitlements.plist` before installer verification.
