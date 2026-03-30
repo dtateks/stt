@@ -47,6 +47,34 @@ fn unexpected_system_events_error_is_preserved_for_permission_result() {
 }
 
 #[test]
+fn windows_helper_unavailable_error_maps_to_windows_specific_permission_result() {
+    let result = build_text_insertion_permission_result(Err(
+        "windows-helper-unavailable: helper missing".to_string(),
+    ));
+
+    assert!(!result.granted);
+    assert_eq!(result.code.as_deref(), Some("windows-helper-unavailable"));
+    assert_eq!(result.opened_settings, Some(false));
+    assert_eq!(result.message.as_deref(), Some("helper missing"));
+}
+
+#[test]
+fn windows_helper_required_error_uses_default_message_when_suffix_is_blank() {
+    let result =
+        build_text_insertion_permission_result(Err("windows-helper-required:   ".to_string()));
+
+    assert!(!result.granted);
+    assert_eq!(result.code.as_deref(), Some("windows-helper-required"));
+    assert_eq!(result.opened_settings, Some(false));
+    assert_eq!(
+        result.message.as_deref(),
+        Some(
+            "Text insertion into elevated Windows apps requires the Voice to Text helper. Allow the helper elevation prompt, then try again."
+        )
+    );
+}
+
+#[test]
 fn microphone_denial_reports_when_settings_cannot_be_opened() {
     let _guard = ENVIRONMENT_LOCK
         .get_or_init(|| Mutex::new(()))

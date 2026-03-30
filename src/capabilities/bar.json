@@ -18,6 +18,7 @@
     "allow-show-bar",
     "allow-hide-bar",
     "allow-set-mouse-events",
-    "allow-show-settings"
+    "allow-show-settings",
+    "allow-get-platform-runtime-info"
   ]
 }

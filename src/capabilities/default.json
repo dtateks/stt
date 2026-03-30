@@ -32,6 +32,7 @@
     "allow-hide-bar",
     "allow-set-mouse-events",
     "allow-show-settings",
+    "allow-get-platform-runtime-info",
     "allow-get-mic-toggle-shortcut",
     "allow-update-mic-toggle-shortcut"
   ]

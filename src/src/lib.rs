@@ -25,6 +25,11 @@ use objc2_web_kit::WKWebView;
 use tauri_nspanel::{ManagerExt, WebviewWindowExt};
 
 mod commands;
+mod helper_mode;
+#[cfg(target_os = "macos")]
+mod macos_app_shell;
+mod platform_app_shell;
+mod platform_runtime_info;
 pub mod credentials;
 pub mod llm_service;
 pub mod permissions;
@@ -32,6 +37,14 @@ pub mod shell_credentials;
 pub mod soniox_auth;
 pub mod soniox_models;
 pub mod text_inserter;
+#[cfg(not(target_os = "macos"))]
+mod windows_app_shell;
+
+pub use helper_mode::maybe_run_from_args;
+pub use platform_app_shell::{
+    run_hide_bar_contract, run_runtime_event_contract, run_set_bar_mouse_events_contract,
+    run_show_bar_contract, run_show_settings_contract,
+};
 
 const MAIN_WINDOW_LABEL: &str = "main";
 pub(crate) const BAR_WINDOW_LABEL: &str = "bar";
@@ -291,6 +304,17 @@ pub fn run_macos_reopen_window_sequence<ReopenMainWindow>(
     }
 }
 
+pub fn run_windows_reopen_window_sequence<ReopenMainWindow>(
+    has_visible_windows: bool,
+    mut reopen_main_window: ReopenMainWindow,
+) where
+    ReopenMainWindow: FnMut(),
+{
+    if !has_visible_windows {
+        reopen_main_window();
+    }
+}
+
 pub fn run_main_close_request_sequence<PreventClose, HideMainWindow>(
     prevent_close: PreventClose,
     hide_main_window: HideMainWindow,
@@ -375,6 +399,19 @@ where
 fn reopen_main_window(app: &AppHandle) {
     if let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = show_main_window_with_runtime_invariants(&main_window);
+    }
+}
+
+pub(crate) fn handle_macos_runtime_event(app_handle: &AppHandle, event: RunEvent) {
+    #[cfg(target_os = "macos")]
+    if let RunEvent::Reopen {
+        has_visible_windows,
+        ..
+    } = event
+    {
+        run_macos_reopen_window_sequence(has_visible_windows, || {
+            reopen_main_window(app_handle)
+        });
     }
 }
 
@@ -546,7 +583,7 @@ pub(crate) fn position_bar_window_bottom_center(
     Ok(())
 }
 
-fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
+pub(crate) fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
     let main_window =
         WebviewWindowBuilder::from_config(app, get_window_config(app, MAIN_WINDOW_LABEL)?)?
             .initialization_script(include_str!("../../ui/tauri-bridge.js"))
@@ -565,7 +602,7 @@ fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-fn build_bar_window(app: &tauri::App) -> tauri::Result<()> {
+pub(crate) fn build_bar_window(app: &tauri::App) -> tauri::Result<()> {
     let bar_window =
         WebviewWindowBuilder::from_config(app, get_window_config(app, BAR_WINDOW_LABEL)?)?
             .initialization_script(include_str!("../../ui/tauri-bridge.js"))
@@ -701,6 +738,10 @@ fn setup_launch_at_login(_app: &tauri::App) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Some(exit_code) = helper_mode::maybe_run_from_args(std::env::args()) {
+        std::process::exit(exit_code);
+    }
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             reopen_main_window(app);
@@ -722,8 +763,8 @@ pub fn run() {
                 eprintln!("[autostart] Continuing without launch-at-login.");
             }
 
-            build_main_window(app)?;
-            build_bar_window(app)?;
+            platform_app_shell::build_main_window(app)?;
+            platform_app_shell::build_bar_window(app)?;
             setup_global_shortcut(app)?;
             show_main_window_on_initial_launch(app)?;
             Ok(())
@@ -754,6 +795,7 @@ pub fn run() {
             commands::hide_bar,
             commands::set_mouse_events,
             commands::show_settings,
+            commands::get_platform_runtime_info,
             commands::get_mic_toggle_shortcut,
             commands::update_mic_toggle_shortcut,
         ])
@@ -761,16 +803,7 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| {
-        #[cfg(target_os = "macos")]
-        if let RunEvent::Reopen {
-            has_visible_windows,
-            ..
-        } = event
-        {
-            run_macos_reopen_window_sequence(has_visible_windows, || {
-                reopen_main_window(app_handle)
-            });
-        }
+        platform_app_shell::handle_runtime_event(app_handle, event);
     });
 }
 

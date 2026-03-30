@@ -10,6 +10,10 @@ use objc2_av_foundation::{AVCaptureDevice, AVMediaTypeAudio};
 
 use crate::text_inserter;
 
+#[cfg(target_os = "windows")]
+#[path = "windows_permissions.rs"]
+mod windows_permissions;
+
 const MICROPHONE_PRIVACY_PANE_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
 const MICROPHONE_PERMISSION_REQUIRED_CODE: &str = "microphone-permission-required";
@@ -57,6 +61,11 @@ pub struct PermissionsStatus {
 /// Non-prompting status check for all three permissions.
 /// Safe to call repeatedly for polling — never triggers system dialogs.
 pub fn check_permissions_status() -> PermissionsStatus {
+    #[cfg(target_os = "windows")]
+    {
+        return windows_permissions::check_permissions_status();
+    }
+
     PermissionsStatus {
         microphone: is_microphone_authorized(),
         accessibility: is_accessibility_trusted(),
@@ -74,7 +83,12 @@ fn is_microphone_authorized() -> bool {
     status.0 == AV_AUTH_STATUS_AUTHORIZED
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+fn is_microphone_authorized() -> bool {
+    windows_permissions::is_microphone_authorized()
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 fn is_microphone_authorized() -> bool {
     true
 }
@@ -128,7 +142,12 @@ pub fn ensure_microphone_permission() -> MicrophonePermissionResult {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub fn ensure_microphone_permission() -> MicrophonePermissionResult {
+    windows_permissions::ensure_microphone_permission()
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 pub fn ensure_microphone_permission() -> MicrophonePermissionResult {
     MicrophonePermissionResult {
         granted: true,
@@ -140,6 +159,11 @@ pub fn ensure_microphone_permission() -> MicrophonePermissionResult {
 }
 
 pub fn ensure_accessibility_permission() -> AccessibilityPermissionResult {
+    #[cfg(target_os = "windows")]
+    {
+        return windows_permissions::ensure_accessibility_permission();
+    }
+
     if is_accessibility_trusted() {
         return AccessibilityPermissionResult {
             granted: true,
@@ -175,6 +199,11 @@ pub fn build_accessibility_permission_required_result(
 
 /// Check if this process is trusted for accessibility via AXIsProcessTrusted.
 fn is_accessibility_trusted() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        return windows_permissions::is_accessibility_equivalent_ready();
+    }
+
     #[cfg(target_os = "macos")]
     {
         extern "C" {
@@ -182,7 +211,7 @@ fn is_accessibility_trusted() -> bool {
         }
         unsafe { AXIsProcessTrusted() }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         true
     }
@@ -192,6 +221,11 @@ fn is_accessibility_trusted() -> bool {
 /// Calls AXIsProcessTrustedWithOptions with kAXTrustedCheckOptionPrompt=true,
 /// which registers the app in TCC and shows the macOS system dialog.
 fn prompt_accessibility_trust() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        return windows_permissions::prompt_accessibility_equivalent();
+    }
+
     #[cfg(target_os = "macos")]
     {
         use objc2::msg_send;
@@ -216,7 +250,7 @@ fn prompt_accessibility_trust() -> bool {
 
         unsafe { AXIsProcessTrustedWithOptions(dict) }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         false
     }

@@ -12,7 +12,7 @@ const DEFAULT_CAPABILITY: &str = "default";
 const BAR_CAPABILITY: &str = "bar";
 const MAIN_WINDOW_LABEL: &str = "main";
 const BAR_WINDOW_LABEL: &str = "bar";
-const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 28] = [
+const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 29] = [
     "allow-get-config",
     "allow-has-soniox-key",
     "allow-create-soniox-temporary-key",
@@ -39,10 +39,11 @@ const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 28] = [
     "allow-hide-bar",
     "allow-set-mouse-events",
     "allow-show-settings",
+    "allow-get-platform-runtime-info",
     "allow-get-mic-toggle-shortcut",
     "allow-update-mic-toggle-shortcut",
 ];
-const BAR_REQUIRED_APP_PERMISSIONS: [&str; 14] = [
+const BAR_REQUIRED_APP_PERMISSIONS: [&str; 15] = [
     "allow-get-config",
     "allow-has-soniox-key",
     "allow-create-soniox-temporary-key",
@@ -57,6 +58,7 @@ const BAR_REQUIRED_APP_PERMISSIONS: [&str; 14] = [
     "allow-hide-bar",
     "allow-set-mouse-events",
     "allow-show-settings",
+    "allow-get-platform-runtime-info",
 ];
 const UNUSED_PLUGIN_SHELL: &str = "tauri-plugin-shell";
 const UNUSED_PLUGIN_HTTP: &str = "tauri-plugin-http";
@@ -462,12 +464,12 @@ fn runtime_commands_use_panel_mouse_event_toggle_path() {
     let commands_rs = read_project_file("src/commands.rs");
 
     assert!(
-        commands_rs.contains("set_bar_ignores_mouse_events(&app, false)"),
-        "show_bar should use panel mouse-event toggle helper"
+        commands_rs.contains("crate::platform_app_shell::show_bar(&app, &bar_window)"),
+        "show_bar should route through the shared platform shell contract"
     );
     assert!(
-        commands_rs.contains("set_bar_ignores_mouse_events(&app, ignore)"),
-        "set_mouse_events should use panel mouse-event toggle helper"
+        commands_rs.contains("crate::platform_app_shell::set_bar_mouse_events(&app, ignore)"),
+        "set_mouse_events should route through the shared platform shell contract"
     );
 }
 

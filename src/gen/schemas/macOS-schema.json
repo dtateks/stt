@@ -231,6 +231,12 @@
           "markdownDescription": "Enables the get_mic_toggle_shortcut command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_platform_runtime_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-platform-runtime-info",
+          "markdownDescription": "Enables the get_platform_runtime_info command without any pre-configured scope."
+        },
+        {
           "description": "Enables the has_openai_compatible_key command without any pre-configured scope.",
           "type": "string",
           "const": "allow-has-openai-compatible-key",
@@ -397,6 +403,12 @@
           "type": "string",
           "const": "deny-get-mic-toggle-shortcut",
           "markdownDescription": "Denies the get_mic_toggle_shortcut command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_platform_runtime_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-platform-runtime-info",
+          "markdownDescription": "Denies the get_platform_runtime_info command without any pre-configured scope."
         },
         {
           "description": "Denies the has_openai_compatible_key command without any pre-configured scope.",

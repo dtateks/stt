@@ -25,6 +25,7 @@ fn main() {
         "hide_bar",
         "set_mouse_events",
         "show_settings",
+        "get_platform_runtime_info",
         "get_mic_toggle_shortcut",
         "update_mic_toggle_shortcut",
     ]);

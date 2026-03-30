@@ -7,6 +7,7 @@ use tauri::{AppHandle, Manager};
 use crate::credentials;
 use crate::llm_service;
 use crate::permissions;
+use crate::platform_runtime_info::PlatformRuntimeInfo;
 use crate::soniox_auth;
 use crate::soniox_models;
 use crate::text_inserter;
@@ -251,20 +252,17 @@ pub fn show_bar(app: AppHandle) -> Result<(), String> {
         return Err("bar window not found".to_string());
     };
 
-    crate::show_bar_window_with_runtime_invariants(&app, &bar_window)
-        .map_err(|error| error.to_string())?;
-    crate::set_bar_ignores_mouse_events(&app, false).map_err(|error| error.to_string())?;
-    Ok(())
+    crate::platform_app_shell::show_bar(&app, &bar_window).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub fn hide_bar(app: AppHandle) -> Result<(), String> {
-    crate::hide_bar_panel(&app).map_err(|error| error.to_string())
+    crate::platform_app_shell::hide_bar(&app).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub fn set_mouse_events(app: AppHandle, ignore: bool) -> Result<(), String> {
-    crate::set_bar_ignores_mouse_events(&app, ignore).map_err(|error| error.to_string())
+    crate::platform_app_shell::set_bar_mouse_events(&app, ignore).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -273,7 +271,12 @@ pub fn show_settings(app: AppHandle) -> Result<(), String> {
         return Err("main window not found".to_string());
     };
 
-    crate::show_main_window_with_runtime_invariants(&main_window).map_err(|error| error.to_string())
+    crate::platform_app_shell::show_settings(&main_window).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_platform_runtime_info() -> PlatformRuntimeInfo {
+    crate::platform_runtime_info::get_platform_runtime_info()
 }
 
 #[tauri::command]
