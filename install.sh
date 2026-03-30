@@ -9,8 +9,19 @@ GITHUB_RELEASES_DOWNLOAD_BASE="https://github.com/$GITHUB_REPO/releases/latest/d
 RELEASE_ZIP_ARM64="Voice-to-Text-darwin-arm64.zip"
 RELEASE_ZIP_X64="Voice-to-Text-darwin-x64.zip"
 INSTALL_PATH="/Applications/$APP_NAME"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SIGN_SCRIPT_PATH="$SCRIPT_ROOT/scripts/sign-macos-app.sh"
+LOCAL_REVIEW_BOOTSTRAP_SCRIPT_PATH="$SCRIPT_ROOT/scripts/bootstrap-local-review-signing-cert.sh"
+ENTITLEMENTS_PATH="$SCRIPT_ROOT/src/Entitlements.plist"
+LOCAL_REVIEW_SIGNING_IDENTITY_DEFAULT="Voice to Text Local Review Signing"
+LOCAL_REVIEW_SIGNING_IDENTITY="${STT_LOCAL_REVIEW_SIGNING_IDENTITY:-$LOCAL_REVIEW_SIGNING_IDENTITY_DEFAULT}"
+SIGNING_LANE_EXPLICIT="explicit"
+SIGNING_LANE_LOCAL_REVIEW="local-review"
+SIGNING_LANE_AD_HOC="ad-hoc"
+SIGNING_LANE_NOT_CONFIGURED="not-configured"
 TEMP_DIR=""
 SOURCE_REPO_DIR=""
+INSTALL_SIGNING_LANE="$SIGNING_LANE_NOT_CONFIGURED"
 
 cleanup() {
 	if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
@@ -23,6 +34,64 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+can_codesign_bundle_with_identity() {
+	local bundle_path="$1"
+	local identity_name="$2"
+	codesign --dryrun --force --sign "$identity_name" --entitlements "$ENTITLEMENTS_PATH" "$bundle_path" >/dev/null 2>&1
+}
+
+configure_install_signing_lane() {
+	local bundle_path="$1"
+
+	if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+		if ! can_codesign_bundle_with_identity "$bundle_path" "$APPLE_SIGNING_IDENTITY"; then
+			echo "Error: explicit APPLE_SIGNING_IDENTITY is unavailable for codesign: $APPLE_SIGNING_IDENTITY" >&2
+			return 1
+		fi
+
+		INSTALL_SIGNING_LANE="$SIGNING_LANE_EXPLICIT"
+		echo "Install signing lane: explicit APPLE_SIGNING_IDENTITY ($APPLE_SIGNING_IDENTITY)"
+		return
+	fi
+
+	if [ ! -x "$LOCAL_REVIEW_BOOTSTRAP_SCRIPT_PATH" ]; then
+		INSTALL_SIGNING_LANE="$SIGNING_LANE_AD_HOC"
+		echo "WARNING: local-review signing bootstrap script not found at $LOCAL_REVIEW_BOOTSTRAP_SCRIPT_PATH"
+		echo "WARNING: install will fall back to ad-hoc signing and macOS permissions may reset across installs."
+		return
+	fi
+
+	echo "Preparing stable local-review signing identity for macOS TCC persistence..."
+	if "$LOCAL_REVIEW_BOOTSTRAP_SCRIPT_PATH"; then
+		if can_codesign_bundle_with_identity "$bundle_path" "$LOCAL_REVIEW_SIGNING_IDENTITY"; then
+			INSTALL_SIGNING_LANE="$SIGNING_LANE_LOCAL_REVIEW"
+			echo "Install signing lane: stable local-review identity ($LOCAL_REVIEW_SIGNING_IDENTITY)"
+			return
+		fi
+	fi
+
+	INSTALL_SIGNING_LANE="$SIGNING_LANE_AD_HOC"
+	echo "WARNING: local-review signing identity is unavailable; install will use ad-hoc signing fallback."
+	echo "WARNING: Expect microphone/accessibility/text-insertion permission prompts after future installs or updates."
+}
+
+sign_bundle_for_install() {
+	local bundle_path="$1"
+
+	if [ ! -x "$SIGN_SCRIPT_PATH" ]; then
+		echo "Error: sign script missing at $SIGN_SCRIPT_PATH" >&2
+		return 1
+	fi
+
+	if [ ! -f "$ENTITLEMENTS_PATH" ]; then
+		echo "Error: entitlements file missing at $ENTITLEMENTS_PATH" >&2
+		return 1
+	fi
+
+	echo "Signing install bundle for this machine..."
+	"$SIGN_SCRIPT_PATH" "$bundle_path" "$ENTITLEMENTS_PATH"
+}
 
 detect_release_arch() {
 	case "$(uname -m)" in
@@ -224,9 +293,19 @@ else
 	APP_BUNDLE=$(find_downloaded_app_bundle "$DIST_DIR")
 fi
 validate_app_bundle "$APP_BUNDLE"
+configure_install_signing_lane "$APP_BUNDLE"
+sign_bundle_for_install "$APP_BUNDLE"
+validate_app_bundle "$APP_BUNDLE"
 install_app_bundle "$APP_BUNDLE"
 
 echo ""
 echo "Voice to Text installed to /Applications!"
+if [ "$INSTALL_SIGNING_LANE" = "$SIGNING_LANE_LOCAL_REVIEW" ]; then
+	echo "macOS review signing is stable on this machine; TCC grants should persist across installs."
+elif [ "$INSTALL_SIGNING_LANE" = "$SIGNING_LANE_EXPLICIT" ]; then
+	echo "Install used explicit signing identity from APPLE_SIGNING_IDENTITY."
+else
+	echo "Install used ad-hoc signing fallback; macOS permissions may need to be re-granted after reinstall/update."
+fi
 echo "Opening..."
 open "$INSTALL_PATH"
