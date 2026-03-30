@@ -12,6 +12,7 @@
     "test:ui": "vitest run",
     "build": "TAURI_APP_PATH=src tauri build",
     "build:dmg": "TAURI_APP_PATH=src tauri build --bundles dmg",
+    "macos:bootstrap-review-signing": "bash scripts/bootstrap-local-review-signing-cert.sh",
     "hooks:install": "bash scripts/install-git-hooks.sh",
     "release": "bash scripts/release.sh"
   },
