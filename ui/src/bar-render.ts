@@ -32,13 +32,12 @@ const WAVEFORM_MAX_AMPLITUDE_RATIO = 0.8;
 
 // ─── ECG heartbeat shape ──────────────────────────────────────────────────────
 
-export const HEARTBEAT_IDLE_BPM = 40;
-export const HEARTBEAT_ACTIVE_BPM_BOOST = 30;
+export const HEARTBEAT_IDLE_BPM = 30;
+export const HEARTBEAT_ACTIVE_BPM_BOOST = 25;
 export const HEARTBEAT_VISIBLE_CYCLES = 1.5;
 export const HEARTBEAT_ENERGY_SMOOTHING = 0.12;
 export const HEARTBEAT_GLOW_WIDTH = 6;
 export const HEARTBEAT_MIN_AMPLITUDE = 0.35;
-export const ECG_PULSE_CENTER_OFFSET = 0.25;
 
 function gaussian(x: number, mu: number, sigma: number): number {
   const normalized = (x - mu) / sigma;
