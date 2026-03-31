@@ -599,7 +599,7 @@ describe("createWaveformLayout — pure geometry contract", () => {
     expect(layout.height).toBe(40);
     expect(layout.centerY).toBe(20);
     expect(layout.pointCount).toBe(128);
-    expect(layout.lineWidth).toBe(1.5);
+    expect(layout.lineWidth).toBe(2);
     expect(layout.maxAmplitude).toBe(16);
   });
 
@@ -613,44 +613,47 @@ describe("createWaveformLayout — pure geometry contract", () => {
 
 // ─── ECG heartbeat shape contract ─────────────────────────────────────────────
 
-describe("ecgPulse — PQRST heartbeat shape", () => {
-  it("returns near-zero at baseline phases (0.0 and 0.8)", () => {
-    expect(Math.abs(ecgPulse(0))).toBeLessThan(0.01);
-    expect(Math.abs(ecgPulse(0.8))).toBeLessThan(0.01);
+describe("ecgPulse — piecewise-linear heartbeat shape", () => {
+  it("returns zero at baseline phases (0.0 and 1.0)", () => {
+    expect(ecgPulse(0)).toBe(0);
+    expect(ecgPulse(1.0)).toBe(0);
   });
 
-  it("peaks sharply near the R-wave phase (~0.28)", () => {
-    const rPeak = ecgPulse(0.28);
-    expect(rPeak).toBeGreaterThan(0.85);
-    expect(rPeak).toBeLessThanOrEqual(1.0);
+  it("stays flat at zero before the pulse begins (~0.10)", () => {
+    expect(ecgPulse(0.10)).toBe(0);
   });
 
-  it("has a small P-wave bump before the QRS complex", () => {
-    const pWave = ecgPulse(0.12);
-    expect(pWave).toBeGreaterThan(0.05);
-    expect(pWave).toBeLessThan(0.3);
+  it("spikes up sharply to 1.0 at the R-wave peak (~0.33)", () => {
+    expect(ecgPulse(0.33)).toBe(1.0);
   });
 
-  it("has a gentle T-wave after the QRS complex", () => {
-    const tWave = ecgPulse(0.44);
-    expect(tWave).toBeGreaterThan(0.1);
-    expect(tWave).toBeLessThan(0.35);
+  it("dips down sharply below baseline at S-wave (~0.40)", () => {
+    const sWave = ecgPulse(0.40);
+    expect(sWave).toBeLessThan(-0.5);
+    expect(sWave).toBeGreaterThan(-0.8);
   });
 
-  it("dips significantly below baseline at S-wave for visible downward zigzag", () => {
-    const sWave = ecgPulse(0.32);
-    expect(sWave).toBeLessThan(-0.3);
-    expect(sWave).toBeGreaterThan(-0.7);
+  it("has a small positive pre-spike (~0.20)", () => {
+    const preSpike = ecgPulse(0.20);
+    expect(preSpike).toBeGreaterThan(0.1);
+    expect(preSpike).toBeLessThan(0.4);
   });
 
-  it("dips negative at Q-wave before R spike", () => {
-    const qWave = ecgPulse(0.245);
-    expect(qWave).toBeLessThan(0);
+  it("returns to flat baseline after the pulse (~0.55)", () => {
+    expect(ecgPulse(0.55)).toBe(0);
+    expect(ecgPulse(0.80)).toBe(0);
   });
 
   it("is deterministic — same input produces same output", () => {
-    expect(ecgPulse(0.28)).toBe(ecgPulse(0.28));
+    expect(ecgPulse(0.33)).toBe(ecgPulse(0.33));
     expect(ecgPulse(0.5)).toBe(ecgPulse(0.5));
+  });
+
+  it("interpolates linearly between keyframes (not curved)", () => {
+    // Midpoint between baseline (0.15, 0) and pre-spike (0.20, 0.22) should be exactly 0.11
+    const midPhase = 0.175;
+    const expected = 0.22 * 0.5; // linear halfway
+    expect(ecgPulse(midPhase)).toBeCloseTo(expected, 4);
   });
 });
 

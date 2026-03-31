@@ -27,7 +27,7 @@ const LIVE_TRANSCRIPT_PENDING_SUFFIX = "…";
 const LIVE_TRANSCRIPT_TERMINAL_PUNCTUATION_PATTERN = /(?:\.{3}|…|[.!?。！？])+\s*$/;
 const INTERIM_TRANSCRIPT_MEANINGFUL_CONTENT_PATTERN = /[\p{L}\p{N}]/u;
 const WAVEFORM_POINT_COUNT = 128;
-const WAVEFORM_LINE_WIDTH = 1.5;
+const WAVEFORM_LINE_WIDTH = 2;
 const WAVEFORM_MAX_AMPLITUDE_RATIO = 0.8;
 
 // ─── ECG heartbeat shape ──────────────────────────────────────────────────────
@@ -39,24 +39,45 @@ export const HEARTBEAT_ENERGY_SMOOTHING = 0.12;
 export const HEARTBEAT_GLOW_WIDTH = 6;
 export const HEARTBEAT_MIN_AMPLITUDE = 0.35;
 
-function gaussian(x: number, mu: number, sigma: number): number {
-  const normalized = (x - mu) / sigma;
-  return Math.exp(-(normalized * normalized));
-}
+/**
+ * Piecewise-linear keyframes for the heartbeat pulse.
+ * Each entry is [phase, amplitude] — straight lines connect them to create
+ * the sharp angular zigzag seen on heart-rate monitors.
+ *
+ * Shape: flat → small up → small down → BIG up → BIG down → flat
+ */
+const ECG_KEYFRAMES: ReadonlyArray<readonly [number, number]> = [
+  [0.00,  0.0],
+  [0.15,  0.0],    // flat baseline leading into pulse
+  [0.20,  0.22],   // small pre-spike up
+  [0.24, -0.15],   // small dip down
+  [0.28,  0.0],    // return to baseline before main spike
+  [0.33,  1.0],    // BIG spike UP (R-wave peak)
+  [0.40, -0.65],   // BIG dip DOWN (S-wave valley)
+  [0.45,  0.0],    // return to baseline
+  [0.55,  0.0],    // flat baseline trailing
+  [1.00,  0.0],    // flat to end of cycle
+];
 
 /**
- * ECG PQRST pulse shape — maps beat phase (0..1) to amplitude (~-0.5..+1.0).
- * R-wave spikes up, S-wave dips down sharply — creates the visible
- * up-down zigzag centered on the baseline. Proportions match a clinical
- * lead-II trace where the S-wave is roughly half the R-wave amplitude.
+ * Piecewise-linear heartbeat pulse — maps beat phase (0..1) to amplitude.
+ * Returns sharp angular zigzag values by linearly interpolating between
+ * keyframes. All straight line segments, no curves.
  */
 export function ecgPulse(phase: number): number {
-  const p = gaussian(phase, 0.12, 0.028) * 0.14;
-  const q = -gaussian(phase, 0.245, 0.016) * 0.10;
-  const r = gaussian(phase, 0.28, 0.013) * 1.0;
-  const s = -gaussian(phase, 0.32, 0.015) * 0.5;
-  const t = gaussian(phase, 0.44, 0.04) * 0.20;
-  return p + q + r + s + t;
+  if (phase <= ECG_KEYFRAMES[0][0]) return ECG_KEYFRAMES[0][1];
+
+  for (let i = 1; i < ECG_KEYFRAMES.length; i++) {
+    const [prevPhase, prevAmp] = ECG_KEYFRAMES[i - 1];
+    const [currPhase, currAmp] = ECG_KEYFRAMES[i];
+
+    if (phase <= currPhase) {
+      const t = (phase - prevPhase) / (currPhase - prevPhase);
+      return prevAmp + t * (currAmp - prevAmp);
+    }
+  }
+
+  return ECG_KEYFRAMES[ECG_KEYFRAMES.length - 1][1];
 }
 
 export interface StatePresentationOptions {

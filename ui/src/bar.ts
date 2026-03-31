@@ -228,7 +228,7 @@ function drawHeartbeatTrace(
   const windowDuration = HEARTBEAT_VISIBLE_CYCLES / beatsPerSecond;
 
   canvasCtx.lineCap = "round";
-  canvasCtx.lineJoin = "round";
+  canvasCtx.lineJoin = "miter";
 
   const path = new Path2D();
 
