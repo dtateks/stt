@@ -36,6 +36,7 @@ import {
   scrollTranscriptToEnd,
   resizeCanvasWithContext,
   waveformShouldRun,
+  ecgPulse,
   STATE_LABELS,
 } from "../bar-render.ts";
 
@@ -597,7 +598,7 @@ describe("createWaveformLayout — pure geometry contract", () => {
     expect(layout.width).toBe(120);
     expect(layout.height).toBe(40);
     expect(layout.centerY).toBe(20);
-    expect(layout.pointCount).toBe(48);
+    expect(layout.pointCount).toBe(128);
     expect(layout.lineWidth).toBe(1.5);
     expect(layout.maxAmplitude).toBe(16);
   });
@@ -607,6 +608,45 @@ describe("createWaveformLayout — pure geometry contract", () => {
     const second = createWaveformLayout(160, 60);
 
     expect(second).toEqual(first);
+  });
+});
+
+// ─── ECG heartbeat shape contract ─────────────────────────────────────────────
+
+describe("ecgPulse — PQRST heartbeat shape", () => {
+  it("returns near-zero at baseline phases (0.0 and 0.8)", () => {
+    expect(Math.abs(ecgPulse(0))).toBeLessThan(0.01);
+    expect(Math.abs(ecgPulse(0.8))).toBeLessThan(0.01);
+  });
+
+  it("peaks sharply near the R-wave phase (~0.28)", () => {
+    const rPeak = ecgPulse(0.28);
+    expect(rPeak).toBeGreaterThan(0.85);
+    expect(rPeak).toBeLessThanOrEqual(1.0);
+  });
+
+  it("has a small P-wave bump before the QRS complex", () => {
+    const pWave = ecgPulse(0.12);
+    expect(pWave).toBeGreaterThan(0.05);
+    expect(pWave).toBeLessThan(0.3);
+  });
+
+  it("has a gentle T-wave after the QRS complex", () => {
+    const tWave = ecgPulse(0.44);
+    expect(tWave).toBeGreaterThan(0.1);
+    expect(tWave).toBeLessThan(0.35);
+  });
+
+  it("dips slightly negative at Q and S waves", () => {
+    const qWave = ecgPulse(0.245);
+    const sWave = ecgPulse(0.315);
+    expect(qWave).toBeLessThan(0);
+    expect(sWave).toBeLessThan(0);
+  });
+
+  it("is deterministic — same input produces same output", () => {
+    expect(ecgPulse(0.28)).toBe(ecgPulse(0.28));
+    expect(ecgPulse(0.5)).toBe(ecgPulse(0.5));
   });
 });
 

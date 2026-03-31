@@ -88,10 +88,10 @@ body {
 /* ─── Waveform ───────────────────────────────────────────────────────────── */
 .hud-waveform {
   flex-shrink: 0;
-  width: 48px;
-  height: 24px;
+  width: 64px;
+  height: 28px;
   position: relative;
-  opacity: 0.82;
+  opacity: 0.88;
 }
 
 .hud-waveform canvas {

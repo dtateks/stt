@@ -26,9 +26,36 @@ export const STATE_LABELS: Record<BarState, string> = {
 const LIVE_TRANSCRIPT_PENDING_SUFFIX = "…";
 const LIVE_TRANSCRIPT_TERMINAL_PUNCTUATION_PATTERN = /(?:\.{3}|…|[.!?。！？])+\s*$/;
 const INTERIM_TRANSCRIPT_MEANINGFUL_CONTENT_PATTERN = /[\p{L}\p{N}]/u;
-const WAVEFORM_POINT_COUNT = 48;
+const WAVEFORM_POINT_COUNT = 128;
 const WAVEFORM_LINE_WIDTH = 1.5;
 const WAVEFORM_MAX_AMPLITUDE_RATIO = 0.8;
+
+// ─── ECG heartbeat shape ──────────────────────────────────────────────────────
+
+export const HEARTBEAT_IDLE_BPM = 55;
+export const HEARTBEAT_ACTIVE_BPM_BOOST = 35;
+export const HEARTBEAT_VISIBLE_CYCLES = 1.8;
+export const HEARTBEAT_ENERGY_SMOOTHING = 0.12;
+export const HEARTBEAT_GLOW_WIDTH = 4;
+export const HEARTBEAT_MIN_AMPLITUDE = 0.35;
+
+function gaussian(x: number, mu: number, sigma: number): number {
+  const normalized = (x - mu) / sigma;
+  return Math.exp(-(normalized * normalized));
+}
+
+/**
+ * ECG PQRST pulse shape — maps beat phase (0..1) to amplitude (-0.1..1.0).
+ * Approximates a clinical lead-II ECG trace using sum-of-Gaussians.
+ */
+export function ecgPulse(phase: number): number {
+  const p = gaussian(phase, 0.12, 0.028) * 0.14;
+  const q = -gaussian(phase, 0.245, 0.016) * 0.06;
+  const r = gaussian(phase, 0.28, 0.013) * 1.0;
+  const s = -gaussian(phase, 0.315, 0.016) * 0.09;
+  const t = gaussian(phase, 0.44, 0.04) * 0.20;
+  return p + q + r + s + t;
+}
 
 export interface StatePresentationOptions {
   showConnectingLabel?: boolean;

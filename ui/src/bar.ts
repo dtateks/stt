@@ -20,6 +20,13 @@ import {
   type WaveformLayout,
   resizeCanvasWithContext,
   waveformShouldRun,
+  ecgPulse,
+  HEARTBEAT_IDLE_BPM,
+  HEARTBEAT_ACTIVE_BPM_BOOST,
+  HEARTBEAT_VISIBLE_CYCLES,
+  HEARTBEAT_ENERGY_SMOOTHING,
+  HEARTBEAT_GLOW_WIDTH,
+  HEARTBEAT_MIN_AMPLITUDE,
 } from "./bar-render.ts";
 
 const CONNECTING_LABEL_DELAY_MS = 150;
@@ -45,7 +52,7 @@ const HUD_BUTTONS: HTMLButtonElement[] = [
 const controller = new BarSessionController();
 let connectingLabelTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldShowConnectingLabel = true;
-const AUDIO_WAVEFORM_SAMPLE_GAIN = 1.35;
+let smoothedEnergy = 0;
 
 // ─── State rendering — thin wrappers that bind module DOM refs ────────────
 
@@ -184,73 +191,102 @@ function drawWaveform(): void {
   canvasCtx.clearRect(0, 0, layout.width, layout.height);
 
   if (!analyser) {
-    drawIdleWaveform(layout);
+    drawIdleHeartbeat(layout);
     return;
   }
 
   const dataArray = getAnalyserSampleBuffer(analyser);
   analyser.getByteTimeDomainData(dataArray);
 
-  drawAudioWaveform(dataArray, layout);
+  drawAudioHeartbeat(dataArray, layout);
 }
 
-function drawIdleWaveform(layout: WaveformLayout): void {
+function computeRmsEnergy(data: Uint8Array<ArrayBuffer>): number {
+  let sumSquares = 0;
+  for (let i = 0; i < data.length; i++) {
+    const normalized = (data[i] - 128) / 128;
+    sumSquares += normalized * normalized;
+  }
+  return Math.min(1.0, Math.sqrt(sumSquares / data.length) * 3.5);
+}
+
+function drawHeartbeatTrace(
+  layout: WaveformLayout,
+  bpm: number,
+  amplitude: number,
+  strokeStyle: string | CanvasGradient,
+  glowStyle: string | CanvasGradient | null,
+): void {
   if (!canvasCtx) return;
 
   const now = performance.now() / 1000;
-  const step = layout.width / (layout.pointCount - 1);
+  const beatsPerSecond = bpm / 60;
+  const windowDuration = HEARTBEAT_VISIBLE_CYCLES / beatsPerSecond;
 
-  canvasCtx.beginPath();
+  canvasCtx.lineCap = "round";
+  canvasCtx.lineJoin = "round";
+
+  const path = new Path2D();
 
   for (let i = 0; i < layout.pointCount; i++) {
-    const x = i * step;
-    const phase = (i / layout.pointCount) * Math.PI * 4;
-    const y = layout.centerY + Math.sin(now * 1.2 + phase) * 2;
+    const t = i / (layout.pointCount - 1);
+    const x = t * layout.width;
+
+    const timeAtPoint = now - (1 - t) * windowDuration;
+    const rawPhase = (timeAtPoint * beatsPerSecond) % 1;
+    const phase = rawPhase < 0 ? rawPhase + 1 : rawPhase;
+
+    const pulse = ecgPulse(phase);
+    const y = layout.centerY - pulse * layout.maxAmplitude * amplitude;
 
     if (i === 0) {
-      canvasCtx.moveTo(x, y);
+      path.moveTo(x, y);
     } else {
-      canvasCtx.lineTo(x, y);
+      path.lineTo(x, y);
     }
   }
 
-  canvasCtx.strokeStyle = "rgba(110, 117, 129, 0.4)";
+  if (glowStyle !== null) {
+    canvasCtx.strokeStyle = glowStyle;
+    canvasCtx.lineWidth = HEARTBEAT_GLOW_WIDTH;
+    canvasCtx.stroke(path);
+  }
+
+  canvasCtx.strokeStyle = strokeStyle;
   canvasCtx.lineWidth = layout.lineWidth;
-  canvasCtx.lineJoin = "round";
-  canvasCtx.lineCap = "round";
-  canvasCtx.stroke();
+  canvasCtx.stroke(path);
 }
 
-function drawAudioWaveform(data: Uint8Array<ArrayBuffer>, layout: WaveformLayout): void {
-  if (!canvasCtx) return;
+function drawIdleHeartbeat(layout: WaveformLayout): void {
+  drawHeartbeatTrace(
+    layout,
+    HEARTBEAT_IDLE_BPM,
+    0.55,
+    "rgba(110, 117, 129, 0.5)",
+    null,
+  );
+}
 
-  const step = layout.width / (layout.pointCount - 1);
-  const sampleStep = Math.max(1, Math.floor(data.length / layout.pointCount));
+function drawAudioHeartbeat(data: Uint8Array<ArrayBuffer>, layout: WaveformLayout): void {
+  const rawEnergy = computeRmsEnergy(data);
+  smoothedEnergy += (rawEnergy - smoothedEnergy) * HEARTBEAT_ENERGY_SMOOTHING;
 
-  canvasCtx.beginPath();
+  const energy = smoothedEnergy;
+  const bpm = HEARTBEAT_IDLE_BPM + energy * HEARTBEAT_ACTIVE_BPM_BOOST;
+  const amplitude = HEARTBEAT_MIN_AMPLITUDE + energy * (1 - HEARTBEAT_MIN_AMPLITUDE);
 
-  for (let i = 0; i < layout.pointCount; i++) {
-    const sampleIndex = Math.min(i * sampleStep, data.length - 1);
-    const normalizedSample = (data[sampleIndex] - 128) / 128;
-    const x = i * step;
-    const y = layout.centerY + normalizedSample * layout.maxAmplitude * AUDIO_WAVEFORM_SAMPLE_GAIN;
+  const glowOpacity = 0.08 + energy * 0.12;
+  const lineOpacity = 0.5 + energy * 0.4;
 
-    if (i === 0) {
-      canvasCtx.moveTo(x, y);
-    } else {
-      canvasCtx.lineTo(x, y);
-    }
-  }
+  const gradient = canvasCtx!.createLinearGradient(0, 0, layout.width, 0);
+  gradient.addColorStop(0, `rgba(56, 232, 255, ${lineOpacity})`);
+  gradient.addColorStop(1, `rgba(167, 139, 250, ${lineOpacity * 0.85})`);
 
-  const gradient = canvasCtx.createLinearGradient(0, 0, layout.width, 0);
-  gradient.addColorStop(0, "rgba(56, 232, 255, 0.7)");
-  gradient.addColorStop(1, "rgba(167, 139, 250, 0.6)");
-  canvasCtx.strokeStyle = gradient;
+  const glowGradient = canvasCtx!.createLinearGradient(0, 0, layout.width, 0);
+  glowGradient.addColorStop(0, `rgba(56, 232, 255, ${glowOpacity})`);
+  glowGradient.addColorStop(1, `rgba(167, 139, 250, ${glowOpacity * 0.8})`);
 
-  canvasCtx.lineWidth = layout.lineWidth;
-  canvasCtx.lineJoin = "round";
-  canvasCtx.lineCap = "round";
-  canvasCtx.stroke();
+  drawHeartbeatTrace(layout, bpm, amplitude, gradient, glowGradient);
 }
 
 // ─── Controls ─────────────────────────────────────────────────────────────
