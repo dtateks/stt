@@ -38,13 +38,14 @@ body {
   overflow: hidden;
   isolation: isolate;
 
-  background: linear-gradient(180deg, rgba(13, 16, 21, 0.92), rgba(10, 12, 16, 0.96));
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(180deg, rgba(14, 18, 24, 0.78), rgba(8, 10, 14, 0.72));
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-2xl);
   box-shadow:
+    0 0 0 1px rgba(56, 232, 255, 0.04),
     0 10px 30px rgba(0, 0, 0, 0.42),
     0 2px 8px rgba(0, 0, 0, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 /* State-driven border accent — subtle, not a glow show */
@@ -88,10 +89,10 @@ body {
 /* ─── Waveform ───────────────────────────────────────────────────────────── */
 .hud-waveform {
   flex-shrink: 0;
-  width: 64px;
-  height: 28px;
+  width: 90px;
+  height: 36px;
   position: relative;
-  opacity: 0.88;
+  opacity: 0.92;
 }
 
 .hud-waveform canvas {

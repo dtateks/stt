@@ -32,11 +32,25 @@ import {
   applyOverlayMode,
   buildVisibleTranscriptText,
   createWaveformLayout,
+  buildHeartbeatTracePoints,
   syncPromptVisibility,
   scrollTranscriptToEnd,
   resizeCanvasWithContext,
   waveformShouldRun,
-  ecgPulse,
+  sampleWaveformY,
+  ecgDisplacement,
+  computeAudioHeartbeatParams,
+  computeBeatIntensity,
+  computeHeartbeatClusterOffset,
+  computeEcgRegionWidthRatio,
+  HEARTBEAT_IDLE_BPM,
+  HEARTBEAT_IDLE_AMPLITUDE,
+  HEARTBEAT_MIN_AMPLITUDE,
+  ACTIVE_ECG_REGION_WIDTH_RATIO,
+  ECG_REGION_WIDTH_RATIO,
+  ECG_CLUSTER_TRAVEL_RATIO,
+  ECG_KEYFRAMES,
+  getEcgRegionBounds,
   STATE_LABELS,
 } from "../bar-render.ts";
 
@@ -599,8 +613,8 @@ describe("createWaveformLayout — pure geometry contract", () => {
     expect(layout.height).toBe(40);
     expect(layout.centerY).toBe(20);
     expect(layout.pointCount).toBe(128);
-    expect(layout.lineWidth).toBe(2);
-    expect(layout.maxAmplitude).toBe(16);
+    expect(layout.lineWidth).toBe(2.4);
+    expect(layout.maxAmplitude).toBeCloseTo(18.4, 5);
   });
 
   it("returns identical values for repeated same-size calls", () => {
@@ -608,52 +622,6 @@ describe("createWaveformLayout — pure geometry contract", () => {
     const second = createWaveformLayout(160, 60);
 
     expect(second).toEqual(first);
-  });
-});
-
-// ─── ECG heartbeat shape contract ─────────────────────────────────────────────
-
-describe("ecgPulse — piecewise-linear heartbeat shape", () => {
-  it("returns zero at baseline phases (0.0 and 1.0)", () => {
-    expect(ecgPulse(0)).toBe(0);
-    expect(ecgPulse(1.0)).toBe(0);
-  });
-
-  it("stays flat at zero before the pulse begins (~0.10)", () => {
-    expect(ecgPulse(0.10)).toBe(0);
-  });
-
-  it("spikes up sharply to 1.0 at the R-wave peak (~0.33)", () => {
-    expect(ecgPulse(0.33)).toBe(1.0);
-  });
-
-  it("dips down sharply below baseline at S-wave (~0.40)", () => {
-    const sWave = ecgPulse(0.40);
-    expect(sWave).toBeLessThan(-0.5);
-    expect(sWave).toBeGreaterThan(-0.8);
-  });
-
-  it("has a small positive pre-spike (~0.20)", () => {
-    const preSpike = ecgPulse(0.20);
-    expect(preSpike).toBeGreaterThan(0.1);
-    expect(preSpike).toBeLessThan(0.4);
-  });
-
-  it("returns to flat baseline after the pulse (~0.55)", () => {
-    expect(ecgPulse(0.55)).toBe(0);
-    expect(ecgPulse(0.80)).toBe(0);
-  });
-
-  it("is deterministic — same input produces same output", () => {
-    expect(ecgPulse(0.33)).toBe(ecgPulse(0.33));
-    expect(ecgPulse(0.5)).toBe(ecgPulse(0.5));
-  });
-
-  it("interpolates linearly between keyframes (not curved)", () => {
-    // Midpoint between baseline (0.15, 0) and pre-spike (0.20, 0.22) should be exactly 0.11
-    const midPhase = 0.175;
-    const expected = 0.22 * 0.5; // linear halfway
-    expect(ecgPulse(midPhase)).toBeCloseTo(expected, 4);
   });
 });
 
@@ -665,17 +633,18 @@ describe("ecgPulse — piecewise-linear heartbeat shape", () => {
 // pattern that the production handler uses (start/stop idempotency).
 
 describe("waveformShouldRun — production predicate from bar-render.ts", () => {
-  it("returns true only for LISTENING", () => {
-    expect(waveformShouldRun("LISTENING")).toBe(true);
+  it("returns true for every visible HUD state", () => {
+    const visibleStates: BarState[] = [
+      "CONNECTING", "LISTENING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
+    ];
+
+    for (const state of visibleStates) {
+      expect(waveformShouldRun(state)).toBe(true);
+    }
   });
 
-  it("returns false for all non-LISTENING states", () => {
-    const nonListeningStates: BarState[] = [
-      "HIDDEN", "CONNECTING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
-    ];
-    for (const state of nonListeningStates) {
-      expect(waveformShouldRun(state)).toBe(false);
-    }
+  it("returns false only when the HUD is hidden", () => {
+    expect(waveformShouldRun("HIDDEN")).toBe(false);
   });
 
   it("covers all BarState values (exhaustive — no state is accidentally unhandled)", () => {
@@ -684,8 +653,8 @@ describe("waveformShouldRun — production predicate from bar-render.ts", () => 
     ];
     const runningStates = allStates.filter(waveformShouldRun);
     const stoppedStates = allStates.filter((s) => !waveformShouldRun(s));
-    expect(runningStates).toEqual(["LISTENING"]);
-    expect(stoppedStates).toHaveLength(6);
+    expect(runningStates).toEqual(["CONNECTING", "LISTENING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR"]);
+    expect(stoppedStates).toEqual(["HIDDEN"]);
     expect(runningStates.length + stoppedStates.length).toBe(7);
   });
 });
@@ -695,12 +664,12 @@ describe("waveform RAF lifecycle — controller.onStateChange behaviour contract
     vi.restoreAllMocks();
   });
 
-  it("schedules a RAF when waveformShouldRun returns true (LISTENING)", () => {
+  it("schedules a RAF when waveformShouldRun returns true for a visible HUD state", () => {
     const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(42);
     let rafId: number | null = null;
 
     // Simulate the production onStateChange handler pattern
-    const state: BarState = "LISTENING";
+    const state: BarState = "INSERTING";
     if (waveformShouldRun(state)) {
       if (rafId === null) {
         rafId = requestAnimationFrame(() => {});
@@ -711,13 +680,13 @@ describe("waveform RAF lifecycle — controller.onStateChange behaviour contract
     expect(rafId).toBe(42);
   });
 
-  it("cancels existing RAF when waveformShouldRun returns false (non-LISTENING)", () => {
+  it("cancels existing RAF only when waveformShouldRun returns false (HIDDEN)", () => {
     const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(42);
     const cancelSpy = vi.spyOn(window, "cancelAnimationFrame");
 
     let rafId: number | null = null;
 
-    // Start for LISTENING
+    // Start for a visible HUD state
     if (waveformShouldRun("LISTENING")) {
       if (rafId === null) {
         rafId = requestAnimationFrame(() => {});
@@ -726,10 +695,7 @@ describe("waveform RAF lifecycle — controller.onStateChange behaviour contract
     expect(rafId).toBe(42);
     expect(rafSpy).toHaveBeenCalledTimes(1);
 
-    // Each non-LISTENING state should cancel RAF
-    const stoppedStates: BarState[] = [
-      "HIDDEN", "CONNECTING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
-    ];
+    const stoppedStates: BarState[] = ["HIDDEN"];
     for (const state of stoppedStates) {
       // Restart for test isolation
       rafId = 42;
@@ -1052,5 +1018,400 @@ describe("bar.css — error transcript keeps start-visible truncation", () => {
 
   it("keeps ellipsis truncation in the ERROR transcript rule", () => {
     expect(barCssSource).toMatch(/\.hud\[data-state="ERROR"\]\s+\.transcript-final\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/s);
+  });
+});
+
+// ─── ECG pulse shape — heartbeat visual model ─────────────────────────────────
+//
+// These tests validate the core heartbeat render model:
+//   1. The pulse is a short angular ECG segment (P-QRS-T), NOT a full-width scroll.
+//   2. The pulse has MULTIPLE adjacent peaks/dips/turns, NOT a single blip.
+//   3. Flat baseline exists before and after the pulse.
+//   4. The pulse is centered in the canvas.
+//   5. Beat intensity rhythmically modulates the pulse height.
+
+describe("ecgDisplacement — P-QRS-T piecewise-linear shape", () => {
+  it("starts and ends at zero (flat baseline boundary)", () => {
+    expect(ecgDisplacement(0)).toBe(0);
+    expect(ecgDisplacement(1)).toBe(0);
+  });
+
+  it("R-wave peak is the strongest upward displacement (d = -1.0)", () => {
+    const rWaveKeyframe = ECG_KEYFRAMES.find(kf => kf.d === -1.0);
+    expect(rWaveKeyframe).toBeDefined();
+    expect(ecgDisplacement(rWaveKeyframe!.t)).toBeCloseTo(-1.0, 5);
+  });
+
+  it("S-wave dip is a downward displacement (d > 0)", () => {
+    const sWaveKeyframe = ECG_KEYFRAMES.find(kf => kf.d === 0.84);
+    expect(sWaveKeyframe).toBeDefined();
+    expect(ecgDisplacement(sWaveKeyframe!.t)).toBeCloseTo(0.84, 5);
+  });
+
+  it("has multiple distinct turning points — reads as angular zigzag, not a single blip", () => {
+    // Count keyframes with non-zero displacement — must be at least 4 distinct peaks/dips
+    const nonZeroKeyframes = ECG_KEYFRAMES.filter(kf => Math.abs(kf.d) > 0.05);
+    expect(nonZeroKeyframes.length).toBeGreaterThanOrEqual(7);
+  });
+
+  it("has consecutive angular turns in the QRS region (Q-R-S in quick succession)", () => {
+    // Q, R, S keyframes should be close together in t-space, creating the zigzag
+    const qIdx = ECG_KEYFRAMES.findIndex(kf => kf.d === 0.22);
+    const rIdx = ECG_KEYFRAMES.findIndex(kf => kf.d === -1.0);
+    const sIdx = ECG_KEYFRAMES.findIndex(kf => kf.d === 0.84);
+
+    expect(qIdx).toBeGreaterThan(-1);
+    expect(rIdx).toBeGreaterThan(qIdx);
+    expect(sIdx).toBeGreaterThan(rIdx);
+
+    // All three within a still-localized t-range even after stretching the cluster.
+    const qrsSpan = ECG_KEYFRAMES[sIdx].t - ECG_KEYFRAMES[qIdx].t;
+    expect(qrsSpan).toBeLessThan(0.34);
+  });
+
+  it("interpolates smoothly between keyframes (piecewise-linear, no jumps)", () => {
+    // Sample at midpoint between R-wave peak and S-wave dip
+    const rKf = ECG_KEYFRAMES.find(kf => kf.d === -1.0)!;
+    const sKf = ECG_KEYFRAMES.find(kf => kf.d === 0.84)!;
+    const midT = (rKf.t + sKf.t) / 2;
+    const midD = ecgDisplacement(midT);
+
+    // Should be between -1.0 and 0.84 (linear interpolation)
+    expect(midD).toBeGreaterThan(-1.0);
+    expect(midD).toBeLessThan(0.84);
+  });
+
+  it("clamps to boundary values for out-of-range input", () => {
+    expect(ecgDisplacement(-0.5)).toBe(ECG_KEYFRAMES[0].d);
+    expect(ecgDisplacement(1.5)).toBe(ECG_KEYFRAMES[ECG_KEYFRAMES.length - 1].d);
+  });
+});
+
+describe("sampleWaveformY — centered ECG region, NOT full-width scroll", () => {
+  const LAYOUT = createWaveformLayout(120, 40);
+  const FULL_AMPLITUDE = 1.0;
+  const FULL_BEAT = 1.0;
+
+  it("returns centerY for points outside the ECG region (flat baseline)", () => {
+    const fullWidthRegion = computeEcgRegionWidthRatio(FULL_AMPLITUDE);
+    const regionStart = (1 - fullWidthRegion) / 2;
+
+    // Left baseline (t = 0)
+    expect(sampleWaveformY(0, LAYOUT.centerY, LAYOUT.maxAmplitude, FULL_AMPLITUDE, FULL_BEAT))
+      .toBe(LAYOUT.centerY);
+
+    // Right baseline (t = 1)
+    expect(sampleWaveformY(1, LAYOUT.centerY, LAYOUT.maxAmplitude, FULL_AMPLITUDE, FULL_BEAT))
+      .toBe(LAYOUT.centerY);
+
+    // Just outside left edge of ECG region
+    expect(sampleWaveformY(regionStart - 0.01, LAYOUT.centerY, LAYOUT.maxAmplitude, FULL_AMPLITUDE, FULL_BEAT))
+      .toBe(LAYOUT.centerY);
+  });
+
+  it("displaces points INSIDE the ECG region when beatIntensity > 0", () => {
+    // Sample at the R-wave peak location within the canvas
+    const regionStart = (1 - computeEcgRegionWidthRatio(FULL_AMPLITUDE)) / 2;
+    const rWaveKf = ECG_KEYFRAMES.find(kf => kf.d === -1.0)!;
+    const rWaveT = regionStart + rWaveKf.t * computeEcgRegionWidthRatio(FULL_AMPLITUDE);
+
+    const y = sampleWaveformY(rWaveT, LAYOUT.centerY, LAYOUT.maxAmplitude, FULL_AMPLITUDE, FULL_BEAT);
+    // R-wave is upward (y < centerY)
+    expect(y).toBeLessThan(LAYOUT.centerY);
+  });
+
+  it("returns flat line (centerY) when beatIntensity is 0 — pulse is gated off", () => {
+    const regionStart = (1 - computeEcgRegionWidthRatio(FULL_AMPLITUDE)) / 2;
+    const rWaveKf = ECG_KEYFRAMES.find(kf => kf.d === -1.0)!;
+    const rWaveT = regionStart + rWaveKf.t * computeEcgRegionWidthRatio(FULL_AMPLITUDE);
+
+    expect(sampleWaveformY(rWaveT, LAYOUT.centerY, LAYOUT.maxAmplitude, FULL_AMPLITUDE, 0))
+      .toBe(LAYOUT.centerY);
+  });
+
+  it("keeps idle width localized but stretches near full width for active speech", () => {
+    expect(ECG_REGION_WIDTH_RATIO).toBeLessThan(0.8);
+    expect(ECG_REGION_WIDTH_RATIO).toBeGreaterThan(0.6);
+    expect(computeEcgRegionWidthRatio(FULL_AMPLITUDE)).toBeCloseTo(ACTIVE_ECG_REGION_WIDTH_RATIO, 5);
+    expect(computeEcgRegionWidthRatio(FULL_AMPLITUDE)).toBeGreaterThan(0.96);
+  });
+
+  it("ECG region is centered in the canvas", () => {
+    const { start: regionStart, end: regionEnd } = getEcgRegionBounds();
+
+    // Left margin ≈ right margin (centered)
+    const leftMargin = regionStart;
+    const rightMargin = 1 - regionEnd;
+    expect(leftMargin).toBeCloseTo(rightMargin, 10);
+  });
+});
+
+describe("heartbeat cluster motion — localized ECG travel over flat baseline", () => {
+  const LAYOUT = createWaveformLayout(120, 40);
+  const ACTIVE_DISPLACEMENT_EPSILON = 0.1;
+
+  function countTurningPoints(values: number[]): number {
+    let turningPointCount = 0;
+    for (let i = 1; i < values.length - 1; i++) {
+      const previousSlope = values[i] - values[i - 1];
+      const nextSlope = values[i + 1] - values[i];
+      if (Math.abs(previousSlope) < 0.001 || Math.abs(nextSlope) < 0.001) {
+        continue;
+      }
+
+      if (Math.sign(previousSlope) !== Math.sign(nextSlope)) {
+        turningPointCount += 1;
+      }
+    }
+
+    return turningPointCount;
+  }
+
+  function getActiveClusterMetrics(points: Array<{ x: number; y: number }>) {
+    const activePoints = points.filter((point) => Math.abs(point.y - LAYOUT.centerY) > ACTIVE_DISPLACEMENT_EPSILON);
+    const firstActiveIndex = points.findIndex(
+      (point) => Math.abs(point.y - LAYOUT.centerY) > ACTIVE_DISPLACEMENT_EPSILON,
+    );
+    const lastActiveIndex = points.length - 1 - [...points].reverse().findIndex(
+      (point) => Math.abs(point.y - LAYOUT.centerY) > ACTIVE_DISPLACEMENT_EPSILON,
+    );
+
+    const activeCenterX = activePoints.reduce((sum, point) => sum + point.x, 0) / activePoints.length;
+    const activeSpanPx = points[lastActiveIndex].x - points[firstActiveIndex].x;
+
+    return {
+      activePoints,
+      firstActiveIndex,
+      lastActiveIndex,
+      activeCenterX,
+      activeSpanPx,
+    };
+  }
+
+  it("active cluster has multiple adjacent turning points (not a one-point blip)", () => {
+    const points = buildHeartbeatTracePoints(LAYOUT, 1, 1, 0);
+    const { activePoints } = getActiveClusterMetrics(points);
+    const activeY = activePoints.map((point) => point.y);
+
+    expect(countTurningPoints(activeY)).toBeGreaterThanOrEqual(11);
+  });
+
+  it("speaking adds more folds than idle and removes the flat left side", () => {
+    const speakingPoints = buildHeartbeatTracePoints(LAYOUT, 1, 1, 0);
+    const idlePoints = buildHeartbeatTracePoints(LAYOUT, HEARTBEAT_IDLE_AMPLITUDE, 1, 0);
+    const speakingY = speakingPoints.map((point) => point.y);
+    const idleY = idlePoints.map((point) => point.y);
+
+    expect(countTurningPoints(speakingY)).toBeGreaterThan(countTurningPoints(idleY));
+
+    const speakingLeftSideDisplacedPoints = speakingPoints.filter((point, index) => {
+      const t = index / (speakingPoints.length - 1);
+      return t < 0.4 && Math.abs(point.y - LAYOUT.centerY) > ACTIVE_DISPLACEMENT_EPSILON;
+    });
+
+    const speakingLeftSideY = speakingPoints
+      .filter((_, index) => index / (speakingPoints.length - 1) < 0.45)
+      .map((point) => point.y);
+
+    expect(speakingLeftSideDisplacedPoints.length).toBeGreaterThan(14);
+    expect(countTurningPoints(speakingLeftSideY)).toBeGreaterThanOrEqual(5);
+  });
+
+  it("only a short localized region is active, not the full width", () => {
+    const points = buildHeartbeatTracePoints(LAYOUT, 1, 1, 0);
+    const { activeSpanPx, activePoints } = getActiveClusterMetrics(points);
+    const activeSpanRatio = activeSpanPx / LAYOUT.width;
+
+    expect(activePoints.length).toBeGreaterThan(4);
+    expect(activeSpanRatio).toBeGreaterThan(0.9);
+    expect(activeSpanRatio).toBeLessThan(0.99);
+    expect(activeSpanRatio).toBeLessThan(computeEcgRegionWidthRatio(1) + 0.02);
+  });
+
+  it("cluster region moves left over time with subtle travel, not full-width scrolling", () => {
+    const bpm = 60;
+    const beatPeriodMs = 60_000 / bpm;
+    const startOffset = computeHeartbeatClusterOffset(0, bpm);
+    const laterOffset = computeHeartbeatClusterOffset(beatPeriodMs * 0.9, bpm);
+
+    expect(laterOffset).toBeLessThan(startOffset);
+
+    const startPoints = buildHeartbeatTracePoints(LAYOUT, 1, 1, startOffset);
+    const laterPoints = buildHeartbeatTracePoints(LAYOUT, 1, 1, laterOffset);
+
+    const startCluster = getActiveClusterMetrics(startPoints);
+    const laterCluster = getActiveClusterMetrics(laterPoints);
+
+    const centerShiftPx = startCluster.activeCenterX - laterCluster.activeCenterX;
+    expect(centerShiftPx).toBeGreaterThan(0);
+    expect(centerShiftPx / LAYOUT.width).toBeLessThan(ECG_CLUSTER_TRAVEL_RATIO + 0.02);
+    expect(centerShiftPx).toBeLessThan(LAYOUT.width * 0.25);
+  });
+
+  it("baseline before and after the moving cluster remains flat", () => {
+    const bpm = 60;
+    const beatPeriodMs = 60_000 / bpm;
+    const offsets = [
+      computeHeartbeatClusterOffset(0, bpm),
+      computeHeartbeatClusterOffset(beatPeriodMs * 0.9, bpm),
+    ];
+
+    for (const offset of offsets) {
+      const points = buildHeartbeatTracePoints(LAYOUT, 1, 1, offset);
+        const { start, end } = getEcgRegionBounds(offset, computeEcgRegionWidthRatio(1));
+
+      for (let i = 0; i < points.length; i++) {
+        const t = i / (points.length - 1);
+        if (t < start || t > end) {
+          expect(points[i].y).toBe(LAYOUT.centerY);
+        }
+      }
+    }
+  });
+
+  it("moving cluster stays centered in the HUD lane", () => {
+    const bpm = 60;
+    const beatPeriodMs = 60_000 / bpm;
+    const offsets = [
+      computeHeartbeatClusterOffset(0, bpm),
+      computeHeartbeatClusterOffset(beatPeriodMs * 0.9, bpm),
+    ];
+
+    for (const offset of offsets) {
+      const points = buildHeartbeatTracePoints(LAYOUT, 1, 1, offset);
+      const { activeCenterX } = getActiveClusterMetrics(points);
+
+      expect(activeCenterX).toBeGreaterThan(LAYOUT.width * 0.35);
+      expect(activeCenterX).toBeLessThan(LAYOUT.width * 0.65);
+    }
+  });
+});
+
+describe("buildHeartbeatTracePoints — short ECG segment with flat baselines", () => {
+  const LAYOUT = createWaveformLayout(120, 40);
+
+  it("has flat baseline points on both sides and displaced center points", () => {
+    const points = buildHeartbeatTracePoints(LAYOUT, 1.0, 1.0);
+
+    // First and last points should be on centerY (flat)
+    expect(points[0].y).toBe(LAYOUT.centerY);
+    expect(points[points.length - 1].y).toBe(LAYOUT.centerY);
+
+    // At least some center points should NOT be on centerY (the ECG pulse)
+    const displacedPoints = points.filter(p => Math.abs(p.y - LAYOUT.centerY) > 0.1);
+    expect(displacedPoints.length).toBeGreaterThan(0);
+  });
+
+  it("displaced points are a contiguous cluster — not scattered across full width", () => {
+    const points = buildHeartbeatTracePoints(LAYOUT, 1.0, 1.0);
+    const displaced = points
+      .map((p, i) => ({ i, displaced: Math.abs(p.y - LAYOUT.centerY) > 0.1 }))
+      .filter(d => d.displaced);
+
+    if (displaced.length > 1) {
+      const firstIdx = displaced[0].i;
+      const lastIdx = displaced[displaced.length - 1].i;
+      const clusterWidth = lastIdx - firstIdx;
+      // Cluster should use most of the shortened lane while still not becoming literally full-width.
+      expect(clusterWidth).toBeLessThan(LAYOUT.pointCount * 0.98);
+      // Cluster should have more than 2 points — it's a multi-turn zigzag, not one point
+      expect(displaced.length).toBeGreaterThan(2);
+    }
+  });
+
+  it("all points sit on centerY when beatIntensity is 0 — flat line", () => {
+    const points = buildHeartbeatTracePoints(LAYOUT, 1.0, 0);
+    for (const point of points) {
+      expect(point.y).toBe(LAYOUT.centerY);
+    }
+  });
+});
+
+describe("computeAudioHeartbeatParams — speech-reactive heartbeat gating", () => {
+  it("keeps true idle energy near the idle baseline", () => {
+    const idle = computeAudioHeartbeatParams(0);
+
+    expect(idle.bpm).toBe(HEARTBEAT_IDLE_BPM);
+    expect(idle.amplitude).toBe(HEARTBEAT_MIN_AMPLITUDE);
+  });
+
+  it("does not overreact to low background noise", () => {
+    const idle = computeAudioHeartbeatParams(0);
+    const lowNoise = computeAudioHeartbeatParams(0.05);
+
+    expect(lowNoise.bpm - idle.bpm).toBeLessThan(1);
+    expect(lowNoise.amplitude - idle.amplitude).toBeLessThan(0.02);
+  });
+
+  it("ramps up strongly once energy clearly exceeds the noise floor", () => {
+    const quiet = computeAudioHeartbeatParams(0.12);
+    const speech = computeAudioHeartbeatParams(0.7);
+
+    expect(speech.bpm).toBeGreaterThan(quiet.bpm);
+    expect(speech.amplitude).toBeGreaterThan(quiet.amplitude);
+    expect(speech.amplitude).toBeGreaterThan(0.8);
+  });
+
+  it("expands the ECG width when speech energy rises", () => {
+    const idle = computeAudioHeartbeatParams(0);
+    const speech = computeAudioHeartbeatParams(0.7);
+
+    expect(computeEcgRegionWidthRatio(idle.amplitude)).toBeCloseTo(ECG_REGION_WIDTH_RATIO, 5);
+    expect(computeEcgRegionWidthRatio(speech.amplitude)).toBeGreaterThan(computeEcgRegionWidthRatio(idle.amplitude));
+    expect(computeEcgRegionWidthRatio(speech.amplitude)).toBeGreaterThan(0.95);
+  });
+});
+
+describe("computeBeatIntensity — rhythmic pulsing envelope", () => {
+  it("keeps a visible floor at exactly t=0 instead of collapsing fully flat", () => {
+    const start = computeBeatIntensity(0, 60);
+    expect(start).toBeGreaterThan(0.1);
+    expect(start).toBeLessThan(0.2);
+  });
+
+  it("peaks near the start of each beat cycle (sharp attack)", () => {
+    // At 60 BPM, period = 1000ms. Peak should be around 160ms (16% attack).
+    const peakIntensity = computeBeatIntensity(160, 60);
+    expect(peakIntensity).toBeCloseTo(1.0, 1);
+  });
+
+  it("decays toward 0 after the peak (exponential-like decay)", () => {
+    // At 60 BPM, midway through decay (~500ms) should be much lower than peak
+    const midDecay = computeBeatIntensity(500, 60);
+    expect(midDecay).toBeLessThan(0.5);
+
+    // Near end of cycle (~950ms) should be back near the visible floor
+    const nearEnd = computeBeatIntensity(950, 60);
+    expect(nearEnd).toBeGreaterThan(0.1);
+    expect(nearEnd).toBeLessThan(0.2);
+  });
+
+  it("repeats on the next beat cycle", () => {
+    // At 60 BPM, second beat starts at 1000ms
+    const firstBeatRise = computeBeatIntensity(50, 60);
+    const secondBeatRise = computeBeatIntensity(1050, 60);
+    expect(secondBeatRise).toBeCloseTo(firstBeatRise, 5);
+  });
+
+  it("faster BPM produces more frequent peaks", () => {
+    // At 120 BPM, period = 500ms. Peak at ~80ms (16% attack).
+    const peakAt120 = computeBeatIntensity(80, 120);
+    expect(peakAt120).toBeCloseTo(1.0, 1);
+
+    // At 120 BPM, 250ms is midway through decay
+    const midAt120 = computeBeatIntensity(250, 120);
+    expect(midAt120).toBeLessThan(0.5);
+  });
+
+  it("never exceeds 1.0 or goes below 0.0", () => {
+    // Sample across multiple cycles at various BPMs
+    for (const bpm of [30, 60, 120]) {
+      const periodMs = 60_000 / bpm;
+      for (let t = 0; t < periodMs * 3; t += periodMs / 20) {
+        const intensity = computeBeatIntensity(t, bpm);
+        expect(intensity).toBeGreaterThanOrEqual(0);
+        expect(intensity).toBeLessThanOrEqual(1.0);
+      }
+    }
   });
 });

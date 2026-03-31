@@ -27,57 +27,256 @@ const LIVE_TRANSCRIPT_PENDING_SUFFIX = "…";
 const LIVE_TRANSCRIPT_TERMINAL_PUNCTUATION_PATTERN = /(?:\.{3}|…|[.!?。！？])+\s*$/;
 const INTERIM_TRANSCRIPT_MEANINGFUL_CONTENT_PATTERN = /[\p{L}\p{N}]/u;
 const WAVEFORM_POINT_COUNT = 128;
-const WAVEFORM_LINE_WIDTH = 2;
-const WAVEFORM_MAX_AMPLITUDE_RATIO = 0.8;
+const WAVEFORM_LINE_WIDTH = 2.4;
+const WAVEFORM_MAX_AMPLITUDE_RATIO = 0.92;
 
-// ─── ECG heartbeat shape ──────────────────────────────────────────────────────
+// ─── Waveform runtime params ──────────────────────────────────────────────────
 
 export const HEARTBEAT_IDLE_BPM = 30;
 export const HEARTBEAT_ACTIVE_BPM_BOOST = 25;
-export const HEARTBEAT_VISIBLE_CYCLES = 1.5;
 export const HEARTBEAT_ENERGY_SMOOTHING = 0.12;
-export const HEARTBEAT_GLOW_WIDTH = 6;
-export const HEARTBEAT_MIN_AMPLITUDE = 0.35;
+export const HEARTBEAT_GLOW_WIDTH = 7;
+export const HEARTBEAT_MIN_AMPLITUDE = 0.24;
+export const ECG_CLUSTER_TRAVEL_RATIO = 0.08;
+export const HEARTBEAT_INTENSITY_FLOOR = 0.12;
+const AUDIO_REACTIVE_NOISE_FLOOR = 0.08;
+
+export interface HeartbeatParams {
+  bpm: number;
+  amplitude: number;
+}
+
+export const HEARTBEAT_IDLE_AMPLITUDE = 0.46;
+export const ACTIVE_ECG_REGION_WIDTH_RATIO = 0.985;
+const ACTIVE_SPEECH_FOLD_COUNT = 10.8;
+const ACTIVE_SPEECH_FOLD_STRENGTH = 0.34;
+const LEFT_SIDE_FOLD_BOOST = 6.2;
+
+// ─── ECG pulse shape ──────────────────────────────────────────────────────────
 
 /**
- * Piecewise-linear keyframes for the heartbeat pulse.
- * Each entry is [phase, amplitude] — straight lines connect them to create
- * the sharp angular zigzag seen on heart-rate monitors.
+ * Piecewise-linear ECG heartbeat shape over local phase [0..1].
  *
- * Shape: flat → small up → small down → BIG up → BIG down → flat
+ * Keyframes model a simplified P-QRS-T complex:
+ *   flat → P(+) → baseline → Q(-) → R(+1.0) → S(-) → baseline → T(+) → flat
+ *
+ * Canvas convention: negative displacement = upward (R-wave),
+ *                    positive displacement = downward (S-wave).
  */
-const ECG_KEYFRAMES: ReadonlyArray<readonly [number, number]> = [
-  [0.00,  0.0],
-  [0.15,  0.0],    // flat baseline leading into pulse
-  [0.20,  0.22],   // small pre-spike up
-  [0.24, -0.15],   // small dip down
-  [0.28,  0.0],    // return to baseline before main spike
-  [0.33,  1.0],    // BIG spike UP (R-wave peak)
-  [0.40, -0.65],   // BIG dip DOWN (S-wave valley)
-  [0.45,  0.0],    // return to baseline
-  [0.55,  0.0],    // flat baseline trailing
-  [1.00,  0.0],    // flat to end of cycle
-];
+
+/** Width of the ECG pulse region relative to the full canvas, centered. */
+export const ECG_REGION_WIDTH_RATIO = 0.72;
+
+interface EcgKeyframe {
+  /** Position within the ECG region [0..1]. */
+  t: number;
+  /** Vertical displacement [-1..+1]. Negative = up (R-wave), positive = down. */
+  d: number;
+}
 
 /**
- * Piecewise-linear heartbeat pulse — maps beat phase (0..1) to amplitude.
- * Returns sharp angular zigzag values by linearly interpolating between
- * keyframes. All straight line segments, no curves.
+ * P-QRS-T keyframes within the ECG region.
+ * Multiple consecutive angular turns create the recognizable heartbeat zigzag.
  */
-export function ecgPulse(phase: number): number {
-  if (phase <= ECG_KEYFRAMES[0][0]) return ECG_KEYFRAMES[0][1];
+export const ECG_KEYFRAMES: readonly EcgKeyframe[] = [
+  { t: 0.00, d:  0.00 },  // flat baseline start
+  { t: 0.04, d: -0.10 },  // early left-side bump removes the long flat start during speech
+  { t: 0.10, d:  0.06 },  // settle back through baseline
+  { t: 0.18, d: -0.16 },  // second left-side lift
+  { t: 0.26, d:  0.10 },  // left-side dip
+  { t: 0.32, d:  0.00 },  // brief baseline before the stronger complex
+  { t: 0.38, d:  0.22 },  // Q-wave dip (downward)
+  { t: 0.46, d: -0.58 },  // pre-R rise keeps the zigzag readable across the lane
+  { t: 0.54, d:  0.24 },  // rebound before the tallest spike
+  { t: 0.60, d: -1.00 },  // R-wave spike (sharp upward — tallest peak), now earlier/left-biased
+  { t: 0.68, d:  0.84 },  // S-wave dip (sharp downward)
+  { t: 0.76, d: -0.52 },  // rebound turn keeps the ECG clustered and angular
+  { t: 0.86, d:  0.18 },  // settling dip before the tail flattens out
+  { t: 0.96, d:  0.00 },  // return to baseline
+  { t: 1.00, d:  0.00 },  // flat baseline end
+] as const;
+
+/**
+ * Interpolates the ECG keyframe displacement at a given local parameter `p` ∈ [0..1].
+ * Pure piecewise-linear interpolation — no side effects.
+ */
+export function ecgDisplacement(p: number): number {
+  if (p <= 0) return ECG_KEYFRAMES[0].d;
+  if (p >= 1) return ECG_KEYFRAMES[ECG_KEYFRAMES.length - 1].d;
 
   for (let i = 1; i < ECG_KEYFRAMES.length; i++) {
-    const [prevPhase, prevAmp] = ECG_KEYFRAMES[i - 1];
-    const [currPhase, currAmp] = ECG_KEYFRAMES[i];
-
-    if (phase <= currPhase) {
-      const t = (phase - prevPhase) / (currPhase - prevPhase);
-      return prevAmp + t * (currAmp - prevAmp);
+    const prev = ECG_KEYFRAMES[i - 1];
+    const curr = ECG_KEYFRAMES[i];
+    if (p <= curr.t) {
+      const segmentProgress = (p - prev.t) / (curr.t - prev.t);
+      return prev.d + segmentProgress * (curr.d - prev.d);
     }
   }
 
-  return ECG_KEYFRAMES[ECG_KEYFRAMES.length - 1][1];
+  return 0;
+}
+
+// ─── Audio energy / heartbeat params ──────────────────────────────────────────
+
+/**
+ * Derives heartbeat rendering params from audio energy (0..1).
+ * Pure — no audio API dependency. Energy 0 produces idle-level values.
+ */
+export function computeAudioHeartbeatParams(energy: number): HeartbeatParams {
+  const clampedEnergy = Math.max(0, Math.min(1, energy));
+  const reactiveEnergy = Math.max(0, clampedEnergy - AUDIO_REACTIVE_NOISE_FLOOR) / (1 - AUDIO_REACTIVE_NOISE_FLOOR);
+  const emphasizedEnergy = Math.sqrt(reactiveEnergy);
+
+  return {
+    bpm: HEARTBEAT_IDLE_BPM + emphasizedEnergy * HEARTBEAT_ACTIVE_BPM_BOOST,
+    amplitude: HEARTBEAT_MIN_AMPLITUDE + emphasizedEnergy * (1 - HEARTBEAT_MIN_AMPLITUDE),
+  };
+}
+
+function computeSpeechActiveRatio(amplitude: number): number {
+  const clampedAmplitude = Math.max(HEARTBEAT_MIN_AMPLITUDE, Math.min(1, amplitude));
+  return (clampedAmplitude - HEARTBEAT_MIN_AMPLITUDE) / (1 - HEARTBEAT_MIN_AMPLITUDE);
+}
+
+function triangleWave(phase: number): number {
+  const wrappedPhase = ((phase % 1) + 1) % 1;
+  return 1 - 4 * Math.abs(wrappedPhase - 0.5);
+}
+
+function computeSpeechFoldDisplacement(localP: number, amplitude: number): number {
+  const speakingFoldRatio = Math.max(0, (amplitude - HEARTBEAT_IDLE_AMPLITUDE) / (1 - HEARTBEAT_IDLE_AMPLITUDE));
+  if (speakingFoldRatio <= 0) {
+    return 0;
+  }
+
+  const detailStrength = ACTIVE_SPEECH_FOLD_STRENGTH * (0.45 + 0.55 * Math.sqrt(speakingFoldRatio));
+  const baseFold = triangleWave(localP * ACTIVE_SPEECH_FOLD_COUNT + 0.02);
+  const leftFoldWeight = Math.max(0, 1 - localP / 0.64);
+  const leftFold = triangleWave(localP * (ACTIVE_SPEECH_FOLD_COUNT + LEFT_SIDE_FOLD_BOOST) + 0.14) * leftFoldWeight;
+  const foldSignal = baseFold * 0.78 + leftFold * 0.62;
+  const foldEnvelope = 0.38 + 0.62 * Math.pow(Math.sin(Math.PI * localP), 0.82);
+  const leftBias = 1.55 - 0.6 * localP;
+
+  return foldSignal * foldEnvelope * leftBias * detailStrength;
+}
+
+/**
+ * RMS energy from raw byte-domain audio data.
+ * Pure — no Web Audio dependency. Accepts the same Uint8Array shape that
+ * AnalyserNode.getByteTimeDomainData() fills.
+ */
+export function computeRmsEnergy(data: Uint8Array<ArrayBuffer>): number {
+  let sumSquares = 0;
+  for (let i = 0; i < data.length; i++) {
+    const normalized = (data[i] - 128) / 128;
+    sumSquares += normalized * normalized;
+  }
+  return Math.min(1.0, Math.sqrt(sumSquares / data.length) * 3.5);
+}
+
+/**
+ * Computes beat intensity from elapsed time and BPM.
+ * Returns a value in [0..1] that peaks sharply at each beat,
+ * then decays quickly — mimicking the sharp contraction of a heartbeat.
+ *
+ * Pure — no animation or time dependencies. Caller provides elapsed time.
+ */
+export function computeBeatIntensity(elapsedMs: number, bpm: number): number {
+  const beatPeriodMs = 60_000 / bpm;
+  const phase = (elapsedMs % beatPeriodMs) / beatPeriodMs;
+
+  // Short attack, then eased decay. Keep a visible floor so the ECG cluster
+  // remains legible between beats instead of collapsing into a tiny center blip.
+  const ATTACK_RATIO = 0.16;
+  const pulse = phase < ATTACK_RATIO
+    ? phase / ATTACK_RATIO
+    : Math.pow(1 - (phase - ATTACK_RATIO) / (1 - ATTACK_RATIO), 2);
+
+  return HEARTBEAT_INTENSITY_FLOOR + pulse * (1 - HEARTBEAT_INTENSITY_FLOOR);
+}
+
+/**
+ * Computes the horizontal ECG-cluster offset ratio for the current beat phase.
+ * The cluster drifts subtly from right to left during each beat cycle, then
+ * resets near center-right on the next beat.
+ */
+export function computeHeartbeatClusterOffset(
+  elapsedMs: number,
+  bpm: number,
+  amplitude = 1,
+): number {
+  const beatPeriodMs = 60_000 / bpm;
+  const beatPhase = (elapsedMs % beatPeriodMs) / beatPeriodMs;
+  const activeRatio = computeSpeechActiveRatio(amplitude);
+  const travelRatio = ECG_CLUSTER_TRAVEL_RATIO * (1 - activeRatio * 0.8);
+
+  return -beatPhase * travelRatio;
+}
+
+interface EcgRegionBounds {
+  start: number;
+  end: number;
+}
+
+export function computeEcgRegionWidthRatio(amplitude: number): number {
+  const activeRatio = computeSpeechActiveRatio(amplitude);
+  const expandedActiveRatio = Math.sqrt(activeRatio);
+
+  return ECG_REGION_WIDTH_RATIO
+    + expandedActiveRatio * (ACTIVE_ECG_REGION_WIDTH_RATIO - ECG_REGION_WIDTH_RATIO);
+}
+
+export function getEcgRegionBounds(
+  clusterOffsetRatio = 0,
+  regionWidthRatio = ECG_REGION_WIDTH_RATIO,
+): EcgRegionBounds {
+  const centeredStart = (1 - regionWidthRatio) / 2;
+  const maxOffsetMagnitude = centeredStart;
+  const clampedOffset = Math.max(-maxOffsetMagnitude, Math.min(maxOffsetMagnitude, clusterOffsetRatio));
+  const start = centeredStart + clampedOffset;
+
+  return {
+    start,
+    end: start + regionWidthRatio,
+  };
+}
+
+// ─── Waveform Y sampling ─────────────────────────────────────────────────────
+
+/**
+ * Samples the heartbeat Y position at horizontal parameter t ∈ [0..1].
+ *
+ * The ECG pulse occupies a region of width ECG_REGION_WIDTH_RATIO.
+ * With clusterOffsetRatio=0 it is centered; non-zero offsets shift the region
+ * left/right while preserving a flat baseline outside it.
+ * Outside that region the line sits on centerY (flat baseline).
+ * beatIntensity (0..1) gates the pulse — 0 produces a flat line,
+ * 1 produces full-height ECG displacement.
+ *
+ * Canvas convention: y < centerY = upward (R-wave), y > centerY = downward (S-wave).
+ */
+export function sampleWaveformY(
+  t: number,
+  centerY: number,
+  maxAmplitude: number,
+  amplitude: number,
+  beatIntensity: number,
+  clusterOffsetRatio = 0,
+): number {
+  const regionWidthRatio = computeEcgRegionWidthRatio(amplitude);
+  const { start: regionStart, end: regionEnd } = getEcgRegionBounds(clusterOffsetRatio, regionWidthRatio);
+
+  if (t < regionStart || t > regionEnd) {
+    return centerY;
+  }
+
+  const localP = (t - regionStart) / regionWidthRatio;
+  const displacement = Math.max(
+    -1.2,
+    Math.min(1.2, ecgDisplacement(localP) + computeSpeechFoldDisplacement(localP, amplitude)),
+  );
+
+  return centerY + displacement * maxAmplitude * amplitude * beatIntensity;
 }
 
 export interface StatePresentationOptions {
@@ -93,6 +292,11 @@ export interface WaveformLayout {
   maxAmplitude: number;
 }
 
+export interface WaveformTracePoint {
+  x: number;
+  y: number;
+}
+
 export function createWaveformLayout(width: number, height: number): WaveformLayout {
   return {
     width,
@@ -102,6 +306,29 @@ export function createWaveformLayout(width: number, height: number): WaveformLay
     lineWidth: WAVEFORM_LINE_WIDTH,
     maxAmplitude: (height / 2) * WAVEFORM_MAX_AMPLITUDE_RATIO,
   };
+}
+
+export function buildHeartbeatTracePoints(
+  layout: WaveformLayout,
+  amplitude: number,
+  beatIntensity: number,
+  clusterOffsetRatio = 0,
+): WaveformTracePoint[] {
+  return Array.from({ length: layout.pointCount }, (_, index) => {
+    const t = index / (layout.pointCount - 1);
+
+    return {
+      x: t * layout.width,
+      y: sampleWaveformY(
+        t,
+        layout.centerY,
+        layout.maxAmplitude,
+        amplitude,
+        beatIntensity,
+        clusterOffsetRatio,
+      ),
+    };
+  });
 }
 
 // ─── Pure render helpers ──────────────────────────────────────────────────────
@@ -249,5 +476,5 @@ export function resizeCanvasWithContext(
  * Pure function — tested without any DOM or RAF dependency.
  */
 export function waveformShouldRun(state: BarState): boolean {
-  return state === "LISTENING";
+  return state !== "HIDDEN";
 }

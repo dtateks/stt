@@ -20,9 +20,13 @@ import {
   type WaveformLayout,
   resizeCanvasWithContext,
   waveformShouldRun,
-  ecgPulse,
+  sampleWaveformY,
+  computeRmsEnergy,
+  computeAudioHeartbeatParams,
+  computeBeatIntensity,
+  computeHeartbeatClusterOffset,
   HEARTBEAT_IDLE_BPM,
-  HEARTBEAT_ACTIVE_BPM_BOOST,
+  HEARTBEAT_IDLE_AMPLITUDE,
   HEARTBEAT_ENERGY_SMOOTHING,
   HEARTBEAT_GLOW_WIDTH,
   HEARTBEAT_MIN_AMPLITUDE,
@@ -135,6 +139,7 @@ let rafId: number | null = null;
 const canvasCtx = waveformCanvas.getContext("2d");
 let waveformLayoutCache: WaveformLayout | null = null;
 let analyserDataBuffer: Uint8Array<ArrayBuffer> | null = null;
+let waveformStartTime: number | null = null;
 
 function getWaveformLayout(width: number, height: number): WaveformLayout {
   if (
@@ -163,6 +168,7 @@ function getAnalyserSampleBuffer(analyser: AnalyserNode): Uint8Array<ArrayBuffer
 
 function startWaveform(): void {
   if (rafId !== null) return;
+  waveformStartTime = performance.now();
   drawWaveform();
 }
 
@@ -171,6 +177,7 @@ function stopWaveform(): void {
     cancelAnimationFrame(rafId);
     rafId = null;
   }
+  waveformStartTime = null;
   clearWaveform();
 }
 
@@ -204,15 +211,6 @@ function drawWaveform(): void {
   drawAudioHeartbeat(dataArray, layout);
 }
 
-function computeRmsEnergy(data: Uint8Array<ArrayBuffer>): number {
-  let sumSquares = 0;
-  for (let i = 0; i < data.length; i++) {
-    const normalized = (data[i] - 128) / 128;
-    sumSquares += normalized * normalized;
-  }
-  return Math.min(1.0, Math.sqrt(sumSquares / data.length) * 3.5);
-}
-
 function drawHeartbeatTrace(
   layout: WaveformLayout,
   bpm: number,
@@ -222,40 +220,27 @@ function drawHeartbeatTrace(
 ): void {
   if (!canvasCtx) return;
 
-  const now = performance.now() / 1000;
-  const beatsPerSecond = bpm / 60;
-  const cycleDuration = 1 / beatsPerSecond;
-
-  // Sweep cursor moves left-to-right across the canvas over one beat cycle,
-  // then wraps. The vertical spike happens at the cursor position.
-  const sweepPhase = (now / cycleDuration) % 1;
-  const cursorX = sweepPhase * layout.width;
+  const elapsedMs = waveformStartTime !== null
+    ? performance.now() - waveformStartTime
+    : 0;
+  const beatIntensity = computeBeatIntensity(elapsedMs, bpm);
+  const clusterOffsetRatio = computeHeartbeatClusterOffset(elapsedMs, bpm, amplitude);
 
   canvasCtx.lineCap = "round";
   canvasCtx.lineJoin = "miter";
-
-  // Draw the waveform behind the cursor (freshly drawn region).
-  // Each x position maps to a beat phase based on distance from cursor.
   const path = new Path2D();
 
   for (let i = 0; i < layout.pointCount; i++) {
     const t = i / (layout.pointCount - 1);
     const x = t * layout.width;
-
-    // Distance behind the cursor (0 = at cursor, 1 = full width behind)
-    let behindRatio: number;
-    if (x <= cursorX) {
-      behindRatio = (cursorX - x) / layout.width;
-    } else {
-      // Wrapped portion from previous sweep
-      behindRatio = (cursorX + layout.width - x) / layout.width;
-    }
-
-    // Map distance-behind to beat phase: cursor is at phase 1.0 (just finished),
-    // full width behind is phase 0.0 (start of cycle)
-    const phase = 1.0 - behindRatio;
-    const pulse = ecgPulse(phase);
-    const y = layout.centerY - pulse * layout.maxAmplitude * amplitude;
+    const y = sampleWaveformY(
+      t,
+      layout.centerY,
+      layout.maxAmplitude,
+      amplitude,
+      beatIntensity,
+      clusterOffsetRatio,
+    );
 
     if (i === 0) {
       path.moveTo(x, y);
@@ -279,9 +264,9 @@ function drawIdleHeartbeat(layout: WaveformLayout): void {
   drawHeartbeatTrace(
     layout,
     HEARTBEAT_IDLE_BPM,
-    0.55,
-    "rgba(110, 117, 129, 0.5)",
-    "rgba(110, 117, 129, 0.1)",
+    HEARTBEAT_IDLE_AMPLITUDE,
+    "rgba(110, 117, 129, 0.65)",
+    "rgba(110, 117, 129, 0.15)",
   );
 }
 
@@ -289,12 +274,11 @@ function drawAudioHeartbeat(data: Uint8Array<ArrayBuffer>, layout: WaveformLayou
   const rawEnergy = computeRmsEnergy(data);
   smoothedEnergy += (rawEnergy - smoothedEnergy) * HEARTBEAT_ENERGY_SMOOTHING;
 
-  const energy = smoothedEnergy;
-  const bpm = HEARTBEAT_IDLE_BPM + energy * HEARTBEAT_ACTIVE_BPM_BOOST;
-  const amplitude = HEARTBEAT_MIN_AMPLITUDE + energy * (1 - HEARTBEAT_MIN_AMPLITUDE);
+  const { bpm, amplitude } = computeAudioHeartbeatParams(smoothedEnergy);
+  const activeEnergy = Math.max(0, (amplitude - HEARTBEAT_MIN_AMPLITUDE) / (1 - HEARTBEAT_MIN_AMPLITUDE));
 
-  const glowOpacity = 0.08 + energy * 0.12;
-  const lineOpacity = 0.5 + energy * 0.4;
+  const glowOpacity = 0.05 + activeEnergy * 0.18;
+  const lineOpacity = 0.36 + activeEnergy * 0.42;
 
   const gradient = canvasCtx!.createLinearGradient(0, 0, layout.width, 0);
   gradient.addColorStop(0, `rgba(56, 232, 255, ${lineOpacity})`);
@@ -368,10 +352,8 @@ controller.onStateChange = (state) => {
   if (waveformShouldRun(state)) {
     startWaveform();
   } else {
-    // Stop animation for every non-LISTENING state including HIDDEN, CONNECTING,
-    // PROCESSING, INSERTING, SUCCESS, and ERROR. This prevents stale frames
-    // from accumulating during non-audio states and blanks the canvas cleanly
-    // before the native window hide transition completes.
+    // Stop animation only once the HUD is actually hidden so the waveform stays
+    // visible through CONNECTING, PROCESSING, INSERTING, SUCCESS, and ERROR.
     stopWaveform();
   }
 };

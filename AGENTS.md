@@ -177,7 +177,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | UI status feedback | `ui/src/main.ts`, `ui/src/__tests__/main-status-feedback.test.ts` | success statuses auto-clear after ~4s; later errors cancel pending clears and stay visible until replaced |
 | Control center vocabulary | `ui/index.html`, `ui/src/main.ts`, `ui/src/storage.ts` | vocabulary remains a first-class setting in the single-panel layout; the main panel shows the entry point + count, and the dialog stays the detailed editing surface |
 | HUD layout | `ui/bar.html`, `ui/src/bar.css`, `ui/src/bar.ts` | transcript stays visually primary; heartbeat-style horizontal waveform replaces the old status dot/vertical bars; content and actions stay split into explicit layout regions; control chrome remains secondary to the transcript |
-| Waveform reuse | `ui/src/bar.ts` caches waveform layout and analyser buffers by canvas size / bin count to avoid per-frame reallocations.
+| Waveform reuse | `ui/src/bar.ts` caches waveform layout and analyser buffers by canvas size / bin count to avoid per-frame reallocations; the HUD heartbeat keeps idle localized, stretches the speaking zigzag across almost the full short lane, adds denser folds toward the left side during speech, stays visible in every non-hidden HUD state, and uses audio-reactive gating so low background noise does not look like strong fake pulsing.
 | Tests | `ui/src/__tests__/logic.test.ts` stays pure: no DOM, bridge, or network.
 | Verification after changes | After every successful fix or change, always rebuild the app (`npm run build`) to confirm the bundled output is correct; tests alone are not sufficient for macOS runtime behavior.
 | Build hooks | `src/tauri.conf.json` drives Vite dev/build, `devUrl`, `frontendDist`, and CSP.
@@ -215,6 +215,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 - Moving provider-key preflight into the UI correction hot path; the UI now attempts correction directly.
 - Recreating reqwest clients or LLM config per correction request; the Rust path now shares both.
 - Reallocating waveform layout / analyser buffers on every frame; bar rendering reuses both by size.
+- Reintroducing dominant full-width horizontal sweep/scroll motion in the HUD waveform, collapsing the heartbeat into a stationary one-point blip, hiding the waveform in visible non-hidden HUD states, or making low background noise render like a strong periodic pulse; the correct model keeps idle localized, stretches speech across almost the full short lane, and stays visible whenever the HUD is visible.
 - Minting a fresh Soniox temporary key on every HUD startup; the bar session controller now prewarms, caches, and refreshes before expiry.
 - Restoring a persistent CONNECTING label on fast HUD startups; brief suppression is intentional, slow startups still surface it.
 - Reintroducing a separate status dot or vertical-bars waveform; the HUD indicator is now the heartbeat-style horizontal line.
@@ -338,7 +339,7 @@ npm test
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **stt** (2588 symbols, 4921 relationships, 220 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **stt** (2620 symbols, 5036 relationships, 223 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
