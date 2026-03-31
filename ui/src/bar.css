@@ -1,8 +1,10 @@
 /**
- * Bar HUD styles — obsidian glass surface with luminous cyan-violet accents.
+ * Bar HUD styles — clean dark dictation surface.
  *
- * Design intent: premium futurist overlay — translucent dark material,
- * luminous accent glows, exceptional legibility, purposeful motion.
+ * Design intent: calm, confident overlay. The transcript is the hero —
+ * everything else is secondary. Status is communicated through
+ * understated color shifts and a single indicator dot.
+ * Controls are visible but deferential.
  */
 
 @import "./tokens.css";
@@ -31,26 +33,21 @@ body {
   height: 100%;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: 0 var(--space-3) 0 var(--space-4);
+  gap: 10px;
+  padding: 0 10px 0 14px;
   overflow: hidden;
   isolation: isolate;
 
-  /* Keep the surface translucent without backdrop-filter.
-     WebKit backdrop compositing was producing a visible rectangular layer
-     and delayed opacity on first show. */
-  background:
-    linear-gradient(180deg, rgba(14, 18, 24, 0.78), rgba(8, 10, 14, 0.72));
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(13, 16, 21, 0.92), rgba(10, 12, 16, 0.96));
+  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: var(--radius-2xl);
   box-shadow:
-    0 0 0 1px rgba(56, 232, 255, 0.04),
-    0 10px 28px rgba(0, 0, 0, 0.42),
+    0 10px 30px rgba(0, 0, 0, 0.42),
     0 2px 8px rgba(0, 0, 0, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
-/* Ambient glow beneath the bar — state-driven */
+/* State-driven border accent — subtle, not a glow show */
 .hud::before {
   content: "";
   position: absolute;
@@ -64,22 +61,29 @@ body {
 
 .hud[data-state="LISTENING"]::before {
   opacity: 1;
-  box-shadow: 0 0 40px rgba(56, 232, 255, 0.12), 0 0 80px rgba(56, 232, 255, 0.06);
+  box-shadow: 0 0 28px rgba(56, 232, 255, 0.08);
 }
 
 .hud[data-state="PROCESSING"]::before {
   opacity: 1;
-  box-shadow: 0 0 40px rgba(167, 139, 250, 0.15), 0 0 80px rgba(167, 139, 250, 0.08);
+  box-shadow: 0 0 28px rgba(167, 139, 250, 0.1);
 }
 
 .hud[data-state="SUCCESS"]::before {
   opacity: 1;
-  box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.12);
 }
 
 .hud[data-state="ERROR"]::before {
   opacity: 1;
-  box-shadow: 0 0 40px rgba(239, 68, 68, 0.15);
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.12);
+}
+
+.hud-leading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 /* ─── Status dot ─────────────────────────────────────────────────────────── */
@@ -111,13 +115,13 @@ body {
 
 .hud[data-state="LISTENING"] .hud-status {
   background: var(--color-cyan-400);
-  box-shadow: 0 0 8px var(--color-cyan-400), 0 0 16px rgba(56, 232, 255, 0.4);
-  animation: hud-breathe 2.4s ease-in-out infinite;
+  box-shadow: 0 0 6px var(--color-cyan-400);
+  animation: hud-breathe 2.8s ease-in-out infinite;
 }
 
 .hud[data-state="PROCESSING"] .hud-status {
   background: var(--color-violet-400);
-  box-shadow: 0 0 8px var(--color-violet-400);
+  box-shadow: 0 0 6px var(--color-violet-400);
   animation: hud-pulse 0.8s ease-in-out infinite;
 }
 
@@ -128,13 +132,13 @@ body {
 
 .hud[data-state="SUCCESS"] .hud-status {
   background: var(--color-success-500);
-  box-shadow: 0 0 8px var(--color-success-500);
+  box-shadow: 0 0 6px var(--color-success-500);
   animation: none;
 }
 
 .hud[data-state="ERROR"] .hud-status {
   background: var(--color-error-500);
-  box-shadow: 0 0 8px var(--color-error-500);
+  box-shadow: 0 0 6px var(--color-error-500);
   animation: hud-pulse 0.4s ease-in-out 3;
 }
 
@@ -144,16 +148,17 @@ body {
 }
 
 @keyframes hud-breathe {
-  0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--color-cyan-400), 0 0 12px rgba(56, 232, 255, 0.3); }
-  50%       { opacity: 0.8; box-shadow: 0 0 10px var(--color-cyan-400), 0 0 20px rgba(56, 232, 255, 0.5); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--color-cyan-400); }
+  50%       { opacity: 0.85; box-shadow: 0 0 8px var(--color-cyan-400), 0 0 16px rgba(56, 232, 255, 0.3); }
 }
 
 /* ─── Waveform ───────────────────────────────────────────────────────────── */
 .hud-waveform {
   flex-shrink: 0;
-  width: 56px;
-  height: 28px;
+  width: 48px;
+  height: 24px;
   position: relative;
+  opacity: 0.82;
 }
 
 .hud-waveform canvas {
@@ -162,18 +167,30 @@ body {
   height: 100%;
 }
 
+.hud-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
 /* ─── Transcript area ────────────────────────────────────────────────────── */
 .hud-transcript {
+  display: flex;
   flex: 1;
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
   overflow: hidden;
 }
 
 .transcript-final {
   display: block;
-  font-size: var(--font-size-base);
-  font-weight: var(--font-weight-medium);
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
+  min-width: max-content;
   white-space: nowrap;
   line-height: var(--line-height-tight);
   letter-spacing: -0.01em;
@@ -184,8 +201,10 @@ body {
 }
 
 .transcript-prompt {
-  font-size: var(--font-size-sm);
+  flex: 0 0 auto;
+  font-size: 13px;
   color: var(--text-disabled);
+  white-space: nowrap;
   line-height: var(--line-height-tight);
 }
 
@@ -206,6 +225,13 @@ body {
 }
 
 /* ─── HUD action buttons ─────────────────────────────────────────────────── */
+.hud-actions-shell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
 .hud-actions {
   display: flex;
   align-items: center;
@@ -220,12 +246,11 @@ body {
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: 9px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.46);
+  color: rgba(255, 255, 255, 0.42);
   cursor: pointer;
   padding: 0;
-  /* Eliminate 300ms tap delay on touch devices */
   touch-action: manipulation;
   transition:
     background var(--duration-fast) var(--ease-out),
@@ -234,12 +259,12 @@ body {
 }
 
 .hud-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .hud-btn:active {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* Visible focus ring matching the HUD button shape */
@@ -250,14 +275,14 @@ body {
 }
 
 .hud-btn svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   pointer-events: none;
 }
 
 .hud-btn-clear svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 .hud-btn-close:hover {
@@ -270,53 +295,61 @@ body {
 .hud-btn-close[data-hover-suppressed="true"]:hover,
 .hud-btn-close[data-hover-suppressed="true"]:active {
   background: transparent;
-  color: rgba(255, 255, 255, 0.46);
+  color: rgba(255, 255, 255, 0.42);
 }
 
-/* ─── State labels ───────────────────────────────────────────────────────── */
+/* ─── State labels — compressed, secondary ───────────────────────────────── */
 .hud-state-label {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: auto;
+  min-height: auto;
+  padding: 0;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-disabled);
   flex-shrink: 0;
+  white-space: nowrap;
   transition: color var(--duration-normal) var(--ease-out);
 }
 
-.hud[data-state="LISTENING"] .hud-state-label { color: var(--color-cyan-400); }
-.hud[data-state="PROCESSING"] .hud-state-label { color: var(--color-violet-400); }
-.hud[data-state="INSERTING"] .hud-state-label { color: var(--color-cyan-300); }
-.hud[data-state="SUCCESS"] .hud-state-label { color: var(--color-success-500); }
-.hud[data-state="ERROR"] .hud-state-label { color: var(--color-error-500); }
+.hud[data-state="LISTENING"] .hud-state-label {
+  color: var(--color-cyan-400);
+}
+
+.hud[data-state="PROCESSING"] .hud-state-label {
+  color: var(--color-violet-400);
+}
+
+.hud[data-state="INSERTING"] .hud-state-label {
+  color: var(--color-cyan-300);
+}
+
+.hud[data-state="SUCCESS"] .hud-state-label {
+  color: var(--color-success-500);
+}
+
+.hud[data-state="ERROR"] .hud-state-label {
+  color: var(--color-error-500);
+}
 
 /* ─── Separator ──────────────────────────────────────────────────────────── */
 .hud-sep {
   width: 1px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.08);
+  height: 16px;
+  background: rgba(255, 255, 255, 0.05);
   flex-shrink: 0;
 }
 
 /* ─── Hidden state suppression ───────────────────────────────────────────── */
-/*
- * When data-state="HIDDEN" the native window is being hidden, but there can
- * be a brief frame gap. Zero opacity ensures no stale content is visible.
- * pointer-events:none is a belt-and-suspenders guard at the DOM level
- * (the native click-through policy is the primary mechanism).
- */
 .hud[data-state="HIDDEN"] {
   opacity: 0;
   pointer-events: none;
 }
 
 /* ─── Overlay interaction mode ───────────────────────────────────────────── */
-/*
- * data-overlay="interactive" — cursor events are enabled natively; dim the
- * action buttons slightly less so they look reachable.
- * data-overlay="passive"     — click-through; dim buttons to indicate
- *                              they won't respond to pointer.
- */
 .hud[data-overlay="passive"] .hud-btn {
   opacity: 0.55;
 }

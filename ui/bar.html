@@ -54,73 +54,73 @@
       aria-label="Voice to Text status"
       data-state="HIDDEN"
     >
-      <!-- Status indicator dot -->
-      <span
-        id="hud-status"
-        class="hud-status"
-        aria-hidden="true"
-      ></span>
-
-      <!-- Waveform visualization -->
-      <div class="hud-waveform" aria-hidden="true">
-        <canvas id="waveform"></canvas>
-      </div>
-
-      <!-- Transcript content area — owns the live region announcement -->
-      <div class="hud-transcript" aria-live="polite" aria-atomic="false">
+      <div class="hud-leading" aria-hidden="true">
         <span
-          id="transcript-final"
-          class="transcript-final"
-          aria-label="Transcribed text"
-        ></span>
-        <span
-          id="transcript-interim"
-          class="transcript-interim"
-          aria-label="Interim transcription"
-        ></span>
-        <span
-          id="transcript-prompt"
-          class="transcript-prompt"
+          id="hud-status"
+          class="hud-status"
           aria-hidden="true"
-          hidden
-        >Listening…</span>
+        ></span>
+
+        <div class="hud-waveform" aria-hidden="true">
+          <canvas id="waveform"></canvas>
+        </div>
       </div>
 
-      <!-- State label -->
-      <span
-        id="hud-state-label"
-        class="hud-state-label"
-        aria-hidden="true"
-      ></span>
+      <div class="hud-content">
+        <div class="hud-transcript" aria-live="polite" aria-atomic="false">
+          <span
+            id="transcript-final"
+            class="transcript-final"
+            aria-label="Transcribed text"
+          ></span>
+          <span
+            id="transcript-interim"
+            class="transcript-interim"
+            aria-label="Interim transcription"
+          ></span>
+          <span
+            id="transcript-prompt"
+            class="transcript-prompt"
+            aria-hidden="true"
+            hidden
+          >Listening…</span>
+          <span
+            id="hud-state-label"
+            class="hud-state-label"
+            aria-hidden="true"
+          ></span>
+        </div>
+      </div>
 
-      <div class="hud-sep" aria-hidden="true"></div>
+      <div class="hud-actions-shell">
+        <div class="hud-sep" aria-hidden="true"></div>
 
-      <!-- Controls — tabindex managed by bar.ts: -1 in PASSIVE, 0 in INTERACTIVE -->
-      <div class="hud-actions" role="group" aria-label="HUD controls">
-        <button
-          id="hud-clear-btn"
-          class="hud-btn hud-btn-clear"
-          type="button"
-          aria-label="Clear and restart listening"
-          tabindex="-1"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 7H9l-5 5 5 5h12a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1Z"/>
-            <path d="m15 10-4 4M11 10l4 4"/>
-          </svg>
-        </button>
+        <div class="hud-actions" role="group" aria-label="HUD controls">
+          <button
+            id="hud-clear-btn"
+            class="hud-btn hud-btn-clear"
+            type="button"
+            aria-label="Clear and restart listening"
+            tabindex="-1"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 7H9l-5 5 5 5h12a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1Z"/>
+              <path d="m15 10-4 4M11 10l4 4"/>
+            </svg>
+          </button>
 
-        <button
-          id="hud-close-btn"
-          class="hud-btn hud-btn-close"
-          type="button"
-          aria-label="Stop listening and close"
-          tabindex="-1"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M18 6 6 18M6 6l12 12"/>
-          </svg>
-        </button>
+          <button
+            id="hud-close-btn"
+            class="hud-btn hud-btn-close"
+            type="button"
+            aria-label="Stop listening and close"
+            tabindex="-1"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
     </div>

@@ -7,140 +7,33 @@
     <script type="module" src="./src/main.ts"></script>
   </head>
   <body>
-    <!-- ── Setup screen ───────────────────────────────────────────────────── -->
-    <section
-      id="screen-setup"
-      class="screen"
-      aria-label="Setup — API credentials"
-    >
-      <main class="setup-body">
-        <div class="setup-hero">
-          <div class="setup-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <title>Microphone</title>
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-              <line x1="12" x2="12" y1="19" y2="22"/>
-            </svg>
-          </div>
-          <h1 class="setup-title">Voice to Text</h1>
-          <p class="setup-subtitle">
-            Press a shortcut. Speak. Text appears where your cursor is.
-          </p>
-        </div>
+    <main id="settings-panel" class="settings-panel" aria-label="Voice to Text settings">
 
-        <ol class="setup-how-it-works" aria-label="How it works">
-          <li>Press your keyboard shortcut to start listening</li>
-          <li>Speak naturally — your words appear as live text</li>
-          <li>Text is inserted directly into the active app</li>
-        </ol>
-
-        <div
-          id="setup-error"
-          class="error-region"
-          role="alert"
-        ></div>
-
-        <div class="form-stack">
-          <div class="form-field">
-            <label class="form-label" for="setup-soniox-key">
-              Soniox API Key
-              <span class="required-mark" aria-label="required">*</span>
-            </label>
-            <input
-              id="setup-soniox-key"
-              type="password"
-              class="form-input"
-              placeholder="sk-soniox-…"
-              autocomplete="off"
-              spellcheck="false"
-              aria-required="true"
-              aria-describedby="soniox-key-hint"
-            />
-            <span id="soniox-key-hint" class="form-hint">
-              Required for speech-to-text.
-            </span>
-          </div>
-
-          <details class="setup-optional-disclosure">
-            <summary>Set up AI transcript correction (optional)</summary>
-            <div class="form-field">
-              <label class="form-label" for="setup-xai-key">
-                xAI API Key
-              </label>
-              <input
-                id="setup-xai-key"
-                type="password"
-                class="form-input"
-                placeholder="xai-…"
-                autocomplete="off"
-                spellcheck="false"
-                aria-describedby="xai-key-hint"
-              />
-              <span id="xai-key-hint" class="form-hint">
-                AI-corrects your transcript before insertion.
-              </span>
-            </div>
-          </details>
-        </div>
-
-        <div class="setup-permission-card" role="note">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      <!-- ── Status hero ─────────────────────────────────────────── -->
+      <header class="status-hero" role="status" aria-live="polite">
+        <div class="status-hero-indicator" aria-hidden="true">
+          <svg class="status-hero-icon status-hero-icon--ready" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 6 9 17l-5-5"/>
           </svg>
-          <div>
-            <p class="setup-permission-card-title">Permission prompts may appear</p>
-            <ul class="setup-permission-list">
-              <li><strong>Microphone</strong> — to capture your voice</li>
-              <li><strong>Accessibility</strong> — to insert text into other apps</li>
-              <li><strong>Input Monitoring</strong> — to detect your keyboard shortcut</li>
-            </ul>
-          </div>
-        </div>
-
-        <button id="setup-submit" class="btn-primary" type="button">
-          Get Started
-        </button>
-
-        <div class="storage-note" role="note">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-            <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10Z"/>
-            <path d="M12 16v-4M12 8h.01"/>
+          <svg class="status-hero-icon status-hero-icon--setup" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
           </svg>
-          <p>
-            Keys are stored locally in
-            <code>voice-to-text/credentials.json</code>.
-            Environment variables are also supported.
-          </p>
         </div>
-      </main>
-    </section>
-
-    <!-- ── Preferences screen ─────────────────────────────────────────────── -->
-    <section
-      id="screen-prefs"
-      class="screen"
-      aria-label="Preferences"
-    >
-      <!-- ── Compact header ──────────────────────────────────────────────── -->
-      <header class="app-header">
-        <div class="app-wordmark">
-          <div class="app-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <title>Microphone</title>
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-              <line x1="12" x2="12" y1="19" y2="22"/>
-            </svg>
-          </div>
-          <span class="app-name">Voice to Text</span>
+        <div class="status-hero-content">
+          <h1 id="prefs-ready-title" class="status-hero-title">Activation required</h1>
+          <p id="prefs-ready-shortcut" class="status-hero-subtitle">Add a Soniox key to start dictation</p>
+        </div>
+        <div class="status-hero-access" role="note">
+          <span class="access-tag">Microphone</span>
+          <span class="access-tag">Accessibility</span>
+          <span class="access-tag">Shortcut</span>
         </div>
       </header>
 
-      <!-- ── Permission banner (shown when runtime permissions are missing) ── -->
+      <!-- ── Banners ─────────────────────────────────────────────── -->
       <div
         id="prefs-permission-banner"
-        class="permission-banner is-hidden"
+        class="banner banner--warning is-hidden"
         role="status"
         aria-live="polite"
       >
@@ -148,19 +41,12 @@
           <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
           <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
-        <span id="prefs-permission-text">Some permissions are missing. Review the platform privacy guidance.</span>
-      </div>
-
-      <div class="pref-help-notice" role="note">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-        </svg>
-        <span id="runtime-background-recovery" aria-live="polite">If the app is running in the background, reopen the app to show settings again.</span>
+        <span id="prefs-permission-text">Some permissions are missing.</span>
       </div>
 
       <div
         id="update-banner"
-        class="update-banner is-hidden"
+        class="banner banner--info is-hidden"
         role="status"
         aria-live="polite"
       >
@@ -172,255 +58,218 @@
         <button id="update-banner-action" class="btn-sm" type="button">Update</button>
       </div>
 
-      <!-- ── Tab navigation ──────────────────────────────────────────────── -->
-      <nav class="tab-bar" role="tablist" aria-label="Settings sections">
-        <button
-          class="tab-btn is-active"
-          type="button"
-          role="tab"
-          aria-selected="true"
-          aria-controls="tab-general"
-          data-tab="tab-general"
-        >General</button>
-        <button
-          class="tab-btn"
-          type="button"
-          role="tab"
-          aria-selected="false"
-          aria-controls="tab-ai"
-          data-tab="tab-ai"
-        >AI</button>
-      </nav>
+      <!-- ── Content grid: 3 columns ─────────────────────────────── -->
+      <div class="content-grid">
 
-      <!-- ── Tab panels ──────────────────────────────────────────────────── -->
-      <main class="prefs-body">
+        <!-- COL 1: Speech engine -->
+        <section class="zone" aria-labelledby="panel-engine-title">
+          <h2 id="panel-engine-title" class="zone-title">Speech engine</h2>
+          <div class="zone-body">
+            <div id="setup-error" class="error-region" role="alert"></div>
 
-        <!-- ── General tab ───────────────────────────────────────────────── -->
-        <div
-          id="tab-general"
-          class="tab-panel is-active"
-          role="tabpanel"
-          aria-label="General settings"
-        >
-          <!-- Keyboard shortcut -->
-          <div class="setting-group">
-            <div class="setting-group-header">
-              <span class="setting-group-title">Keyboard shortcut</span>
-              <span class="setting-group-desc">Press this combo anywhere to start/stop dictation</span>
-            </div>
-            <div class="shortcut-control">
-              <button
-                id="pref-mic-shortcut"
-                type="button"
-                class="shortcut-recorder"
-                aria-label="Global mic toggle shortcut — click to record"
-              ></button>
-              <div class="shortcut-actions">
-                <button id="pref-mic-shortcut-save" class="btn-sm" type="button">Save</button>
-                <button id="pref-mic-shortcut-reset" class="btn-sm btn-sm--ghost" type="button">Reset</button>
-              </div>
-            </div>
-            <div id="pref-mic-shortcut-status" class="pref-status-line" aria-live="polite"></div>
-          </div>
-
-          <!-- Stop word -->
-          <div class="setting-group">
-            <div class="setting-group-header">
-              <span class="setting-group-title">Stop word</span>
-              <span class="setting-group-desc">Say this phrase to stop recording and insert text</span>
-            </div>
-            <div class="shortcut-control">
-              <input
-                id="pref-stop-word"
-                type="text"
-                class="shortcut-input"
-                aria-label="Custom stop word"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <div class="shortcut-actions">
-                <button id="pref-stop-word-save" class="btn-sm" type="button">Save</button>
-                <button id="pref-stop-word-reset" class="btn-sm btn-sm--ghost" type="button">Reset</button>
-              </div>
-            </div>
-            <div id="pref-stop-word-status" class="pref-status-line" aria-live="polite"></div>
-          </div>
-
-          <!-- Vocabulary accuracy -->
-          <div class="setting-group">
-            <div class="setting-group-header">
-              <span class="setting-group-title">Vocabulary</span>
-              <span class="setting-group-desc">Domain-specific terms for better transcription accuracy</span>
-            </div>
-            <button id="action-open-settings" class="vocab-action-btn" type="button">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-              </svg>
-              Manage
-              <span id="vocab-count" class="vocab-badge" aria-label="vocabulary term count"></span>
-            </button>
-          </div>
-
-          <!-- Toggles -->
-          <div class="toggle-group">
-            <div class="toggle-row">
-              <div class="toggle-content">
-                <label class="toggle-label" for="pref-enter-mode">Auto-enter after insert</label>
-                <span class="toggle-desc">Press Return automatically after pasting</span>
-              </div>
-              <label class="toggle-switch" aria-label="Send Enter after insert">
-                <input id="pref-enter-mode" type="checkbox" />
-                <span class="toggle-track" aria-hidden="true"></span>
-              </label>
-            </div>
-
-            <div class="toggle-row">
-              <div class="toggle-content">
-                <label class="toggle-label" for="pref-reminder-beep">Reminder beep</label>
-                <span class="toggle-desc">Periodic sound while listening</span>
-              </div>
-              <label class="toggle-switch" aria-label="Reminder beep">
-                <input id="pref-reminder-beep" type="checkbox" />
-                <span class="toggle-track" aria-hidden="true"></span>
-              </label>
-            </div>
-
-          </div>
-
-          <!-- Soniox API key -->
-          <div class="setting-group">
-            <div class="setting-group-header">
-              <span class="setting-group-title">Soniox API key</span>
-              <span class="setting-group-desc">Speech-to-text engine credentials</span>
-            </div>
-            <div class="key-control">
-              <input
-                id="pref-soniox-key"
-                type="password"
-                class="field-input"
-                placeholder="sk-soniox-…"
-                aria-label="Soniox API key"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <button id="pref-soniox-key-save" class="btn-sm" type="button">Save</button>
-            </div>
-            <div id="pref-soniox-key-status" class="pref-status-line" aria-live="polite"></div>
-          </div>
-
-          <div class="setting-group">
-            <label class="field-label" for="pref-soniox-model">Soniox realtime model</label>
-            <div class="model-control">
-              <select id="pref-soniox-model" class="field-select" aria-label="Soniox realtime model"></select>
-              <button id="pref-soniox-model-fetch" class="btn-sm" type="button" aria-label="Refresh Soniox model list">
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <path d="M9 12H3V6M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.34 2.66L3 6"/>
-                </svg>
-              </button>
-            </div>
-            <div id="pref-soniox-model-status" class="pref-status-line" aria-live="polite"></div>
-          </div>
-        </div>
-
-        <!-- ── AI tab ────────────────────────────────────────────────────── -->
-        <div
-          id="tab-ai"
-          class="tab-panel"
-          role="tabpanel"
-          aria-label="AI correction settings"
-        >
-          <!-- Master toggle -->
-          <div class="toggle-group">
-            <div class="toggle-row toggle-row--featured">
-              <div class="toggle-content">
-                <label class="toggle-label" for="pref-llm-correction">AI correction</label>
-                <span class="toggle-desc">Post-process transcript with an LLM before insertion</span>
-              </div>
-              <label class="toggle-switch" aria-label="LLM correction">
-                <input id="pref-llm-correction" type="checkbox" />
-                <span class="toggle-track" aria-hidden="true"></span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Provider settings — disabled when AI correction is off -->
-          <fieldset id="ai-settings-fieldset" class="ai-fieldset" disabled>
-            <div class="setting-group">
-              <label class="field-label" for="pref-llm-provider">Provider</label>
-              <select id="pref-llm-provider" class="field-select" aria-label="LLM provider">
-                <option value="xai">xAI</option>
-                <option value="gemini">Gemini</option>
-                <option value="openai_compatible">OpenAI-compatible</option>
-              </select>
-            </div>
-
-            <!-- Provider API key — inline with provider selection -->
-            <div id="pref-provider-key-group" class="setting-group">
-              <label class="field-label" id="pref-provider-key-label" for="pref-provider-key">API key</label>
+            <div class="cc-field">
+              <label class="field-label" for="setup-soniox-key">Soniox API key</label>
               <div class="key-control">
                 <input
-                  id="pref-provider-key"
+                  id="setup-soniox-key"
                   type="password"
                   class="field-input"
-                  aria-label="Provider API key"
+                  placeholder="sk-soniox-…"
+                  aria-label="Soniox API key"
+                  aria-describedby="soniox-key-hint"
                   autocomplete="off"
                   spellcheck="false"
                 />
-                <button id="pref-provider-key-save" class="btn-sm" type="button">Save</button>
+                <button id="setup-submit" class="btn-primary btn-primary--inline" type="button">
+                  Save key
+                </button>
               </div>
-              <div id="pref-provider-key-status" class="pref-status-line" aria-live="polite"></div>
+              <span id="soniox-key-hint" class="form-hint">
+                <a href="https://soniox.com" target="_blank" rel="noopener noreferrer" class="form-hint-link">Get a free key at soniox.com</a>
+              </span>
+              <div id="setup-progress" class="setup-progress is-hidden" role="status" aria-live="polite">
+                <span class="setup-progress-dot" aria-hidden="true"></span>
+                <span id="setup-progress-text">Verifying key…</span>
+              </div>
+              <div id="pref-soniox-key-status" class="pref-status-line" aria-live="polite"></div>
             </div>
 
-            <div id="pref-llm-base-url-row" class="setting-group">
-              <label class="field-label" for="pref-llm-base-url">Base URL</label>
-              <input
-                id="pref-llm-base-url"
-                type="text"
-                class="field-input"
-                aria-label="LLM base URL"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </div>
-
-            <!-- Model — select dropdown, populated from API -->
-            <div class="setting-group">
-              <label class="field-label" for="pref-llm-model">Model</label>
+            <div class="cc-field">
+              <label class="field-label" for="pref-soniox-model">Model</label>
               <div class="model-control">
-                <select id="pref-llm-model" class="field-select" aria-label="LLM model">
-                  <!-- Populated dynamically from provider API -->
-                </select>
-                <button id="pref-llm-model-fetch" class="btn-sm" type="button" aria-label="Refresh model list">
+                <select id="pref-soniox-model" class="field-select" aria-label="Soniox realtime model"></select>
+                <button id="pref-soniox-model-fetch" class="btn-sm" type="button" aria-label="Refresh Soniox model list">
                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <path d="M9 12H3V6M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.34 2.66L3 6"/>
                   </svg>
                 </button>
               </div>
-              <div id="pref-llm-model-status" class="pref-status-line" aria-live="polite"></div>
+              <div id="pref-soniox-model-status" class="pref-status-line" aria-live="polite"></div>
             </div>
 
-            <div class="setting-group">
-              <label class="field-label" for="pref-output-lang">Output language</label>
-              <select id="pref-output-lang" class="field-select" aria-label="Correction language">
-                <option value="auto">Auto-detect</option>
-                <option value="english">English</option>
-                <option value="vietnamese">Vietnamese</option>
-              </select>
+            <button id="action-open-settings" class="vocab-action-btn" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+              Edit vocabulary
+              <span id="vocab-count" class="vocab-badge" aria-label="vocabulary term count"></span>
+            </button>
+
+            <p class="zone-hint zone-hint--subtle">
+              Keys stay local in <code>voice-to-text/credentials.json</code>. Env vars still work.
+            </p>
+          </div>
+        </section>
+
+        <!-- COL 2: Daily use -->
+        <section class="zone" aria-labelledby="panel-quick-title">
+          <h2 id="panel-quick-title" class="zone-title">Daily use</h2>
+          <div class="zone-body">
+            <div class="cc-field">
+              <label class="field-label" for="pref-mic-shortcut">Shortcut</label>
+              <div class="shortcut-control">
+                <button
+                  id="pref-mic-shortcut"
+                  type="button"
+                  class="shortcut-recorder"
+                  aria-label="Global mic toggle shortcut — click to record"
+                ></button>
+                <div class="shortcut-actions">
+                  <button id="pref-mic-shortcut-reset" class="btn-sm btn-sm--ghost" type="button">Reset</button>
+                </div>
+              </div>
+              <div id="pref-mic-shortcut-status" class="pref-status-line" aria-live="polite"></div>
+            </div>
+
+            <div class="cc-field">
+              <label class="field-label" for="pref-stop-word">Stop word</label>
+              <div class="shortcut-control">
+                <input
+                  id="pref-stop-word"
+                  type="text"
+                  class="shortcut-input"
+                  aria-label="Custom stop word"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <div class="shortcut-actions">
+                  <button id="pref-stop-word-reset" class="btn-sm btn-sm--ghost" type="button">Reset</button>
+                </div>
+              </div>
+              <div id="pref-stop-word-status" class="pref-status-line" aria-live="polite"></div>
+            </div>
+
+            <div class="toggle-stack">
+              <div class="toggle-row">
+                <div class="toggle-content">
+                  <label class="toggle-label" for="pref-enter-mode">Auto-enter</label>
+                  <span class="toggle-desc">Send Return after paste</span>
+                </div>
+                <label class="toggle-switch" aria-label="Send Enter after insert">
+                  <input id="pref-enter-mode" type="checkbox" />
+                  <span class="toggle-track" aria-hidden="true"></span>
+                </label>
+              </div>
+
+              <div class="toggle-row">
+                <div class="toggle-content">
+                  <label class="toggle-label" for="pref-reminder-beep">Reminder beep</label>
+                  <span class="toggle-desc">Sound while mic is on</span>
+                </div>
+                <label class="toggle-switch" aria-label="Reminder beep">
+                  <input id="pref-reminder-beep" type="checkbox" />
+                  <span class="toggle-track" aria-hidden="true"></span>
+                </label>
+              </div>
+            </div>
+
+            <p id="runtime-background-recovery" class="zone-hint zone-hint--subtle" aria-live="polite">Reopen the app to show settings if running in the background.</p>
+          </div>
+        </section>
+
+        <!-- COL 3: AI Enhance -->
+        <section class="zone zone--ai" aria-labelledby="panel-ai-title">
+          <div class="ai-header-row">
+            <h2 id="panel-ai-title" class="zone-title">AI Enhance</h2>
+            <label class="toggle-switch" aria-label="LLM correction">
+              <input id="pref-llm-correction" type="checkbox" />
+              <span class="toggle-track" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <div id="ai-disabled-note" class="ai-disabled-note" role="note">
+            <span class="ai-disabled-note-text">Punctuation &amp; grammar cleanup before insert.</span>
+          </div>
+
+          <fieldset id="ai-settings-fieldset" class="ai-fieldset" disabled>
+            <div class="ai-fields-stack">
+              <div class="cc-field">
+                <label class="field-label" for="pref-llm-provider">Service</label>
+                <select id="pref-llm-provider" class="field-select" aria-label="LLM provider">
+                  <option value="xai">xAI</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="openai_compatible">OpenAI-compatible</option>
+                </select>
+              </div>
+
+              <div class="cc-field">
+                <label class="field-label" for="pref-output-lang">Language</label>
+                <select id="pref-output-lang" class="field-select" aria-label="Correction language">
+                  <option value="auto">Auto-detect</option>
+                  <option value="english">English</option>
+                  <option value="vietnamese">Vietnamese</option>
+                </select>
+              </div>
+
+              <div id="pref-provider-key-group" class="cc-field">
+                <label class="field-label" id="pref-provider-key-label" for="pref-provider-key">API key</label>
+                <div class="key-control">
+                  <input
+                    id="pref-provider-key"
+                    type="password"
+                    class="field-input"
+                    aria-label="Provider API key"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button id="pref-provider-key-save" class="btn-sm" type="button">Save</button>
+                </div>
+                <div id="pref-provider-key-status" class="pref-status-line" aria-live="polite"></div>
+              </div>
+
+              <div id="pref-llm-base-url-row" class="cc-field">
+                <label class="field-label" for="pref-llm-base-url">Base URL</label>
+                <input
+                  id="pref-llm-base-url"
+                  type="text"
+                  class="field-input"
+                  aria-label="LLM base URL"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </div>
+
+              <div class="cc-field">
+                <label class="field-label" for="pref-llm-model">Model</label>
+                <div class="model-control">
+                  <select id="pref-llm-model" class="field-select" aria-label="LLM model"></select>
+                  <button id="pref-llm-model-fetch" class="btn-sm" type="button" aria-label="Refresh model list">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="M9 12H3V6M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.34 2.66L3 6"/>
+                    </svg>
+                  </button>
+                </div>
+                <div id="pref-llm-model-status" class="pref-status-line" aria-live="polite"></div>
+              </div>
             </div>
           </fieldset>
 
           <div id="ai-status" class="pref-status-line" aria-live="polite"></div>
+        </section>
+      </div>
+    </main>
 
-
-        </div>
-      </main>
-
-      <!-- ── Bottom toolbar ──────────────────────────────────────────────── -->
-      <footer class="bottom-bar bottom-bar--empty">
-      </footer>
-    </section>
-
-    <!-- ── Advanced settings dialog ──────────────────────────────────────── -->
+    <!-- ── Vocabulary dialog ───────────────────────────────────── -->
     <div
       id="settings-dialog-backdrop"
       class="dialog-backdrop"
@@ -449,7 +298,6 @@
         </header>
 
         <div class="dialog-body">
-          <!-- Soniox terms -->
           <section aria-labelledby="terms-section-label">
             <div id="terms-section-label" class="dialog-section-title">Vocabulary terms</div>
             <div
@@ -472,7 +320,6 @@
               </button>
             </div>
           </section>
-
         </div>
 
         <footer class="dialog-footer">

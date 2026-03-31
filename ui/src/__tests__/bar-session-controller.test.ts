@@ -837,7 +837,7 @@ describe("BarSessionController", () => {
     expect(soniox.instance.start).toHaveBeenCalledTimes(2);
   });
 
-  it("ignores stale transcript callbacks after stop-word finalization restarts listening", async () => {
+  it("hides immediately after insert and ignores stale transcript callbacks", async () => {
     const { bridge, mocks } = createBridge();
     storage.loadPreferences.mockReturnValue({
       enterMode: true,
@@ -863,11 +863,11 @@ describe("BarSessionController", () => {
     await flushMicrotasks();
 
     expect(mocks.insertText).toHaveBeenCalledTimes(1);
-    expect(soniox.instance.stop).toHaveBeenCalledTimes(1);
-    expect(soniox.instance.start).toHaveBeenCalledTimes(2);
-
-    await vi.advanceTimersByTimeAsync(450);
-    await flushMicrotasks();
+    expect(soniox.instance.stop).toHaveBeenCalledTimes(2);
+    expect(soniox.instance.start).toHaveBeenCalledTimes(1);
+    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(controller.getOverlayMode()).toBe("PASSIVE");
+    expect(mocks.hideBar).toHaveBeenCalledTimes(1);
 
     staleTranscriptHandler?.({
       finalText: "hello hello 1234",
@@ -875,7 +875,7 @@ describe("BarSessionController", () => {
     });
     await flushMicrotasks();
 
-    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(controller.getCurrentState()).toBe("HIDDEN");
     expect(mocks.insertText).toHaveBeenCalledTimes(1);
   });
 
@@ -915,9 +915,10 @@ describe("BarSessionController", () => {
 
     insertDeferred.resolve({ success: true });
     await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(450);
-    await flushMicrotasks();
 
+    expect(controller.getCurrentState()).toBe("HIDDEN");
+
+    await controller.handleToggle();
     soniox.instance.onTranscript?.({
       finalText: "second command",
       interimText: "done now",
@@ -926,44 +927,6 @@ describe("BarSessionController", () => {
     await settleStopWordFinalization();
 
     expect(mocks.insertText).toHaveBeenNthCalledWith(2, "second command", { enterMode: false });
-  });
-
-  it("stays in ERROR when listening restart fails after insert succeeds", async () => {
-    const { bridge, mocks } = createBridge();
-    storage.loadPreferences.mockReturnValue({
-      enterMode: true,
-      outputLang: "auto",
-      sonioxTerms: ["alpha"],
-      skipLlm: true,
-    });
-    soniox.instance.start
-      .mockImplementationOnce(async () => {})
-      .mockImplementationOnce(async () => {
-        throw new Error("network down");
-      });
-    window.voiceToText = bridge;
-
-    const controller = new BarSessionController();
-    const errorMessages: Array<string | null> = [];
-    controller.onErrorMessageChange = (message) => errorMessages.push(message);
-
-    await controller.init();
-    await controller.handleToggle();
-
-    soniox.instance.onTranscript?.({
-      finalText: "ship update",
-      interimText: "thank you",
-    });
-    await flushMicrotasks();
-    await settleStopWordFinalization();
-    await flushMicrotasks();
-    await flushMicrotasks();
-
-    expect(mocks.insertText).toHaveBeenCalledTimes(1);
-    expect(controller.getCurrentState()).toBe("ERROR");
-    expect(errorMessages[errorMessages.length - 1]).toContain(
-      "Could not reconnect to Soniox. Check your key/network, then retry. network down",
-    );
   });
 
   it("skips hasXaiKey lookup when skipLlm preference is enabled", async () => {
@@ -1148,7 +1111,7 @@ describe("BarSessionController", () => {
     );
   });
 
-  it("falls back to raw transcript after a non-retryable correction failure without extra linger", async () => {
+  it("falls back to raw transcript after a non-retryable correction failure and hides immediately", async () => {
     const { bridge, mocks } = createBridge();
     storage.loadPreferences.mockReturnValue({
       enterMode: true,
@@ -1183,13 +1146,8 @@ describe("BarSessionController", () => {
     expect(mocks.correctTranscript).toHaveBeenCalledTimes(1);
     const [rawTranscript] = mocks.correctTranscript.mock.calls[0] ?? [];
     expect(mocks.insertText).toHaveBeenCalledWith(rawTranscript, { enterMode: true });
-    expect(controller.getCurrentState()).toBe("SUCCESS");
+    expect(controller.getCurrentState()).toBe("HIDDEN");
     expect(errorMessages.some((message) => message !== null)).toBe(false);
-
-    await vi.advanceTimersByTimeAsync(450);
-    await flushMicrotasks();
-
-    expect(controller.getCurrentState()).toBe("LISTENING");
     expect(errorMessages).toEqual([]);
   });
 
@@ -1222,7 +1180,7 @@ describe("BarSessionController", () => {
 
     expect(mocks.correctTranscript).toHaveBeenCalledTimes(3);
     expect(mocks.insertText).toHaveBeenCalledWith("ship update", { enterMode: true });
-    expect(controller.getCurrentState()).toBe("SUCCESS");
+    expect(controller.getCurrentState()).toBe("HIDDEN");
   });
 
   it("recovers from mid-session stream interruption and returns to LISTENING", async () => {

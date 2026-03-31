@@ -181,13 +181,13 @@ describe("syncPromptVisibility — prompt show/hide logic", () => {
   beforeEach(buildHudDom);
   afterEach(() => { document.body.innerHTML = ""; });
 
-  it("shows prompt when LISTENING with no transcript", () => {
+  it("always hides prompt regardless of state", () => {
     const hud = getHud();
     hud.dataset.state = "LISTENING";
     getTranscriptFinal().textContent = "";
     getTranscriptInterim().textContent = "";
     syncPromptVisibility(hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt());
-    expect(getTranscriptPrompt().hidden).toBe(false);
+    expect(getTranscriptPrompt().hidden).toBe(true);
   });
 
   it("hides prompt when LISTENING but final text is present", () => {
@@ -785,6 +785,12 @@ describe("bar.html — accessibility contract (production source)", () => {
     const transcriptRegion = document.querySelector(".hud-transcript");
     expect(transcriptRegion?.getAttribute("aria-live")).toBe("polite");
     expect(transcriptRegion?.getAttribute("aria-atomic")).toBe("false");
+  });
+
+  it("state label is the trailing item inside the transcript row", () => {
+    const transcriptRegion = document.querySelector(".hud-transcript");
+    expect(transcriptRegion?.querySelector("#hud-state-label")).toBe(getStateLabel());
+    expect(transcriptRegion?.lastElementChild).toBe(getStateLabel());
   });
 
   it("buttons start with tabindex=-1 (not keyboard-reachable in default PASSIVE mode)", () => {

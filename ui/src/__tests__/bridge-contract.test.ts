@@ -46,6 +46,7 @@ describe("tauri bridge command contract", () => {
     await window.voiceToText.hasGeminiKey();
     await window.voiceToText.hasOpenaiCompatibleKey();
     await window.voiceToText.getPlatformRuntimeInfo();
+    await window.voiceToText.fitMainWindowToContent?.(612);
     await window.voiceToText.updateMicToggleShortcut("Control+Alt+Super+M");
 
     expect(invoke).toHaveBeenCalledWith("set_mic_state", { is_active: true });
@@ -84,6 +85,9 @@ describe("tauri bridge command contract", () => {
       provider: "openai_compatible",
     });
     expect(invoke).toHaveBeenCalledWith("get_platform_runtime_info", undefined);
+    expect(invoke).toHaveBeenCalledWith("fit_main_window_to_content", {
+      content_height: 612,
+    });
     expect(invoke).toHaveBeenCalledWith("update_mic_toggle_shortcut", {
       shortcut: "Control+Alt+Super+M",
     });

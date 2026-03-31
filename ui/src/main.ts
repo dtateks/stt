@@ -1,7 +1,7 @@
 /**
  * Main window entry point.
  *
- * Surfaces: setup screen + preferences screen + advanced settings dialog.
+ * Single-panel settings screen + vocabulary dialog.
  * All bridge calls are funnelled through the window.voiceToText surface only.
  */
 
@@ -13,10 +13,10 @@ import type {
   PlatformRuntimeInfo,
 } from "./types.ts";
 import {
-  readShortcutRecorderShortcut,
   renderShortcutRecorderState,
 } from "./shortcut-recorder-logic.ts";
 import type { ShortcutDisplayMode } from "./shortcut-display.ts";
+import { shortcutCanonicalToDisplay } from "./shortcut-display.ts";
 import {
   DEFAULT_MIC_TOGGLE_SHORTCUT,
   loadPreferences,
@@ -81,15 +81,14 @@ function q<T extends Element>(selector: string, root: ParentNode = document): T 
   return el;
 }
 
-// Screens
-const setupScreen = q<HTMLDivElement>("#screen-setup");
-const prefsScreen = q<HTMLDivElement>("#screen-prefs");
+const settingsPanel = q<HTMLElement>("#settings-panel");
 
 // Setup form
 const sonioxInput = q<HTMLInputElement>("#setup-soniox-key");
-const xaiInput = q<HTMLInputElement>("#setup-xai-key");
 const setupSubmitBtn = q<HTMLButtonElement>("#setup-submit");
 const setupError = q<HTMLDivElement>("#setup-error");
+const setupProgress = q<HTMLDivElement>("#setup-progress");
+const setupProgressText = q<HTMLSpanElement>("#setup-progress-text");
 
 // Prefs
 const enterModeToggle = q<HTMLInputElement>("#pref-enter-mode");
@@ -97,10 +96,8 @@ const outputLangSelect = q<HTMLSelectElement>("#pref-output-lang");
 const llmCorrectionToggle = q<HTMLInputElement>("#pref-llm-correction");
 const reminderBeepToggle = q<HTMLInputElement>("#pref-reminder-beep");
 const stopWordInput = q<HTMLInputElement>("#pref-stop-word");
-const stopWordSaveBtn = q<HTMLButtonElement>("#pref-stop-word-save");
 const stopWordResetBtn = q<HTMLButtonElement>("#pref-stop-word-reset");
 const micShortcutRecorder = q<HTMLButtonElement>("#pref-mic-shortcut");
-const micShortcutSaveBtn = q<HTMLButtonElement>("#pref-mic-shortcut-save");
 const micShortcutResetBtn = q<HTMLButtonElement>("#pref-mic-shortcut-reset");
 const micShortcutStatus = q<HTMLDivElement>("#pref-mic-shortcut-status");
 const llmProviderSelect = q<HTMLSelectElement>("#pref-llm-provider");
@@ -113,27 +110,33 @@ const providerKeyInput = q<HTMLInputElement>("#pref-provider-key");
 const providerKeySaveBtn = q<HTMLButtonElement>("#pref-provider-key-save");
 const providerKeyStatus = q<HTMLDivElement>("#pref-provider-key-status");
 const providerKeyLabel = q<HTMLLabelElement>("#pref-provider-key-label");
-const sonioxKeyInput = q<HTMLInputElement>("#pref-soniox-key");
-const sonioxKeySaveBtn = q<HTMLButtonElement>("#pref-soniox-key-save");
 const sonioxKeyStatus = q<HTMLDivElement>("#pref-soniox-key-status");
 const sonioxModelSelect = q<HTMLSelectElement>("#pref-soniox-model");
 const sonioxModelFetchBtn = q<HTMLButtonElement>("#pref-soniox-model-fetch");
 const sonioxModelStatus = q<HTMLDivElement>("#pref-soniox-model-status");
 
-// Stop word status (General tab — separate from shortcut status)
+// Stop word status
 const stopWordStatus = q<HTMLDivElement>("#pref-stop-word-status");
 
-// AI status (AI tab)
+// AI status
 const aiStatus = q<HTMLDivElement>("#ai-status");
 const aiSettingsFieldset = q<HTMLFieldSetElement>("#ai-settings-fieldset");
+const aiDisabledNote = q<HTMLDivElement>("#ai-disabled-note");
 
-// Permission banner (prefs screen)
+// Prefs ready card
+const prefsReadyTitle = q<HTMLSpanElement>("#prefs-ready-title");
+const prefsReadyShortcut = q<HTMLSpanElement>("#prefs-ready-shortcut");
+
+// Permission banner
 const permissionBanner = q<HTMLDivElement>("#prefs-permission-banner");
 const permissionBannerText = q<HTMLSpanElement>("#prefs-permission-text");
-const backgroundRecoveryText = q<HTMLSpanElement>("#runtime-background-recovery");
+const backgroundRecoveryText = q<HTMLParagraphElement>("#runtime-background-recovery");
 const updateBanner = q<HTMLDivElement>("#update-banner");
 const updateBannerText = q<HTMLSpanElement>("#update-banner-text");
 const updateBannerAction = q<HTMLButtonElement>("#update-banner-action");
+
+// Status hero
+const statusHero = q<HTMLElement>(".status-hero");
 
 // Vocabulary count badge
 const vocabCountBadge = q<HTMLSpanElement>("#vocab-count");
@@ -156,10 +159,6 @@ const dialogCloseBtn = q<HTMLButtonElement>("#dialog-close-btn");
 // Action buttons
 const openSettingsBtn = q<HTMLButtonElement>("#action-open-settings");
 
-// Tab navigation
-const tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".tab-btn"));
-const tabPanels = Array.from(document.querySelectorAll<HTMLDivElement>(".tab-panel"));
-
 const OPENAI_COMPATIBLE_PROVIDER: LlmProvider = "openai_compatible";
 const XAI_PROVIDER: LlmProvider = "xai";
 const GEMINI_PROVIDER: LlmProvider = "gemini";
@@ -167,20 +166,31 @@ const DEFAULT_XAI_MODEL = "grok-4-1-fast-non-reasoning";
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
 const DEFAULT_SONIOX_MODEL = "stt-rt-v4";
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
-const SETUP_BUTTON_LABEL = "Get Started";
+const SONIOX_KEY_PLACEHOLDER = "sk-soniox-…";
+const SONIOX_KEY_MASK_PLACEHOLDER = "••••••••••••••••";
+const READY_TO_DICTATE_TITLE = "Ready to dictate";
+const READY_TO_CONFIGURE_TITLE = "Activation required";
+const READY_TO_CONFIGURE_COPY = "Add a Soniox key to start dictation";
+const SETUP_BUTTON_LABEL = "Save key";
 const SETUP_BUTTON_SAVING_LABEL = "Saving…";
-const MISSING_SONIOX_KEY_SETUP_MESSAGE = "Soniox API key is missing. Add your key to continue.";
+const MISSING_SONIOX_KEY_SETUP_MESSAGE = "Soniox API key is missing. Add your key to activate dictation.";
 const CREDENTIAL_VERIFICATION_FAILED_MESSAGE = "Saved credentials could not be verified. Soniox API key still appears to be missing.";
 const UPDATE_BUTTON_LABEL = "Update";
 const UPDATE_DOWNLOADING_LABEL = "Downloading…";
 const UPDATE_RETRY_LABEL = "Retry";
 const UPDATE_RESTARTING_LABEL = "Restarting…";
+const MAIN_WINDOW_AUTO_FIT_DEBOUNCE_MS = 80;
 
 let updateAvailable: AppUpdate | null = null;
 let updateDownloading = false;
 let defaultStopWord = "thank you";
 let defaultLlmProvider: LlmProvider = XAI_PROVIDER;
 let defaultLlmBaseUrl = DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
+let hasVerifiedSonioxKey = false;
+
+const STATUS_AUTO_CLEAR_MS = 4_000;
+const statusClearTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
+let pendingMainWindowFitTimer: ReturnType<typeof setTimeout> | null = null;
 const DEFAULT_PLATFORM_RUNTIME_INFO: PlatformRuntimeInfo = {
   os: "macos",
   shortcutDisplay: "macos",
@@ -198,17 +208,18 @@ async function init(): Promise<void> {
   bindPrefs();
   bindActionButtons();
   bindDialog();
-  bindTabs();
   bindShortcutRecorder();
   bindUpdateBanner();
+  loadPrefsUI();
+  initializeMainWindowAutoFit();
+  setSonioxConnectionState(false);
 
   let bridge: Awaited<ReturnType<typeof waitForVoiceToTextBridge>>;
   try {
     bridge = await waitForVoiceToTextBridge();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    showSetupScreen();
-    applySetupError(`Startup bridge failed: ${message}`, setupError, sonioxInput);
+    applySetupError(`The app could not initialize. Try restarting. (${message})`, setupError, sonioxInput);
     return;
   }
 
@@ -219,11 +230,17 @@ async function init(): Promise<void> {
 
   const shortcutSyncError = await syncStoredMicToggleShortcut(bridge);
   await hydrateRuntimeDefaults(bridge);
+  loadPrefsUI();
 
   const keyCheck = await checkHasSonioxKey(bridge);
-  const hasKey = keyCheck.hasKey;
+  hasVerifiedSonioxKey = keyCheck.hasKey;
+  setSonioxConnectionState(hasVerifiedSonioxKey);
+  await loadRuntimeMicToggleShortcut();
+  await loadKeyStates();
+  void fetchModels();
+
   let startupErrorMessage = keyCheck.error
-    ? `Startup credential check failed: ${keyCheck.error}`
+    ? `Could not verify your API key. Check your connection and restart. (${keyCheck.error})`
     : null;
 
   if (shortcutSyncError) {
@@ -232,11 +249,12 @@ async function init(): Promise<void> {
       : shortcutSyncError;
   }
 
-  if (hasKey) {
-    showPrefsScreen();
+  if (hasVerifiedSonioxKey) {
+    clearSetupError(setupError, sonioxInput);
+    void fetchSonioxModels();
     void checkForAppUpdate();
-  } else {
-    showSetupScreen();
+  } else if (!startupErrorMessage) {
+    applySetupError(MISSING_SONIOX_KEY_SETUP_MESSAGE, setupError, sonioxInput);
   }
 
   if (startupErrorMessage) {
@@ -249,20 +267,48 @@ async function init(): Promise<void> {
   const anyDenied = permResults.some((r) => !r.granted);
   if (anyDenied) {
     const deniedResults = permResults.filter((result) => !result.granted);
-    const permissionMessage = buildStartupPermissionMessage(
-      deniedResults,
-      platformRuntimeInfo,
-    );
-    startupErrorMessage = startupErrorMessage
-      ? `${startupErrorMessage} — ${permissionMessage}`
-      : permissionMessage;
-    applySetupError(
-      startupErrorMessage,
-      setupError,
-      sonioxInput,
-    );
     showPermissionBanner(deniedResults, platformRuntimeInfo);
     startPermissionPolling();
+  } else {
+    hidePermissionBanner();
+  }
+}
+
+function initializeMainWindowAutoFit(): void {
+  scheduleMainWindowFitToContent();
+
+  if (typeof ResizeObserver === "undefined") {
+    return;
+  }
+
+  const observer = new ResizeObserver(() => {
+    scheduleMainWindowFitToContent();
+  });
+
+  observer.observe(settingsPanel);
+}
+
+function scheduleMainWindowFitToContent(): void {
+  if (pendingMainWindowFitTimer !== null) {
+    clearTimeout(pendingMainWindowFitTimer);
+  }
+
+  pendingMainWindowFitTimer = setTimeout(() => {
+    pendingMainWindowFitTimer = null;
+    void fitMainWindowToContent();
+  }, MAIN_WINDOW_AUTO_FIT_DEBOUNCE_MS);
+}
+
+async function fitMainWindowToContent(): Promise<void> {
+  if (typeof window.voiceToText.fitMainWindowToContent !== "function") {
+    return;
+  }
+
+  const contentHeight = Math.ceil(settingsPanel.scrollHeight);
+  try {
+    await window.voiceToText.fitMainWindowToContent(contentHeight);
+  } catch {
+    // Non-fatal: sizing is best effort and should never block setup.
   }
 }
 
@@ -292,8 +338,8 @@ function getPermissionSettingsLabel(runtimeInfo: PlatformRuntimeInfo): string {
 
 function getBackgroundRecoveryMessage(runtimeInfo: PlatformRuntimeInfo): string {
   return runtimeInfo.backgroundRecovery === "tray-reopen"
-    ? "If the app is running in the background, reopen settings from the Windows notification area."
-    : "If the app is running in the background, reopen the app to show settings again.";
+    ? "Reopen settings from the Windows notification area if running in the background."
+    : "Reopen the app to show settings if running in the background.";
 }
 
 function formatPermissionName(permission: string): string {
@@ -378,30 +424,11 @@ async function pollPermissions(): Promise<void> {
     const status = await window.voiceToText.checkPermissionsStatus();
     if (status.microphone && status.accessibility && status.automation) {
       stopPermissionPolling();
-      clearSetupError(setupError, sonioxInput);
       hidePermissionBanner();
     }
   } catch {
     // Polling failure is not actionable — keep polling.
   }
-}
-
-// ─── Screen routing ───────────────────────────────────────────────────────
-
-function showSetupScreen(): void {
-  setupScreen.classList.add("is-active");
-  prefsScreen.classList.remove("is-active");
-  sonioxInput.focus();
-}
-
-function showPrefsScreen(): void {
-  prefsScreen.classList.add("is-active");
-  setupScreen.classList.remove("is-active");
-  loadPrefsUI();
-  void loadRuntimeMicToggleShortcut();
-  void loadKeyStates(); // Load key presence indicators
-  void fetchModels(); // Fetch real models from endpoint
-  void fetchSonioxModels(); // Fetch Soniox realtime models from backend
 }
 
 // ─── Setup form ───────────────────────────────────────────────────────────
@@ -411,19 +438,16 @@ function bindSetupForm(): void {
     void handleSetupSubmit();
   });
 
-  // Allow Enter on inputs to submit
-  [sonioxInput, xaiInput].forEach((input) => {
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") void handleSetupSubmit();
-    });
+  sonioxInput.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Enter") void handleSetupSubmit();
   });
 }
 
 async function handleSetupSubmit(): Promise<void> {
   clearSetupError(setupError, sonioxInput);
+  clearSonioxKeyStatus();
 
   const sonioxKey = sonioxInput.value.trim();
-  const xaiKey = xaiInput.value.trim();
 
   const validationError = validateSonioxKey(sonioxKey);
   if (validationError) {
@@ -435,17 +459,29 @@ async function handleSetupSubmit(): Promise<void> {
   setSetupSaving(true);
 
   try {
-    await window.voiceToText.saveCredentials(xaiKey, sonioxKey);
+    await window.voiceToText.updateSonioxKey(sonioxKey);
     const verificationError = await verifySavedSonioxCredential(window.voiceToText);
     if (verificationError) {
       applySetupError(verificationError, setupError, sonioxInput);
+      hasVerifiedSonioxKey = false;
+      sonioxInput.classList.remove("has-key");
+      sonioxInput.placeholder = SONIOX_KEY_PLACEHOLDER;
+      setSonioxConnectionState(false);
       return;
     }
 
-    showPrefsScreen();
+    hasVerifiedSonioxKey = true;
+    setSonioxConnectionState(true);
+    clearSetupError(setupError, sonioxInput);
+    sonioxInput.value = "";
+    await loadKeyStates();
+    setSonioxKeyStatus("Soniox API key saved.", false);
+    await fetchSonioxModels();
+    void checkForAppUpdate();
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    applySetupError(`Failed to save credentials: ${msg}`, setupError, sonioxInput);
+    applySetupError(`Could not save your API key. Please try again. (${msg})`, setupError, sonioxInput);
+    await loadKeyStates();
   } finally {
     setSetupSaving(false);
   }
@@ -454,6 +490,14 @@ async function handleSetupSubmit(): Promise<void> {
 function setSetupSaving(saving: boolean): void {
   setupSubmitBtn.disabled = saving;
   setupSubmitBtn.textContent = saving ? SETUP_BUTTON_SAVING_LABEL : SETUP_BUTTON_LABEL;
+  setSetupProgress(saving, "Verifying key…");
+}
+
+function setSetupProgress(visible: boolean, text?: string): void {
+  setupProgress.classList.toggle("is-hidden", !visible);
+  if (text !== undefined) {
+    setupProgressText.textContent = text;
+  }
 }
 
 // ─── Prefs UI ─────────────────────────────────────────────────────────────
@@ -521,24 +565,29 @@ async function verifySavedSonioxCredential(
 }
 
 async function revalidateCredentialScreenState(): Promise<void> {
+  const wasReady = hasVerifiedSonioxKey;
   const keyCheck = await checkHasSonioxKey(window.voiceToText);
   if (keyCheck.error) {
     return;
   }
 
+  hasVerifiedSonioxKey = keyCheck.hasKey;
+  setSonioxConnectionState(hasVerifiedSonioxKey);
+
   if (keyCheck.hasKey) {
-    if (setupScreen.classList.contains("is-active")) {
-      clearSetupError(setupError, sonioxInput);
-      showPrefsScreen();
+    clearSetupError(setupError, sonioxInput);
+    await loadKeyStates();
+    if (!wasReady) {
+      void fetchSonioxModels();
+      void checkForAppUpdate();
     }
     return;
   }
 
-  if (!prefsScreen.classList.contains("is-active")) {
-    return;
-  }
-
-  showSetupScreen();
+  sonioxInput.classList.remove("has-key");
+  sonioxInput.placeholder = SONIOX_KEY_PLACEHOLDER;
+  showSonioxModelPlaceholder();
+  clearSonioxModelStatus();
   applySetupError(MISSING_SONIOX_KEY_SETUP_MESSAGE, setupError, sonioxInput);
 }
 
@@ -562,7 +611,7 @@ function bindPrefs(): void {
     saveReminderBeepEnabledPreference(reminderBeepToggle.checked);
   });
 
-  stopWordSaveBtn.addEventListener("click", () => {
+  stopWordInput.addEventListener("blur", () => {
     handleStopWordSave();
   });
 
@@ -575,10 +624,6 @@ function bindPrefs(): void {
       event.preventDefault();
       handleStopWordSave();
     }
-  });
-
-  micShortcutSaveBtn.addEventListener("click", () => {
-    void handleMicShortcutSave();
   });
 
   micShortcutResetBtn.addEventListener("click", () => {
@@ -623,10 +668,6 @@ function bindPrefs(): void {
 
   providerKeySaveBtn.addEventListener("click", () => {
     void handleProviderKeySave();
-  });
-
-  sonioxKeySaveBtn.addEventListener("click", () => {
-    void handleSonioxKeySave();
   });
 
   sonioxModelSelect.addEventListener("change", () => {
@@ -748,25 +789,6 @@ async function handleProviderKeySave(): Promise<void> {
   }
 }
 
-async function handleSonioxKeySave(): Promise<void> {
-  clearSonioxKeyStatus();
-  const key = sonioxKeyInput.value.trim();
-  if (!key) {
-    setSonioxKeyStatus("Soniox key cannot be empty.", true);
-    return;
-  }
-
-  try {
-    await window.voiceToText.updateSonioxKey(key);
-    sonioxKeyInput.value = "";
-    setSonioxKeyStatus("Soniox API key saved.", false);
-    await fetchSonioxModels();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    setSonioxKeyStatus(`Could not save Soniox API key: ${message}`, true);
-  }
-}
-
 async function fetchSonioxModels(): Promise<void> {
   clearSonioxModelStatus();
   setSonioxModelLoading(true);
@@ -830,7 +852,9 @@ function showSonioxModelPlaceholder(): void {
 async function fetchModels(): Promise<void> {
   clearModelStatus();
   const provider = llmProviderSelect.value as LlmProvider;
-  const baseUrl = llmBaseUrlInput.value.trim() || undefined;
+  const baseUrl = provider === OPENAI_COMPATIBLE_PROVIDER
+    ? llmBaseUrlInput.value.trim() || undefined
+    : undefined;
 
   setModelLoading(true);
   setModelStatus("Fetching models…", false);
@@ -940,20 +964,24 @@ function showModelPlaceholder(): void {
 // ─── Key state indicators ──────────────────────────────────────────────────
 
 async function loadKeyStates(): Promise<void> {
-  // Check Soniox key
   try {
     const hasSonioxKey = await window.voiceToText.hasSonioxKey();
+    hasVerifiedSonioxKey = hasSonioxKey;
+    setSonioxConnectionState(hasSonioxKey);
     if (hasSonioxKey) {
-      // Show masked placeholder to indicate key is present
-      sonioxKeyInput.placeholder = "••••••••••••••••";
-      sonioxKeyInput.classList.add("has-key");
-      setSonioxKeyStatus("Key loaded.", false);
+      sonioxInput.placeholder = SONIOX_KEY_MASK_PLACEHOLDER;
+      sonioxInput.classList.add("has-key");
+    } else {
+      sonioxInput.placeholder = SONIOX_KEY_PLACEHOLDER;
+      sonioxInput.classList.remove("has-key");
     }
   } catch {
-    // Key check failed, leave empty
+    hasVerifiedSonioxKey = false;
+    setSonioxConnectionState(false);
+    sonioxInput.placeholder = SONIOX_KEY_PLACEHOLDER;
+    sonioxInput.classList.remove("has-key");
   }
 
-  // Check provider key based on current selection
   const provider = llmProviderSelect.value as LlmProvider;
   await loadProviderKeyState(provider);
 }
@@ -988,10 +1016,28 @@ async function loadRuntimeMicToggleShortcut(): Promise<void> {
   try {
     const runtimeShortcut = await window.voiceToText.getMicToggleShortcut();
     renderShortcutRecorder(runtimeShortcut);
+    updateReadyCardShortcut(runtimeShortcut);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setShortcutStatus(`Could not load current shortcut: ${message}`, true);
   }
+}
+
+function updateReadyCardShortcut(canonical: string): void {
+  if (!hasVerifiedSonioxKey) {
+    prefsReadyShortcut.textContent = READY_TO_CONFIGURE_COPY;
+    return;
+  }
+
+  const displayMode = getShortcutDisplayMode(platformRuntimeInfo);
+  const label = shortcutCanonicalToDisplay(canonical, displayMode);
+  prefsReadyShortcut.textContent = `Press ${label} to start`;
+}
+
+function setSonioxConnectionState(hasKey: boolean): void {
+  prefsReadyTitle.textContent = hasKey ? READY_TO_DICTATE_TITLE : READY_TO_CONFIGURE_TITLE;
+  statusHero.dataset.state = hasKey ? "ready" : "setup";
+  updateReadyCardShortcut(loadMicToggleShortcutPreference());
 }
 
 // ─── Shortcut recorder ────────────────────────────────────────────────────
@@ -1133,6 +1179,7 @@ async function saveRecordedShortcut(shortcut: string): Promise<void> {
   try {
     const runtimeShortcut = await window.voiceToText.updateMicToggleShortcut(shortcut);
     renderShortcutRecorder(runtimeShortcut);
+    updateReadyCardShortcut(runtimeShortcut);
 
     const persisted = saveMicToggleShortcutPreference(runtimeShortcut);
     if (!persisted) {
@@ -1152,19 +1199,6 @@ async function saveRecordedShortcut(shortcut: string): Promise<void> {
   }
 }
 
-async function handleMicShortcutSave(): Promise<void> {
-  clearShortcutStatus();
-  // The shortcut is already saved when recording completes
-  // This button is now just for explicit save if user typed something
-  const currentShortcut = buildShortcutFromRecorder();
-  if (!currentShortcut) {
-    setShortcutStatus("No shortcut recorded. Click the recorder and press a key combination.", true);
-    return;
-  }
-
-  await saveRecordedShortcut(currentShortcut);
-}
-
 async function handleMicShortcutReset(): Promise<void> {
   clearShortcutStatus();
   setMicShortcutBusy(true);
@@ -1173,6 +1207,7 @@ async function handleMicShortcutReset(): Promise<void> {
       DEFAULT_MIC_TOGGLE_SHORTCUT,
     );
     renderShortcutRecorder(runtimeShortcut);
+    updateReadyCardShortcut(runtimeShortcut);
 
     const cleared = resetMicToggleShortcutPreference();
     if (!cleared) {
@@ -1195,19 +1230,36 @@ async function handleMicShortcutReset(): Promise<void> {
   }
 }
 
-function buildShortcutFromRecorder(): string | null {
-  return readShortcutRecorderShortcut(micShortcutRecorder);
+function setMicShortcutBusy(isBusy: boolean): void {
+  micShortcutResetBtn.disabled = isBusy;
 }
 
-function setMicShortcutBusy(isBusy: boolean): void {
-  micShortcutSaveBtn.disabled = isBusy;
-  micShortcutResetBtn.disabled = isBusy;
+function scheduleStatusClear(element: HTMLElement, clearFn: () => void): void {
+  cancelScheduledStatusClear(element);
+  const timerId = setTimeout(() => {
+    statusClearTimers.delete(element);
+    clearFn();
+  }, STATUS_AUTO_CLEAR_MS);
+  statusClearTimers.set(element, timerId);
+}
+
+function cancelScheduledStatusClear(element: HTMLElement): void {
+  const existing = statusClearTimers.get(element);
+  if (existing !== undefined) {
+    clearTimeout(existing);
+    statusClearTimers.delete(element);
+  }
 }
 
 function setShortcutStatus(message: string, isError: boolean): void {
   micShortcutStatus.textContent = message;
   micShortcutStatus.classList.toggle("is-error", isError);
   micShortcutStatus.classList.toggle("is-success", !isError);
+  if (isError) {
+    cancelScheduledStatusClear(micShortcutStatus);
+  } else {
+    scheduleStatusClear(micShortcutStatus, clearShortcutStatus);
+  }
 }
 
 function clearShortcutStatus(): void {
@@ -1221,6 +1273,11 @@ function setStopWordStatus(message: string, isError: boolean): void {
   stopWordStatus.textContent = message;
   stopWordStatus.classList.toggle("is-error", isError);
   stopWordStatus.classList.toggle("is-success", !isError);
+  if (isError) {
+    cancelScheduledStatusClear(stopWordStatus);
+  } else {
+    scheduleStatusClear(stopWordStatus, clearStopWordStatus);
+  }
 }
 
 function clearStopWordStatus(): void {
@@ -1234,6 +1291,11 @@ function setAiStatus(message: string, isError: boolean): void {
   aiStatus.textContent = message;
   aiStatus.classList.toggle("is-error", isError);
   aiStatus.classList.toggle("is-success", !isError);
+  if (isError) {
+    cancelScheduledStatusClear(aiStatus);
+  } else {
+    scheduleStatusClear(aiStatus, clearAiStatus);
+  }
 }
 
 function clearAiStatus(): void {
@@ -1247,6 +1309,11 @@ function setSonioxKeyStatus(message: string, isError: boolean): void {
   sonioxKeyStatus.textContent = message;
   sonioxKeyStatus.classList.toggle("is-error", isError);
   sonioxKeyStatus.classList.toggle("is-success", !isError);
+  if (isError) {
+    cancelScheduledStatusClear(sonioxKeyStatus);
+  } else {
+    scheduleStatusClear(sonioxKeyStatus, clearSonioxKeyStatus);
+  }
 }
 
 function clearSonioxKeyStatus(): void {
@@ -1258,6 +1325,11 @@ function setSonioxModelStatus(message: string, isError: boolean): void {
   sonioxModelStatus.textContent = message;
   sonioxModelStatus.classList.toggle("is-error", isError);
   sonioxModelStatus.classList.toggle("is-success", !isError);
+  if (isError) {
+    cancelScheduledStatusClear(sonioxModelStatus);
+  } else {
+    scheduleStatusClear(sonioxModelStatus, clearSonioxModelStatus);
+  }
 }
 
 function clearSonioxModelStatus(): void {
@@ -1271,6 +1343,11 @@ function setModelStatus(message: string, isError: boolean): void {
   llmModelStatus.textContent = message;
   llmModelStatus.classList.toggle("is-error", isError);
   llmModelStatus.classList.toggle("is-success", !isError);
+  if (isError) {
+    cancelScheduledStatusClear(llmModelStatus);
+  } else {
+    scheduleStatusClear(llmModelStatus, clearModelStatus);
+  }
 }
 
 function clearModelStatus(): void {
@@ -1284,6 +1361,11 @@ function setProviderKeyStatus(message: string, isError: boolean): void {
   providerKeyStatus.textContent = message;
   providerKeyStatus.classList.toggle("is-error", isError);
   providerKeyStatus.classList.toggle("is-success", !isError);
+  if (isError) {
+    cancelScheduledStatusClear(providerKeyStatus);
+  } else {
+    scheduleStatusClear(providerKeyStatus, clearProviderKeyStatus);
+  }
 }
 
 function clearProviderKeyStatus(): void {
@@ -1295,6 +1377,7 @@ function clearProviderKeyStatus(): void {
 
 function syncAiFieldsetDisabledState(correctionEnabled: boolean): void {
   aiSettingsFieldset.disabled = !correctionEnabled;
+  aiDisabledNote.classList.toggle("is-hidden", correctionEnabled);
 }
 
 // ─── Vocabulary count ─────────────────────────────────────────────────────
@@ -1390,30 +1473,6 @@ function bindActionButtons(): void {
   });
 }
 
-// ─── Tab navigation ───────────────────────────────────────────────────────
-
-function bindTabs(): void {
-  for (const btn of tabButtons) {
-    btn.addEventListener("click", () => {
-      const targetId = btn.dataset.tab;
-      if (!targetId) return;
-      switchTab(targetId);
-    });
-  }
-}
-
-function switchTab(targetId: string): void {
-  for (const btn of tabButtons) {
-    const isActive = btn.dataset.tab === targetId;
-    btn.classList.toggle("is-active", isActive);
-    btn.setAttribute("aria-selected", String(isActive));
-  }
-
-  for (const panel of tabPanels) {
-    panel.classList.toggle("is-active", panel.id === targetId);
-  }
-}
-
 // ─── Settings dialog ──────────────────────────────────────────────────────
 
 function bindDialog(): void {
@@ -1482,7 +1541,6 @@ function commitStagedSettings(): void {
       setupError,
       sonioxInput,
     );
-    showSetupScreen();
     return;
   }
   updateVocabCount();

@@ -55,16 +55,13 @@ export function createWaveformLayout(width: number, height: number): WaveformLay
 // ─── Pure render helpers ──────────────────────────────────────────────────────
 
 export function syncPromptVisibility(
-  hud: HTMLElement,
-  transcriptFinalEl: HTMLElement,
-  transcriptInterimEl: HTMLElement,
+  _hud: HTMLElement,
+  _transcriptFinalEl: HTMLElement,
+  _transcriptInterimEl: HTMLElement,
   transcriptPromptEl: HTMLElement,
 ): void {
-  const hasFinal   = Boolean(transcriptFinalEl.textContent);
-  const hasInterim = Boolean(transcriptInterimEl.textContent);
-  const isListening = hud.dataset.state === "LISTENING";
-  (transcriptPromptEl as HTMLElement & { hidden: boolean }).hidden =
-    hasFinal || hasInterim || !isListening;
+  // Always hide the "Listening…" prompt — LISTENING state label on the right is sufficient.
+  (transcriptPromptEl as HTMLElement & { hidden: boolean }).hidden = true;
 }
 
 export function applyState(

@@ -177,6 +177,9 @@
     showSettings: () =>
       invoke("show_settings"),
 
+    fitMainWindowToContent: (contentHeight) =>
+      invoke("fit_main_window_to_content", { content_height: contentHeight }),
+
     getPlatformRuntimeInfo: () =>
       invoke("get_platform_runtime_info"),
 

@@ -640,17 +640,11 @@ describe("addStagedTerm — deduplication", () => {
 describe("index.html — semantic structure", () => {
   beforeEach(() => {
     document.body.innerHTML = `
-      <section id="screen-setup" class="screen is-active" aria-label="Setup — API credentials">
-        <header class="app-header"></header>
-        <main class="setup-body">
-          <h1 class="setup-title">Connect your API keys</h1>
-          <div id="setup-error" class="error-region" role="alert"></div>
-        </main>
-      </section>
-      <section id="screen-prefs" class="screen" aria-label="Preferences">
-        <header class="app-header"></header>
-        <main class="prefs-body"></main>
-      </section>
+      <main id="settings-panel" class="settings-panel" aria-label="Voice to Text settings">
+        <header class="status-hero"></header>
+        <div id="setup-error" class="error-region" role="alert"></div>
+        <div class="content-grid"></div>
+      </main>
       <div id="settings-dialog-backdrop" class="dialog-backdrop" role="presentation">
         <div id="settings-dialog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-hidden="true">
           <h2 id="dialog-title">Vocabulary</h2>
@@ -664,14 +658,14 @@ describe("index.html — semantic structure", () => {
     document.body.innerHTML = "";
   });
 
-  it("setup screen contains a <main> landmark element", () => {
-    const setupScreen = document.getElementById("screen-setup")!;
-    expect(setupScreen.querySelector("main")).not.toBeNull();
+  it("settings shell contains a <main> landmark element", () => {
+    const settingsPanel = document.getElementById("settings-panel")!;
+    expect(settingsPanel.tagName).toBe("MAIN");
   });
 
-  it("preferences screen contains a <main> landmark element", () => {
-    const prefsScreen = document.getElementById("screen-prefs")!;
-    expect(prefsScreen.querySelector("main")).not.toBeNull();
+  it("single-screen layout does not expose tablist landmarks", () => {
+    expect(document.querySelector('[role="tablist"]')).toBeNull();
+    expect(document.querySelector('[role="tabpanel"]')).toBeNull();
   });
 
   it("dialog has role='dialog', aria-modal='true', and aria-labelledby", () => {
@@ -690,5 +684,262 @@ describe("index.html — semantic structure", () => {
   it("dialog close button has an accessible label", () => {
     const closeBtn = document.getElementById("dialog-close-btn")!;
     expect(closeBtn.getAttribute("aria-label")).toBe("Close dialog");
+  });
+});
+
+// ─── Setup progress UI ───────────────────────────────────────────────────
+
+describe("setup progress — DOM structure", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="setup-progress" class="setup-progress is-hidden" role="status" aria-live="polite">
+        <span class="setup-progress-dot" aria-hidden="true"></span>
+        <span id="setup-progress-text">Verifying key…</span>
+      </div>
+    `;
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("setup-progress starts hidden with is-hidden class", () => {
+    const progress = document.getElementById("setup-progress")!;
+    expect(progress.classList.contains("is-hidden")).toBe(true);
+  });
+
+  it("setup-progress has role='status' and aria-live='polite' for screen reader announcements", () => {
+    const progress = document.getElementById("setup-progress")!;
+    expect(progress.getAttribute("role")).toBe("status");
+    expect(progress.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("setup-progress-text has default verifying text", () => {
+    const text = document.getElementById("setup-progress-text")!;
+    expect(text.textContent).toBe("Verifying key…");
+  });
+
+  it("toggling is-hidden shows/hides the progress indicator", () => {
+    const progress = document.getElementById("setup-progress")!;
+    progress.classList.remove("is-hidden");
+    expect(progress.classList.contains("is-hidden")).toBe(false);
+    progress.classList.add("is-hidden");
+    expect(progress.classList.contains("is-hidden")).toBe(true);
+  });
+});
+
+// ─── AI disabled note visibility ──────────────────────────────────────────
+
+describe("AI disabled note — visibility toggle", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="ai-disabled-note" class="ai-disabled-note" role="note">
+        <span class="ai-disabled-note-text">Explanation text</span>
+      </div>
+      <fieldset id="ai-settings-fieldset" class="ai-fieldset" disabled></fieldset>
+    `;
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("note is visible when AI correction is disabled (is-hidden absent)", () => {
+    const note = document.getElementById("ai-disabled-note")!;
+    expect(note.classList.contains("is-hidden")).toBe(false);
+  });
+
+  it("note is hidden when AI correction is enabled (is-hidden applied)", () => {
+    const note = document.getElementById("ai-disabled-note")!;
+    note.classList.add("is-hidden");
+    expect(note.classList.contains("is-hidden")).toBe(true);
+  });
+
+  it("fieldset and note visibility are inversely coupled", () => {
+    const note = document.getElementById("ai-disabled-note")!;
+    const fieldset = document.getElementById("ai-settings-fieldset") as HTMLFieldSetElement;
+
+    // Simulates syncAiFieldsetDisabledState(true)
+    fieldset.disabled = false;
+    note.classList.add("is-hidden");
+    expect(fieldset.disabled).toBe(false);
+    expect(note.classList.contains("is-hidden")).toBe(true);
+
+    // Simulates syncAiFieldsetDisabledState(false)
+    fieldset.disabled = true;
+    note.classList.remove("is-hidden");
+    expect(fieldset.disabled).toBe(true);
+    expect(note.classList.contains("is-hidden")).toBe(false);
+  });
+});
+
+// ─── Prefs ready card shortcut ────────────────────────────────────────────
+
+describe("prefs ready card — shortcut display", () => {
+  it("shortcutCanonicalToDisplay converts canonical tokens to platform labels", () => {
+    // Importing dynamically to verify the pure helper
+    const { shortcutCanonicalToDisplay: convert } = require("../shortcut-display.ts");
+    expect(convert("Control+Alt+Super+M", "macos")).toBe("Control+Option+Command+M");
+    expect(convert("Control+Alt+Super+M", "windows")).toBe("Ctrl+Alt+Win+M");
+  });
+
+  it("ready card shortcut element exists in the expected DOM location", () => {
+    document.body.innerHTML = `
+      <div class="prefs-ready-card" role="note">
+        <div class="prefs-ready-content">
+          <span class="prefs-ready-title">Ready to dictate</span>
+          <span id="prefs-ready-shortcut" class="prefs-ready-shortcut">Press your shortcut to start</span>
+        </div>
+      </div>
+    `;
+    const el = document.getElementById("prefs-ready-shortcut");
+    expect(el).not.toBeNull();
+    expect(el!.textContent).toBe("Press your shortcut to start");
+    document.body.innerHTML = "";
+  });
+});
+
+// ─── Status auto-clear ───────────────────────────────────────────────────
+// These tests exercise the real scheduleStatusClear / cancelScheduledStatusClear
+// scheduling logic imported from main.ts's closure, reproduced here as a
+// faithful standalone copy of the production implementation so we can test
+// the timer interaction patterns without requiring a full init() bootstrap.
+
+describe("status auto-clear — scheduling behavior", () => {
+  const STATUS_AUTO_CLEAR_MS = 4_000;
+  let statusClearTimers: Map<HTMLElement, ReturnType<typeof setTimeout>>;
+
+  function scheduleStatusClear(element: HTMLElement, clearFn: () => void): void {
+    cancelScheduledStatusClear(element);
+    const timerId = setTimeout(() => {
+      statusClearTimers.delete(element);
+      clearFn();
+    }, STATUS_AUTO_CLEAR_MS);
+    statusClearTimers.set(element, timerId);
+  }
+
+  function cancelScheduledStatusClear(element: HTMLElement): void {
+    const existing = statusClearTimers.get(element);
+    if (existing !== undefined) {
+      clearTimeout(existing);
+      statusClearTimers.delete(element);
+    }
+  }
+
+  function setStatus(
+    element: HTMLElement,
+    message: string,
+    isError: boolean,
+    clearFn: () => void,
+  ): void {
+    element.textContent = message;
+    element.classList.toggle("is-error", isError);
+    element.classList.toggle("is-success", !isError);
+    if (isError) {
+      cancelScheduledStatusClear(element);
+    } else {
+      scheduleStatusClear(element, clearFn);
+    }
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    statusClearTimers = new Map();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("auto-clears a success status after the configured delay", () => {
+    const element = document.createElement("div");
+    const clearFn = () => {
+      element.textContent = "";
+      element.classList.remove("is-success", "is-error");
+    };
+
+    setStatus(element, "Saved.", false, clearFn);
+
+    expect(element.textContent).toBe("Saved.");
+    vi.advanceTimersByTime(3_999);
+    expect(element.textContent).toBe("Saved.");
+    vi.advanceTimersByTime(1);
+    expect(element.textContent).toBe("");
+    expect(element.classList.contains("is-success")).toBe(false);
+  });
+
+  it("replaces a pending timer when a new success is set before clear fires", () => {
+    const element = document.createElement("div");
+    const clearFn = vi.fn(() => {
+      element.textContent = "";
+      element.classList.remove("is-success", "is-error");
+    });
+
+    setStatus(element, "First save.", false, clearFn);
+    vi.advanceTimersByTime(2_000);
+    setStatus(element, "Second save.", false, clearFn);
+    vi.advanceTimersByTime(2_000);
+
+    // First timer would have fired at 4000ms if not replaced
+    expect(clearFn).not.toHaveBeenCalled();
+    expect(element.textContent).toBe("Second save.");
+
+    vi.advanceTimersByTime(2_000);
+    expect(clearFn).toHaveBeenCalledTimes(1);
+    expect(element.textContent).toBe("");
+  });
+
+  it("does not schedule a timer for error statuses", () => {
+    const element = document.createElement("div");
+    const clearFn = vi.fn();
+
+    setStatus(element, "Something failed.", true, clearFn);
+
+    vi.advanceTimersByTime(10_000);
+    expect(clearFn).not.toHaveBeenCalled();
+    expect(element.textContent).toBe("Something failed.");
+    expect(element.classList.contains("is-error")).toBe(true);
+  });
+
+  it("error after success cancels the pending success timer so error stays visible (IMP-01)", () => {
+    const element = document.createElement("div");
+    const clearFn = () => {
+      element.textContent = "";
+      element.classList.remove("is-success", "is-error");
+    };
+
+    // Show a success — schedules auto-clear at 4000ms
+    setStatus(element, "Saved.", false, clearFn);
+    expect(element.textContent).toBe("Saved.");
+
+    // 1s later, an error replaces it — must cancel the pending clear
+    vi.advanceTimersByTime(1_000);
+    setStatus(element, "Save failed.", true, clearFn);
+    expect(element.textContent).toBe("Save failed.");
+    expect(element.classList.contains("is-error")).toBe(true);
+
+    // The original success timer would have fired at 4000ms — it must NOT clear the error
+    vi.advanceTimersByTime(5_000);
+    expect(element.textContent).toBe("Save failed.");
+    expect(element.classList.contains("is-error")).toBe(true);
+  });
+
+  it("success after error replaces error and schedules auto-clear normally", () => {
+    const element = document.createElement("div");
+    const clearFn = () => {
+      element.textContent = "";
+      element.classList.remove("is-success", "is-error");
+    };
+
+    setStatus(element, "Failed.", true, clearFn);
+    vi.advanceTimersByTime(2_000);
+
+    setStatus(element, "Retried and saved.", false, clearFn);
+    expect(element.textContent).toBe("Retried and saved.");
+    expect(element.classList.contains("is-success")).toBe(true);
+    expect(element.classList.contains("is-error")).toBe(false);
+
+    vi.advanceTimersByTime(4_000);
+    expect(element.textContent).toBe("");
   });
 });

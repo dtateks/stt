@@ -176,70 +176,65 @@ describe("main credential screen sync", () => {
 
     await bootMain(bridge);
 
-    const setupScreen = document.getElementById("screen-setup") as HTMLDivElement;
-    const prefsScreen = document.getElementById("screen-prefs") as HTMLDivElement;
+    const settingsPanel = document.getElementById("settings-panel") as HTMLDivElement;
     const sonioxInput = document.getElementById("setup-soniox-key") as HTMLInputElement;
     const setupSubmitBtn = document.getElementById("setup-submit") as HTMLButtonElement;
     const setupError = document.getElementById("setup-error") as HTMLDivElement;
+    const readyTitle = document.getElementById("prefs-ready-title") as HTMLSpanElement;
 
     sonioxInput.value = "soniox-live-key";
     setupSubmitBtn.click();
     await flushMainUi();
 
-    expect(bridge.saveCredentials).toHaveBeenCalledWith("", "soniox-live-key");
-    expect(bridge.hasSonioxKey).toHaveBeenCalledTimes(2);
-    expect(setupScreen.classList.contains("is-active")).toBe(true);
-    expect(prefsScreen.classList.contains("is-active")).toBe(false);
-    expect(setupSubmitBtn.disabled).toBe(false);
-    expect(setupSubmitBtn.textContent).toBe("Get Started");
+    expect(settingsPanel).not.toBeNull();
+    expect(bridge.updateSonioxKey).toHaveBeenCalledWith("soniox-live-key");
+    expect(vi.mocked(bridge.hasSonioxKey).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(readyTitle.textContent).toBe("Activation required");
+    expect(setupSubmitBtn.textContent).toBe("Save key");
     expect(setupError.textContent).toContain("Saved credentials could not be verified");
   });
 
   it("does not advance to prefs when backend save verification fails", async () => {
     const bridge = createBridge();
     vi.mocked(bridge.hasSonioxKey).mockResolvedValue(false);
-    vi.mocked(bridge.saveCredentials).mockRejectedValueOnce(
+    vi.mocked(bridge.updateSonioxKey).mockRejectedValueOnce(
       new Error("Stored credentials could not be verified after save"),
     );
 
     await bootMain(bridge);
 
-    const setupScreen = document.getElementById("screen-setup") as HTMLDivElement;
-    const prefsScreen = document.getElementById("screen-prefs") as HTMLDivElement;
     const sonioxInput = document.getElementById("setup-soniox-key") as HTMLInputElement;
     const setupError = document.getElementById("setup-error") as HTMLDivElement;
+    const readyTitle = document.getElementById("prefs-ready-title") as HTMLSpanElement;
 
     sonioxInput.value = "soniox-live-key";
     (document.getElementById("setup-submit") as HTMLButtonElement).click();
     await flushMainUi();
 
-    expect(setupScreen.classList.contains("is-active")).toBe(true);
-    expect(prefsScreen.classList.contains("is-active")).toBe(false);
+    expect(readyTitle.textContent).toBe("Activation required");
     expect(setupError.textContent).toContain("Stored credentials could not be verified after save");
   });
 
   it("rejects Soniox keys that fail temporary-key validation during setup save", async () => {
     const bridge = createBridge();
-    vi.mocked(bridge.hasSonioxKey).mockResolvedValueOnce(false);
-    vi.mocked(bridge.saveCredentials).mockRejectedValueOnce(
+    vi.mocked(bridge.hasSonioxKey).mockResolvedValue(false);
+    vi.mocked(bridge.updateSonioxKey).mockRejectedValueOnce(
       new Error("Soniox temporary key request failed (401): invalid key"),
     );
 
     await bootMain(bridge);
 
-    const setupScreen = document.getElementById("screen-setup") as HTMLDivElement;
-    const prefsScreen = document.getElementById("screen-prefs") as HTMLDivElement;
     const sonioxInput = document.getElementById("setup-soniox-key") as HTMLInputElement;
     const setupError = document.getElementById("setup-error") as HTMLDivElement;
+    const readyTitle = document.getElementById("prefs-ready-title") as HTMLSpanElement;
 
     sonioxInput.value = "soniox-live-key";
     (document.getElementById("setup-submit") as HTMLButtonElement).click();
     await flushMainUi();
 
-    expect(bridge.saveCredentials).toHaveBeenCalledWith("", "soniox-live-key");
-    expect(bridge.hasSonioxKey).toHaveBeenCalledTimes(1);
-    expect(setupScreen.classList.contains("is-active")).toBe(true);
-    expect(prefsScreen.classList.contains("is-active")).toBe(false);
+    expect(bridge.updateSonioxKey).toHaveBeenCalledWith("soniox-live-key");
+    expect(vi.mocked(bridge.hasSonioxKey).mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(readyTitle.textContent).toBe("Activation required");
     expect(setupError.textContent).toContain(
       "Soniox temporary key request failed (401): invalid key",
     );
@@ -254,19 +249,17 @@ describe("main credential screen sync", () => {
 
     await bootMain(bridge);
 
-    const setupScreen = document.getElementById("screen-setup") as HTMLDivElement;
-    const prefsScreen = document.getElementById("screen-prefs") as HTMLDivElement;
     const sonioxInput = document.getElementById("setup-soniox-key") as HTMLInputElement;
     const setupSubmitBtn = document.getElementById("setup-submit") as HTMLButtonElement;
+    const readyTitle = document.getElementById("prefs-ready-title") as HTMLSpanElement;
 
     sonioxInput.value = "soniox-live-key";
     setupSubmitBtn.click();
     await flushMainUi();
+    await flushMainUi();
 
-    expect(setupScreen.classList.contains("is-active")).toBe(false);
-    expect(prefsScreen.classList.contains("is-active")).toBe(true);
-    expect(setupSubmitBtn.disabled).toBe(false);
-    expect(setupSubmitBtn.textContent).toBe("Get Started");
+    expect(readyTitle.textContent).toBe("Ready to dictate");
+    expect(setupSubmitBtn.textContent).toBe("Save key");
   });
 
   it("reverts prefs back to setup when focus revalidation sees no Soniox key", async () => {
@@ -278,23 +271,22 @@ describe("main credential screen sync", () => {
 
     await bootMain(bridge);
 
-    const setupScreen = document.getElementById("screen-setup") as HTMLDivElement;
-    const prefsScreen = document.getElementById("screen-prefs") as HTMLDivElement;
     const sonioxInput = document.getElementById("setup-soniox-key") as HTMLInputElement;
     const setupError = document.getElementById("setup-error") as HTMLDivElement;
+    const readyTitle = document.getElementById("prefs-ready-title") as HTMLSpanElement;
 
     sonioxInput.value = "soniox-live-key";
     (document.getElementById("setup-submit") as HTMLButtonElement).click();
     await flushMainUi();
+    await flushMainUi();
 
-    expect(prefsScreen.classList.contains("is-active")).toBe(true);
+    expect(readyTitle.textContent).toBe("Ready to dictate");
 
     vi.mocked(bridge.hasSonioxKey).mockResolvedValue(false);
     window.onfocus?.(new FocusEvent("focus"));
     await flushMainUi();
 
-    expect(setupScreen.classList.contains("is-active")).toBe(true);
-    expect(prefsScreen.classList.contains("is-active")).toBe(false);
+    expect(readyTitle.textContent).toBe("Activation required");
     expect(setupError.textContent).toContain("Soniox API key is missing");
   });
 

@@ -4,12 +4,17 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AppConfig, PlatformRuntimeInfo, VoiceToTextBridge } from "../types.ts";
+import type { AppConfig, VoiceToTextBridge } from "../types.ts";
 
 const waitForVoiceToTextBridge = vi.hoisted(() => vi.fn());
+const requestStartupPermissions = vi.hoisted(() => vi.fn());
 
 vi.mock("../bridge-ready.ts", () => ({
   waitForVoiceToTextBridge,
+}));
+
+vi.mock("../startup-permissions.ts", () => ({
+  requestStartupPermissions,
 }));
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -39,7 +44,9 @@ function loadProductionIndexHtml(): string {
   const htmlPath = resolve(__dirname, "../../index.html");
   const source = readFileSync(htmlPath, "utf-8");
   const match = source.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  if (!match) throw new Error("index.html: <body> not found");
+  if (!match) {
+    throw new Error("index.html: <body> not found");
+  }
   return match[1];
 }
 
@@ -49,17 +56,7 @@ function buildIndexDom(): void {
   document.body.innerHTML = PRODUCTION_INDEX_HTML;
 }
 
-function createBridge(
-  runtimeInfo: PlatformRuntimeInfo,
-  permissionOverrides?: Partial<
-    Pick<
-      VoiceToTextBridge,
-      | "ensureMicrophonePermission"
-      | "ensureAccessibilityPermission"
-      | "ensureTextInsertionPermission"
-    >
-  >,
-): VoiceToTextBridge {
+function createBridge(): VoiceToTextBridge {
   return {
     setMicState: vi.fn(async () => {}),
     insertText: vi.fn(async () => ({ success: true })),
@@ -71,15 +68,9 @@ function createBridge(
     hasOpenaiCompatibleKey: vi.fn(async () => true),
     getConfig: vi.fn(async () => DEFAULT_CONFIG),
     checkForUpdate: vi.fn(async () => null),
-    ensureMicrophonePermission:
-      permissionOverrides?.ensureMicrophonePermission ??
-      vi.fn(async () => ({ granted: true })),
-    ensureAccessibilityPermission:
-      permissionOverrides?.ensureAccessibilityPermission ??
-      vi.fn(async () => ({ granted: true })),
-    ensureTextInsertionPermission:
-      permissionOverrides?.ensureTextInsertionPermission ??
-      vi.fn(async () => ({ granted: true })),
+    ensureMicrophonePermission: vi.fn(async () => ({ granted: true })),
+    ensureAccessibilityPermission: vi.fn(async () => ({ granted: true })),
+    ensureTextInsertionPermission: vi.fn(async () => ({ granted: true })),
     checkPermissionsStatus: vi.fn(async () => ({
       microphone: true,
       accessibility: true,
@@ -91,7 +82,7 @@ function createBridge(
     updateOpenaiCompatibleKey: vi.fn(async () => {}),
     updateSonioxKey: vi.fn(async () => {}),
     listModels: vi.fn(async () => ["grok-4-1-fast-non-reasoning"]),
-    listSonioxModels: vi.fn(async () => ["stt-rt-v4"]),
+    listSonioxModels: vi.fn(async () => ["stt-rt-v4", "stt-rt-v3"]),
     onToggleMic: vi.fn(() => () => {}),
     copyToClipboard: vi.fn(async () => {}),
     quitApp: vi.fn(async () => {}),
@@ -100,7 +91,14 @@ function createBridge(
     hideBar: vi.fn(async () => {}),
     setMouseEvents: vi.fn(async () => {}),
     showSettings: vi.fn(async () => {}),
-    getPlatformRuntimeInfo: vi.fn(async () => runtimeInfo),
+    getPlatformRuntimeInfo: vi.fn(async () => ({
+      os: "macos",
+      shortcutDisplay: "macos",
+      permissionFlow: "system-settings-privacy",
+      backgroundRecovery: "dockless-reopen",
+      supportsFullscreenHud: true,
+      requiresPrivilegedInsertionHelper: false,
+    })),
     getMicToggleShortcut: vi.fn(async () => "Control+Alt+Super+V"),
     updateMicToggleShortcut: vi.fn(async (shortcut: string) => shortcut),
   };
@@ -112,20 +110,20 @@ async function flushMainUi(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
-  await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-async function bootMain(
-  bridge: VoiceToTextBridge,
-): Promise<void> {
+async function bootMain(bridge: VoiceToTextBridge): Promise<void> {
   vi.resetModules();
   buildIndexDom();
   window.localStorage.clear();
   window.voiceToTextDefaults = { terms: [] };
   window.voiceToText = bridge;
   waitForVoiceToTextBridge.mockResolvedValue(bridge);
+  requestStartupPermissions.mockResolvedValue([
+    { permission: "microphone", granted: true },
+    { permission: "accessibility", granted: true },
+    { permission: "automation", granted: true },
+  ]);
 
   const domReadyCallbacks: EventListenerOrEventListenerObject[] = [];
   const addEventListener = document.addEventListener.bind(document);
@@ -158,8 +156,14 @@ async function bootMain(
   await flushMainUi();
 }
 
-describe("platform runtime UI", () => {
+function resetStatusElement(element: HTMLDivElement): void {
+  element.textContent = "";
+  element.className = "pref-status-line";
+}
+
+describe("main status feedback integration", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
   });
 
@@ -168,72 +172,80 @@ describe("platform runtime UI", () => {
     window.localStorage.clear();
     window.onfocus = null;
     document.onvisibilitychange = null;
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
-  it("keeps macOS permission guidance and shortcut labels", async () => {
-    const bridge = createBridge({
-      os: "macos",
-      shortcutDisplay: "macos",
-      permissionFlow: "system-settings-privacy",
-      backgroundRecovery: "dockless-reopen",
-      supportsFullscreenHud: true,
-      requiresPrivilegedInsertionHelper: false,
-    }, {
-      ensureMicrophonePermission: vi.fn(async () => ({
-        granted: false,
-        message: "Grant microphone permission in System Settings.",
-      })),
-    });
-
+  it("auto-clears stop-word success after the configured delay", async () => {
+    const bridge = createBridge();
     await bootMain(bridge);
 
-    expect(document.getElementById("prefs-permission-text")?.textContent).toContain(
-      "System Settings",
-    );
-    expect(document.getElementById("runtime-background-recovery")?.textContent).toContain(
-      "Reopen the app",
-    );
+    vi.clearAllTimers();
 
-    const renderedKeys = Array.from(document.querySelectorAll("#pref-mic-shortcut .shortcut-key")).map(
-      (el) => el.textContent,
-    );
-    expect(renderedKeys).toContain("Option");
-    expect(renderedKeys).toContain("Command");
+    const stopWordInput = document.getElementById("pref-stop-word") as HTMLInputElement;
+    const stopWordStatus = document.getElementById("pref-stop-word-status") as HTMLDivElement;
+    resetStatusElement(stopWordStatus);
+
+    stopWordInput.value = "done now";
+    stopWordInput.focus();
+    stopWordInput.blur();
+
+    expect(stopWordStatus.textContent).toBe("Stop word saved.");
+    expect(stopWordStatus.classList.contains("is-success")).toBe(true);
+
+    vi.advanceTimersByTime(3_999);
+    expect(stopWordStatus.textContent).toBe("Stop word saved.");
+
+    vi.advanceTimersByTime(1);
+    expect(stopWordStatus.textContent).toBe("");
+    expect(stopWordStatus.classList.contains("is-success")).toBe(false);
   });
 
-  it("renders Windows-specific permission, tray, and shortcut guidance from runtime info", async () => {
-    const bridge = createBridge({
-      os: "windows",
-      shortcutDisplay: "windows",
-      permissionFlow: "windows-privacy-settings",
-      backgroundRecovery: "tray-reopen",
-      supportsFullscreenHud: false,
-      requiresPrivilegedInsertionHelper: true,
-    }, {
-      ensureTextInsertionPermission: vi.fn(async () => ({
-        granted: false,
-        code: "windows-helper-required",
-        message: "Admin apps require the privileged insertion helper.",
-      })),
-    });
-
+  it("keeps a later stop-word error visible after an earlier success timer would have fired", async () => {
+    const bridge = createBridge();
     await bootMain(bridge);
 
-    expect(document.getElementById("prefs-permission-text")?.textContent).toContain(
-      "Windows Settings",
-    );
-    expect(document.getElementById("prefs-permission-text")?.textContent).toContain(
-      "privileged insertion helper",
-    );
-    expect(document.getElementById("runtime-background-recovery")?.textContent).toContain(
-      "notification area",
-    );
+    vi.clearAllTimers();
 
-    const renderedKeys = Array.from(document.querySelectorAll("#pref-mic-shortcut .shortcut-key")).map(
-      (el) => el.textContent,
-    );
-    expect(renderedKeys).toContain("Ctrl");
-    expect(renderedKeys).toContain("Win");
-    expect(renderedKeys).not.toContain("Command");
+    const stopWordInput = document.getElementById("pref-stop-word") as HTMLInputElement;
+    const stopWordStatus = document.getElementById("pref-stop-word-status") as HTMLDivElement;
+    resetStatusElement(stopWordStatus);
+
+    stopWordInput.value = "done now";
+    stopWordInput.focus();
+    stopWordInput.blur();
+
+    expect(stopWordStatus.textContent).toBe("Stop word saved.");
+    expect(stopWordStatus.classList.contains("is-success")).toBe(true);
+
+    vi.advanceTimersByTime(1_000);
+    stopWordInput.value = "   ";
+    stopWordInput.focus();
+    stopWordInput.blur();
+
+    expect(stopWordStatus.textContent).toBe("Stop word cannot be empty.");
+    expect(stopWordStatus.classList.contains("is-error")).toBe(true);
+
+    vi.advanceTimersByTime(5_000);
+    expect(stopWordStatus.textContent).toBe("Stop word cannot be empty.");
+    expect(stopWordStatus.classList.contains("is-error")).toBe(true);
+  });
+
+  it("renders one combined settings panel without tablist navigation", async () => {
+    const bridge = createBridge();
+    await bootMain(bridge);
+
+    expect(document.querySelector('[role="tablist"]')).toBeNull();
+    expect(document.querySelector('[role="tabpanel"]')).toBeNull();
+    expect(document.getElementById("settings-panel")).not.toBeNull();
+  });
+
+  it("shows shortcut, engine, and AI sections together on first paint", async () => {
+    const bridge = createBridge();
+    await bootMain(bridge);
+
+    expect(document.getElementById("panel-quick-title")?.textContent).toBe("Daily use");
+    expect(document.getElementById("panel-engine-title")?.textContent).toBe("Speech engine");
+    expect(document.getElementById("panel-ai-title")?.textContent).toBe("AI Enhance");
   });
 });
