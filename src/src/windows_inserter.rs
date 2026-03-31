@@ -514,7 +514,6 @@ pub(super) fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
         return Some(ClipboardSnapshot {
             had_formats: false,
             formats: Vec::new(),
-            non_preservable_formats: Vec::new(),
         });
     };
 
@@ -524,7 +523,6 @@ pub(super) fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
             format: TEXT_CLIPBOARD_FORMAT.to_string(),
             data_base64: BASE64_STANDARD.encode(clipboard_text.as_bytes()),
         }],
-        non_preservable_formats: Vec::new(),
     })
 }
 
@@ -534,7 +532,7 @@ pub(super) fn restore_clipboard(snapshot: &ClipboardSnapshot) -> Result<(), Stri
     }
 
     let Some(item) = snapshot.formats.first() else {
-        return Err("Original clipboard contained formats that could not be preserved".to_string());
+        return Ok(());
     };
 
     let decoded = BASE64_STANDARD.decode(&item.data_base64).map_err(|error| {

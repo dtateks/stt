@@ -7,7 +7,7 @@ use voice_to_text_lib::permissions::{
     PermissionsStatus,
 };
 use voice_to_text_lib::text_inserter::{
-    build_insert_text_result, ensure_text_insertion_permission,
+    build_insert_text_result, build_text_insertion_permission_result,
 };
 
 const COMMAND_NAMES: [&str; 28] = [
@@ -172,36 +172,28 @@ fn ensure_permission_results_serialize_with_expected_shapes() {
         })
     );
 
-    let text_insertion = serde_json::to_value(ensure_text_insertion_permission())
-        .expect("text insertion permission result should serialize");
-    let object = text_insertion
-        .as_object()
-        .expect("text insertion permission result should be object");
-    assert!(
-        object
-            .get("granted")
-            .is_some_and(|value| value.is_boolean()),
-        "granted must be present as boolean"
+    let text_insertion_granted =
+        serde_json::to_value(build_text_insertion_permission_result(Ok(())))
+            .expect("granted text insertion permission result should serialize");
+    assert_eq!(
+        text_insertion_granted,
+        json!({
+            "granted": true,
+        })
     );
-    if object
-        .get("granted")
-        .and_then(serde_json::Value::as_bool)
-        .expect("granted should be bool")
-    {
-        assert!(
-            !object.contains_key("code") && !object.contains_key("message"),
-            "granted=true should not serialize failure-only fields"
-        );
-    } else {
-        assert!(
-            object.get("code").is_some_and(|value| value.is_string()),
-            "granted=false must include code"
-        );
-        assert!(
-            object.get("message").is_some_and(|value| value.is_string()),
-            "granted=false must include message"
-        );
-    }
+
+    let text_insertion_denied = serde_json::to_value(build_text_insertion_permission_result(Err(
+        "Execution error: serialization probe".to_string(),
+    )))
+    .expect("denied text insertion permission result should serialize");
+    assert_eq!(
+        text_insertion_denied,
+        json!({
+            "granted": false,
+            "code": "automation-check-failed",
+            "message": "Could not control System Events: Execution error: serialization probe"
+        })
+    );
 }
 
 #[test]

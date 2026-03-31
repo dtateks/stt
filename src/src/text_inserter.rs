@@ -71,7 +71,6 @@ pub struct TextInsertionPermissionResult {
 struct ClipboardSnapshot {
     had_formats: bool,
     formats: Vec<ClipboardFormatData>,
-    non_preservable_formats: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,16 +125,6 @@ where
     }
 
     let snapshot = snapshot_clipboard();
-    if let Some(snapshot_to_validate) = snapshot.as_ref() {
-        if let Err(error) = validate_clipboard_snapshot(snapshot_to_validate) {
-            return InsertTextResult {
-                success: false,
-                error: Some(error),
-                code: Some(CLIPBOARD_RESTORE_FAILED_CODE.to_string()),
-                opened_settings: None,
-            };
-        }
-    }
 
     before_insertion();
     let operation_result = perform_insertion(&text, enter_mode);
@@ -262,25 +251,6 @@ fn normalize_windows_helper_error_message(error: &str, default_message: &str) ->
     }
 
     trimmed.to_string()
-}
-
-fn validate_clipboard_snapshot(snapshot: &ClipboardSnapshot) -> Result<(), String> {
-    if !snapshot.had_formats {
-        return Ok(());
-    }
-
-    if !snapshot.non_preservable_formats.is_empty() {
-        return Err(format!(
-            "Original clipboard contained formats that could not be preserved: {}",
-            snapshot.non_preservable_formats.join(", ")
-        ));
-    }
-
-    if snapshot.formats.is_empty() {
-        return Err("Original clipboard contained formats that could not be preserved".to_string());
-    }
-
-    Ok(())
 }
 
 fn validate_pasteboard_change_count(change_count: isize) -> Result<(), String> {
@@ -593,10 +563,10 @@ mod tests {
         build_insert_text_result, build_text_insertion_permission_result,
         format_system_events_error_message, is_system_events_accessibility_denied,
         is_system_events_automation_denied, run_double_enter_sequence_with,
-        run_system_events_osascript_with, validate_clipboard_snapshot,
-        validate_pasteboard_change_count, ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE,
-        AUTOMATION_PERMISSION_REQUIRED_CODE, AUTOMATION_PERMISSION_REQUIRED_MESSAGE,
-        DOUBLE_ENTER_REPEAT_DELAY_MS, SYSTEM_EVENTS_RETURN_KEY_SCRIPT,
+        run_system_events_osascript_with, validate_pasteboard_change_count,
+        ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE, AUTOMATION_PERMISSION_REQUIRED_CODE,
+        AUTOMATION_PERMISSION_REQUIRED_MESSAGE, DOUBLE_ENTER_REPEAT_DELAY_MS,
+        SYSTEM_EVENTS_RETURN_KEY_SCRIPT,
     };
     #[cfg(target_os = "macos")]
     use super::{restore_clipboard, ClipboardSnapshot};
@@ -845,22 +815,6 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_validation_reports_non_preservable_formats() {
-        let snapshot = ClipboardSnapshot {
-            had_formats: true,
-            formats: Vec::new(),
-            non_preservable_formats: vec!["public.tiff".to_string()],
-        };
-
-        let result = validate_clipboard_snapshot(&snapshot);
-
-        assert_eq!(
-            result.err().as_deref(),
-            Some("Original clipboard contained formats that could not be preserved: public.tiff")
-        );
-    }
-
-    #[test]
     fn accepts_zero_change_count_when_clearing_clipboard() {
         assert!(validate_pasteboard_change_count(0).is_ok());
     }
@@ -875,20 +829,15 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn restore_fails_when_original_clipboard_had_formats_but_none_are_preservable() {
+    fn restore_keeps_inserted_text_when_original_clipboard_had_no_preservable_formats() {
         let snapshot = ClipboardSnapshot {
             had_formats: true,
             formats: Vec::new(),
-            non_preservable_formats: Vec::new(),
         };
 
         let result = restore_clipboard(&snapshot);
 
-        assert!(result.is_err());
-        assert_eq!(
-            result.err().as_deref(),
-            Some("Original clipboard contained formats that could not be preserved")
-        );
+        assert!(result.is_ok());
     }
 }
 
@@ -912,7 +861,6 @@ fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
             return Some(ClipboardSnapshot {
                 had_formats: false,
                 formats: Vec::new(),
-                non_preservable_formats: Vec::new(),
             });
         };
         obj
@@ -921,13 +869,11 @@ fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
     let count: usize = unsafe { msg_send![&*types, count] };
     let had_formats = count > 0;
     let mut formats = Vec::new();
-    let mut non_preservable_formats = Vec::new();
 
     for index in 0..count {
         let type_id: Retained<NSString> = unsafe {
             let obj: Option<Retained<NSString>> = msg_send![&*types, objectAtIndex: index];
             let Some(obj) = obj else {
-                non_preservable_formats.push(format!("clipboard-format-index-{index}"));
                 continue;
             };
             obj
@@ -935,7 +881,6 @@ fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
 
         let type_utf8: *const std::ffi::c_char = unsafe { msg_send![&*type_id, UTF8String] };
         if type_utf8.is_null() {
-            non_preservable_formats.push(format!("clipboard-format-index-{index}"));
             continue;
         }
 
@@ -946,7 +891,6 @@ fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
         let data: Retained<NSData> = unsafe {
             let obj: Option<Retained<NSData>> = msg_send![&*pasteboard, dataForType: &*type_id];
             let Some(obj) = obj else {
-                non_preservable_formats.push(format);
                 continue;
             };
             obj
@@ -955,7 +899,6 @@ fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
         let bytes: *const u8 = unsafe { msg_send![&*data, bytes] };
         let len: usize = unsafe { msg_send![&*data, length] };
         if len > 0 && bytes.is_null() {
-            non_preservable_formats.push(format);
             continue;
         }
 
@@ -973,7 +916,6 @@ fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
     Some(ClipboardSnapshot {
         had_formats,
         formats,
-        non_preservable_formats,
     })
 }
 
@@ -995,7 +937,13 @@ fn restore_clipboard(snapshot: &ClipboardSnapshot) -> Result<(), String> {
     use objc2_app_kit::NSPasteboard;
     use objc2_foundation::{NSData, NSString};
 
-    validate_clipboard_snapshot(snapshot)?;
+    if !snapshot.had_formats {
+        return write_plain_text_clipboard("");
+    }
+
+    if snapshot.formats.is_empty() {
+        return Ok(());
+    }
 
     let pasteboard: Retained<NSPasteboard> = unsafe {
         let cls = NSPasteboard::class();
@@ -1008,11 +956,6 @@ fn restore_clipboard(snapshot: &ClipboardSnapshot) -> Result<(), String> {
 
     let change_count: isize = unsafe { msg_send![&*pasteboard, clearContents] };
     validate_pasteboard_change_count(change_count)?;
-
-    if !snapshot.had_formats {
-        return Ok(());
-    }
-
     for item in &snapshot.formats {
         let decoded = BASE64_STANDARD.decode(&item.data_base64).map_err(|error| {
             format!(
