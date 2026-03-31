@@ -8,6 +8,7 @@ const controllerMocks = vi.hoisted(() => ({
   init: vi.fn(async () => {}),
   handleClose: vi.fn(async () => {}),
   handleClear: vi.fn(async () => {}),
+  currentState: "HIDDEN" as string,
   instance: null as {
     onStateChange: ((state: string) => void) | null;
   } | null,
@@ -42,6 +43,10 @@ vi.mock("../bar-session-controller.ts", () => ({
 
     getAnalyserNode(): AnalyserNode | null {
       return null;
+    }
+
+    getCurrentState(): string {
+      return controllerMocks.currentState;
     }
   },
 }));
@@ -156,5 +161,61 @@ describe("bar bootstrap fallback close behavior", () => {
 
     controllerMocks.instance?.onStateChange?.("HIDDEN");
     expect(closeBtn.dataset.hoverSuppressed).toBeUndefined();
+  });
+});
+
+// ─── CONNECTING label delay — timer-driven orchestration in bar.ts ──────────
+
+describe("bar CONNECTING label delay", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    controllerMocks.instance = null;
+    controllerMocks.currentState = "HIDDEN";
+    renderHudFixture();
+    Object.defineProperty(window, "voiceToText", {
+      value: {} as never,
+      writable: true,
+      configurable: true,
+    });
+    bridge.waitForVoiceToTextBridge.mockResolvedValue(window.voiceToText);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = "";
+  });
+
+  it("hides the connecting label on fast startup, reveals it after delay", async () => {
+    await bootstrapBarModule();
+
+    controllerMocks.currentState = "CONNECTING";
+    controllerMocks.instance?.onStateChange?.("CONNECTING");
+
+    const label = document.getElementById("hud-state-label") as HTMLSpanElement;
+
+    expect(label.textContent).toBe("");
+
+    vi.advanceTimersByTime(150);
+
+    expect(label.textContent).toBe("Connecting");
+  });
+
+  it("does not reveal the label if state leaves CONNECTING before delay", async () => {
+    await bootstrapBarModule();
+
+    controllerMocks.currentState = "CONNECTING";
+    controllerMocks.instance?.onStateChange?.("CONNECTING");
+
+    const label = document.getElementById("hud-state-label") as HTMLSpanElement;
+    expect(label.textContent).toBe("");
+
+    controllerMocks.currentState = "LISTENING";
+    controllerMocks.instance?.onStateChange?.("LISTENING");
+
+    vi.advanceTimersByTime(150);
+
+    expect(label.textContent).toBe("Listening");
   });
 });

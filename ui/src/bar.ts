@@ -22,6 +22,8 @@ import {
   waveformShouldRun,
 } from "./bar-render.ts";
 
+const CONNECTING_LABEL_DELAY_MS = 150;
+
 // ─── DOM refs ─────────────────────────────────────────────────────────────
 
 const hud             = document.getElementById("hud")               as HTMLDivElement;
@@ -41,11 +43,43 @@ const HUD_BUTTONS: HTMLButtonElement[] = [
 // ─── Controller ───────────────────────────────────────────────────────────
 
 const controller = new BarSessionController();
+let connectingLabelTimer: ReturnType<typeof setTimeout> | null = null;
+let shouldShowConnectingLabel = true;
+const AUDIO_WAVEFORM_SAMPLE_GAIN = 1.35;
 
 // ─── State rendering — thin wrappers that bind module DOM refs ────────────
 
 function applyState(state: BarState): void {
-  renderApplyState(state, hud, stateLabelEl, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
+  renderApplyState(
+    state,
+    hud,
+    stateLabelEl,
+    transcriptFinalEl,
+    transcriptInterimEl,
+    transcriptPromptEl,
+    { showConnectingLabel: shouldShowConnectingLabel },
+  );
+}
+
+function clearConnectingLabelTimer(): void {
+  if (connectingLabelTimer === null) {
+    return;
+  }
+
+  clearTimeout(connectingLabelTimer);
+  connectingLabelTimer = null;
+}
+
+function scheduleConnectingLabelPresentation(): void {
+  clearConnectingLabelTimer();
+  connectingLabelTimer = setTimeout(() => {
+    if (controller.getCurrentState() !== "CONNECTING") {
+      return;
+    }
+
+    shouldShowConnectingLabel = true;
+    applyState("CONNECTING");
+  }, CONNECTING_LABEL_DELAY_MS);
 }
 
 function applyTranscript(result: TranscriptResult): void {
@@ -109,7 +143,7 @@ function getWaveformLayout(width: number, height: number): WaveformLayout {
   return waveformLayoutCache;
 }
 
-function getAnalyserFrequencyBuffer(analyser: AnalyserNode): Uint8Array<ArrayBuffer> {
+function getAnalyserSampleBuffer(analyser: AnalyserNode): Uint8Array<ArrayBuffer> {
   const nextLength = analyser.frequencyBinCount;
   if (analyserDataBuffer?.length === nextLength) {
     return analyserDataBuffer;
@@ -154,8 +188,8 @@ function drawWaveform(): void {
     return;
   }
 
-  const dataArray = getAnalyserFrequencyBuffer(analyser);
-  analyser.getByteFrequencyData(dataArray);
+  const dataArray = getAnalyserSampleBuffer(analyser);
+  analyser.getByteTimeDomainData(dataArray);
 
   drawAudioWaveform(dataArray, layout);
 }
@@ -164,59 +198,59 @@ function drawIdleWaveform(layout: WaveformLayout): void {
   if (!canvasCtx) return;
 
   const now = performance.now() / 1000;
+  const step = layout.width / (layout.pointCount - 1);
 
-  for (let i = 0; i < layout.barCount; i++) {
-    const x = layout.gap + i * (layout.barWidth + layout.gap);
-    const phase = (i / layout.barCount) * Math.PI * 2;
-    const amplitude = (Math.sin(now * 1.2 + phase) * 0.5 + 0.5) * 4 + 2;
+  canvasCtx.beginPath();
 
-    canvasCtx.fillStyle = "rgba(110, 117, 129, 0.4)";
-    canvasCtx.beginPath();
-    canvasCtx.roundRect(x, layout.centerY - amplitude / 2, layout.barWidth, amplitude, 1);
-    canvasCtx.fill();
+  for (let i = 0; i < layout.pointCount; i++) {
+    const x = i * step;
+    const phase = (i / layout.pointCount) * Math.PI * 4;
+    const y = layout.centerY + Math.sin(now * 1.2 + phase) * 2;
+
+    if (i === 0) {
+      canvasCtx.moveTo(x, y);
+    } else {
+      canvasCtx.lineTo(x, y);
+    }
   }
+
+  canvasCtx.strokeStyle = "rgba(110, 117, 129, 0.4)";
+  canvasCtx.lineWidth = layout.lineWidth;
+  canvasCtx.lineJoin = "round";
+  canvasCtx.lineCap = "round";
+  canvasCtx.stroke();
 }
 
 function drawAudioWaveform(data: Uint8Array<ArrayBuffer>, layout: WaveformLayout): void {
   if (!canvasCtx) return;
 
-  const state = hud.dataset.state as BarState;
-  const isListening = state === "LISTENING";
+  const step = layout.width / (layout.pointCount - 1);
+  const sampleStep = Math.max(1, Math.floor(data.length / layout.pointCount));
 
-  const bucketSize = Math.max(1, Math.floor(data.length / layout.barCount));
+  canvasCtx.beginPath();
 
-  for (let i = 0; i < layout.barCount; i++) {
-    const bucketStart = i * bucketSize;
-    if (bucketStart >= data.length) break;
+  for (let i = 0; i < layout.pointCount; i++) {
+    const sampleIndex = Math.min(i * sampleStep, data.length - 1);
+    const normalizedSample = (data[sampleIndex] - 128) / 128;
+    const x = i * step;
+    const y = layout.centerY + normalizedSample * layout.maxAmplitude * AUDIO_WAVEFORM_SAMPLE_GAIN;
 
-    let sum = 0;
-    const bucketEnd = Math.min(bucketStart + bucketSize, data.length);
-    for (let j = bucketStart; j < bucketEnd; j++) {
-      sum += data[j];
-    }
-
-    const avg = sum / (bucketEnd - bucketStart) / 255;
-    const barH = Math.max(2, avg * layout.maxBarHeight);
-    const x = layout.gap + i * (layout.barWidth + layout.gap);
-
-    if (isListening) {
-      const gradient = canvasCtx.createLinearGradient(
-        x,
-        layout.centerY - barH / 2,
-        x,
-        layout.centerY + barH / 2,
-      );
-      gradient.addColorStop(0, `rgba(56, 232, 255, ${0.4 + avg * 0.6})`);
-      gradient.addColorStop(1, `rgba(167, 139, 250, ${0.3 + avg * 0.5})`);
-      canvasCtx.fillStyle = gradient;
+    if (i === 0) {
+      canvasCtx.moveTo(x, y);
     } else {
-      canvasCtx.fillStyle = "rgba(110, 117, 129, 0.35)";
+      canvasCtx.lineTo(x, y);
     }
-
-    canvasCtx.beginPath();
-    canvasCtx.roundRect(x, layout.centerY - barH / 2, layout.barWidth, barH, 1);
-    canvasCtx.fill();
   }
+
+  const gradient = canvasCtx.createLinearGradient(0, 0, layout.width, 0);
+  gradient.addColorStop(0, "rgba(56, 232, 255, 0.7)");
+  gradient.addColorStop(1, "rgba(167, 139, 250, 0.6)");
+  canvasCtx.strokeStyle = gradient;
+
+  canvasCtx.lineWidth = layout.lineWidth;
+  canvasCtx.lineJoin = "round";
+  canvasCtx.lineCap = "round";
+  canvasCtx.stroke();
 }
 
 // ─── Controls ─────────────────────────────────────────────────────────────
@@ -262,6 +296,14 @@ function bindControls(): void {
 // ─── State transitions ────────────────────────────────────────────────────
 
 controller.onStateChange = (state) => {
+  if (state === "CONNECTING") {
+    shouldShowConnectingLabel = false;
+    scheduleConnectingLabelPresentation();
+  } else {
+    shouldShowConnectingLabel = true;
+    clearConnectingLabelTimer();
+  }
+
   applyState(state);
 
   if (state === "HIDDEN" || state === "CONNECTING") {

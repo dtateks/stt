@@ -26,18 +26,21 @@ export const STATE_LABELS: Record<BarState, string> = {
 const LIVE_TRANSCRIPT_PENDING_SUFFIX = "…";
 const LIVE_TRANSCRIPT_TERMINAL_PUNCTUATION_PATTERN = /(?:\.{3}|…|[.!?。！？])+\s*$/;
 const INTERIM_TRANSCRIPT_MEANINGFUL_CONTENT_PATTERN = /[\p{L}\p{N}]/u;
-const WAVEFORM_BAR_COUNT = 12;
-const WAVEFORM_BAR_WIDTH = 2;
-const WAVEFORM_MAX_BAR_HEIGHT_RATIO = 0.85;
+const WAVEFORM_POINT_COUNT = 48;
+const WAVEFORM_LINE_WIDTH = 1.5;
+const WAVEFORM_MAX_AMPLITUDE_RATIO = 0.8;
+
+export interface StatePresentationOptions {
+  showConnectingLabel?: boolean;
+}
 
 export interface WaveformLayout {
   width: number;
   height: number;
   centerY: number;
-  barCount: number;
-  barWidth: number;
-  gap: number;
-  maxBarHeight: number;
+  pointCount: number;
+  lineWidth: number;
+  maxAmplitude: number;
 }
 
 export function createWaveformLayout(width: number, height: number): WaveformLayout {
@@ -45,10 +48,9 @@ export function createWaveformLayout(width: number, height: number): WaveformLay
     width,
     height,
     centerY: height / 2,
-    barCount: WAVEFORM_BAR_COUNT,
-    barWidth: WAVEFORM_BAR_WIDTH,
-    gap: (width - WAVEFORM_BAR_COUNT * WAVEFORM_BAR_WIDTH) / (WAVEFORM_BAR_COUNT + 1),
-    maxBarHeight: height * WAVEFORM_MAX_BAR_HEIGHT_RATIO,
+    pointCount: WAVEFORM_POINT_COUNT,
+    lineWidth: WAVEFORM_LINE_WIDTH,
+    maxAmplitude: (height / 2) * WAVEFORM_MAX_AMPLITUDE_RATIO,
   };
 }
 
@@ -71,9 +73,10 @@ export function applyState(
   transcriptFinalEl: HTMLElement,
   transcriptInterimEl: HTMLElement,
   transcriptPromptEl: HTMLElement,
+  options: StatePresentationOptions = {},
 ): void {
   hud.dataset.state = state;
-  stateLabelEl.textContent = STATE_LABELS[state];
+  stateLabelEl.textContent = getPresentedStateLabel(state, options);
 
   if (state === "HIDDEN" || state === "CONNECTING") {
     transcriptFinalEl.textContent = "";
@@ -81,6 +84,17 @@ export function applyState(
   }
 
   syncPromptVisibility(hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
+}
+
+export function getPresentedStateLabel(
+  state: BarState,
+  options: StatePresentationOptions = {},
+): string {
+  if (state === "CONNECTING" && options.showConnectingLabel === false) {
+    return "";
+  }
+
+  return STATE_LABELS[state];
 }
 
 export function applyTranscript(
