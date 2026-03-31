@@ -177,7 +177,8 @@ function stopWaveform(): void {
 
 function clearWaveform(): void {
   if (!canvasCtx) return;
-  canvasCtx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+  const dpr = window.devicePixelRatio || 1;
+  canvasCtx.clearRect(0, 0, waveformCanvas.width / dpr, waveformCanvas.height / dpr);
 }
 
 function drawWaveform(): void {
@@ -186,9 +187,12 @@ function drawWaveform(): void {
   if (!canvasCtx) return;
 
   const analyser = controller.getAnalyserNode();
-  const layout = getWaveformLayout(waveformCanvas.width, waveformCanvas.height);
+  const dpr = window.devicePixelRatio || 1;
+  const logicalWidth = waveformCanvas.width / dpr;
+  const logicalHeight = waveformCanvas.height / dpr;
+  const layout = getWaveformLayout(logicalWidth, logicalHeight);
 
-  canvasCtx.clearRect(0, 0, layout.width, layout.height);
+  canvasCtx.clearRect(0, 0, logicalWidth, logicalHeight);
 
   if (!analyser) {
     drawIdleHeartbeat(layout);
