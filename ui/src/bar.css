@@ -3,7 +3,7 @@
  *
  * Design intent: calm, confident overlay. The transcript is the hero —
  * everything else is secondary. Status is communicated through
- * understated color shifts and a single indicator dot.
+ * understated color shifts and a heartbeat waveform line.
  * Controls are visible but deferential.
  */
 
@@ -82,74 +82,7 @@ body {
 .hud-leading {
   display: flex;
   align-items: center;
-  gap: 10px;
   flex-shrink: 0;
-}
-
-/* ─── Status dot ─────────────────────────────────────────────────────────── */
-.hud-status {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-full);
-  flex-shrink: 0;
-  background: var(--text-disabled);
-  transition: background var(--duration-normal) var(--ease-out);
-  position: relative;
-}
-
-/* Pulse ring on LISTENING */
-.hud-status::after {
-  content: "";
-  position: absolute;
-  inset: -4px;
-  border-radius: var(--radius-full);
-  border: 1px solid currentColor;
-  opacity: 0;
-  transform: scale(0.6);
-}
-
-.hud[data-state="CONNECTING"] .hud-status {
-  background: var(--color-warning-500);
-  animation: hud-pulse 1.2s ease-in-out infinite;
-}
-
-.hud[data-state="LISTENING"] .hud-status {
-  background: var(--color-cyan-400);
-  box-shadow: 0 0 6px var(--color-cyan-400);
-  animation: hud-breathe 2.8s ease-in-out infinite;
-}
-
-.hud[data-state="PROCESSING"] .hud-status {
-  background: var(--color-violet-400);
-  box-shadow: 0 0 6px var(--color-violet-400);
-  animation: hud-pulse 0.8s ease-in-out infinite;
-}
-
-.hud[data-state="INSERTING"] .hud-status {
-  background: var(--color-cyan-300);
-  animation: hud-pulse 0.6s ease-in-out infinite;
-}
-
-.hud[data-state="SUCCESS"] .hud-status {
-  background: var(--color-success-500);
-  box-shadow: 0 0 6px var(--color-success-500);
-  animation: none;
-}
-
-.hud[data-state="ERROR"] .hud-status {
-  background: var(--color-error-500);
-  box-shadow: 0 0 6px var(--color-error-500);
-  animation: hud-pulse 0.4s ease-in-out 3;
-}
-
-@keyframes hud-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.5; transform: scale(0.85); }
-}
-
-@keyframes hud-breathe {
-  0%, 100% { opacity: 1; box-shadow: 0 0 4px var(--color-cyan-400); }
-  50%       { opacity: 0.85; box-shadow: 0 0 8px var(--color-cyan-400), 0 0 16px rgba(56, 232, 255, 0.3); }
 }
 
 /* ─── Waveform ───────────────────────────────────────────────────────────── */
@@ -360,8 +293,6 @@ body {
 
 /* ─── Reduced motion ─────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .hud-status,
-  .hud-status::after,
   .hud::before {
     animation: none !important;
     transition: background var(--duration-fast), opacity var(--duration-fast) !important;

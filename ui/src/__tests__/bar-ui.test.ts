@@ -129,6 +129,30 @@ describe("applyState — data-state reflection", () => {
     }
   });
 
+  it("keeps fast CONNECTING startups from showing the connecting label", () => {
+    applyState(
+      "CONNECTING",
+      getHud(), getStateLabel(),
+      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      { showConnectingLabel: false },
+    );
+
+    expect(getHud().dataset.state).toBe("CONNECTING");
+    expect(getStateLabel().textContent).toBe("");
+  });
+
+  it("shows the connecting label when CONNECTING lasts long enough", () => {
+    applyState(
+      "CONNECTING",
+      getHud(), getStateLabel(),
+      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      { showConnectingLabel: true },
+    );
+
+    expect(getHud().dataset.state).toBe("CONNECTING");
+    expect(getStateLabel().textContent).toBe("Connecting");
+  });
+
   it("STATE_LABELS export matches applyState output (production constant, not local copy)", () => {
     // Validates that the imported STATE_LABELS is the same map used by applyState.
     for (const [state, expectedLabel] of Object.entries(STATE_LABELS) as Array<[BarState, string]>) {
@@ -573,10 +597,9 @@ describe("createWaveformLayout — pure geometry contract", () => {
     expect(layout.width).toBe(120);
     expect(layout.height).toBe(40);
     expect(layout.centerY).toBe(20);
-    expect(layout.barCount).toBe(12);
-    expect(layout.barWidth).toBe(2);
-    expect(layout.maxBarHeight).toBe(34);
-    expect(layout.gap).toBeCloseTo(7.3846, 3);
+    expect(layout.pointCount).toBe(48);
+    expect(layout.lineWidth).toBe(1.5);
+    expect(layout.maxAmplitude).toBe(16);
   });
 
   it("returns identical values for repeated same-size calls", () => {
@@ -751,10 +774,6 @@ describe("bar.html — accessibility contract (production source)", () => {
   it("waveform container is aria-hidden", () => {
     const waveform = document.querySelector(".hud-waveform");
     expect(waveform?.getAttribute("aria-hidden")).toBe("true");
-  });
-
-  it("status dot is aria-hidden", () => {
-    expect(getHud().querySelector("#hud-status")?.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("state label is aria-hidden", () => {

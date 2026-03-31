@@ -42,7 +42,7 @@
         every child text change. The transcript region owns the live announcement.
       - Transcript content area carries aria-live="polite" so AT announces only
         when spoken text or error messages change, not on every state transition.
-      - Decorative elements (status dot, waveform, state label, separator) are
+      - Decorative elements (waveform, state label, separator) are
         aria-hidden to prevent noise.
       - Buttons are tabindex="-1" in PASSIVE overlay mode (click-through); bar.ts
         raises them to tabindex="0" when entering INTERACTIVE mode.
@@ -55,12 +55,6 @@
       data-state="HIDDEN"
     >
       <div class="hud-leading" aria-hidden="true">
-        <span
-          id="hud-status"
-          class="hud-status"
-          aria-hidden="true"
-        ></span>
-
         <div class="hud-waveform" aria-hidden="true">
           <canvas id="waveform"></canvas>
         </div>
