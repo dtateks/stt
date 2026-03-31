@@ -108,10 +108,14 @@ async function flushMainUi(): Promise<void> {
   await Promise.resolve();
 }
 
-async function bootMain(bridge: VoiceToTextBridge): Promise<void> {
+async function bootMain(
+  bridge: VoiceToTextBridge,
+  options: { seedLocalStorage?: () => void } = {},
+): Promise<void> {
   vi.resetModules();
   buildIndexDom();
   window.localStorage.clear();
+  options.seedLocalStorage?.();
   window.voiceToTextDefaults = { terms: [] };
   window.voiceToText = bridge;
   waitForVoiceToTextBridge.mockResolvedValue(bridge);
@@ -293,4 +297,5 @@ describe("main credential screen sync", () => {
     expect(prefsScreen.classList.contains("is-active")).toBe(false);
     expect(setupError.textContent).toContain("Soniox API key is missing");
   });
+
 });

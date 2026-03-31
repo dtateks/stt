@@ -51,6 +51,14 @@ function createBridge(): VoiceToTextBridge {
     showSettings: vi.fn(async () => {}),
     checkPermissionsStatus: vi.fn(async () => ({ microphone: true, accessibility: true, automation: true })),
     relaunchApp: vi.fn(async () => {}),
+    getPlatformRuntimeInfo: vi.fn(async () => ({
+      os: "macos",
+      shortcutDisplay: "macos",
+      permissionFlow: "system-settings-privacy",
+      backgroundRecovery: "dockless-reopen",
+      supportsFullscreenHud: true,
+      requiresPrivilegedInsertionHelper: false,
+    })),
     getMicToggleShortcut: vi.fn(async () => "Control+Alt+Super+V"),
     updateMicToggleShortcut: vi.fn(async (shortcut: string) => shortcut),
   };

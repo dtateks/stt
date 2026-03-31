@@ -25,9 +25,15 @@
           </div>
           <h1 class="setup-title">Voice to Text</h1>
           <p class="setup-subtitle">
-            Enter your API keys to get started.
+            Press a shortcut. Speak. Text appears where your cursor is.
           </p>
         </div>
+
+        <ol class="setup-how-it-works" aria-label="How it works">
+          <li>Press your keyboard shortcut to start listening</li>
+          <li>Speak naturally — your words appear as live text</li>
+          <li>Text is inserted directly into the active app</li>
+        </ol>
 
         <div
           id="setup-error"
@@ -56,23 +62,39 @@
             </span>
           </div>
 
-          <div class="form-field">
-            <label class="form-label" for="setup-xai-key">
-              xAI API Key
-              <span class="optional-mark" aria-label="optional">(optional)</span>
-            </label>
-            <input
-              id="setup-xai-key"
-              type="password"
-              class="form-input"
-              placeholder="xai-…"
-              autocomplete="off"
-              spellcheck="false"
-              aria-describedby="xai-key-hint"
-            />
-            <span id="xai-key-hint" class="form-hint">
-              Enables AI transcript correction.
-            </span>
+          <details class="setup-optional-disclosure">
+            <summary>Set up AI transcript correction (optional)</summary>
+            <div class="form-field">
+              <label class="form-label" for="setup-xai-key">
+                xAI API Key
+              </label>
+              <input
+                id="setup-xai-key"
+                type="password"
+                class="form-input"
+                placeholder="xai-…"
+                autocomplete="off"
+                spellcheck="false"
+                aria-describedby="xai-key-hint"
+              />
+              <span id="xai-key-hint" class="form-hint">
+                AI-corrects your transcript before insertion.
+              </span>
+            </div>
+          </details>
+        </div>
+
+        <div class="setup-permission-card" role="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <div>
+            <p class="setup-permission-card-title">Permission prompts may appear</p>
+            <ul class="setup-permission-list">
+              <li><strong>Microphone</strong> — to capture your voice</li>
+              <li><strong>Accessibility</strong> — to insert text into other apps</li>
+              <li><strong>Input Monitoring</strong> — to detect your keyboard shortcut</li>
+            </ul>
           </div>
         </div>
 
@@ -129,8 +151,11 @@
         <span id="prefs-permission-text">Some permissions are missing. Review the platform privacy guidance.</span>
       </div>
 
-      <div class="pref-status-line" id="runtime-background-recovery" aria-live="polite">
-        If the app is running in the background, reopen the app to show settings again.
+      <div class="pref-help-notice" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        <span id="runtime-background-recovery" aria-live="polite">If the app is running in the background, reopen the app to show settings again.</span>
       </div>
 
       <div
@@ -221,6 +246,21 @@
             <div id="pref-stop-word-status" class="pref-status-line" aria-live="polite"></div>
           </div>
 
+          <!-- Vocabulary accuracy -->
+          <div class="setting-group">
+            <div class="setting-group-header">
+              <span class="setting-group-title">Vocabulary</span>
+              <span class="setting-group-desc">Domain-specific terms for better transcription accuracy</span>
+            </div>
+            <button id="action-open-settings" class="vocab-action-btn" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+              Manage
+              <span id="vocab-count" class="vocab-badge" aria-label="vocabulary term count"></span>
+            </button>
+          </div>
+
           <!-- Toggles -->
           <div class="toggle-group">
             <div class="toggle-row">
@@ -244,6 +284,7 @@
                 <span class="toggle-track" aria-hidden="true"></span>
               </label>
             </div>
+
           </div>
 
           <!-- Soniox API key -->
@@ -375,15 +416,7 @@
       </main>
 
       <!-- ── Bottom toolbar ──────────────────────────────────────────────── -->
-      <footer class="bottom-bar">
-        <button id="action-open-settings" class="bottom-action" type="button">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-          </svg>
-          Vocabulary
-          <span id="vocab-count" class="vocab-badge" aria-label="vocabulary term count"></span>
-        </button>
-
+      <footer class="bottom-bar bottom-bar--empty">
       </footer>
     </section>
 

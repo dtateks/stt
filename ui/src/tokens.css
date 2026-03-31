@@ -134,8 +134,8 @@
   --bg-active:          rgba(255, 255, 255, 0.1);
 
   --text-primary:       var(--color-gray-50);
-  --text-secondary:     var(--color-gray-300);
-  --text-tertiary:      var(--color-gray-400);
+  --text-secondary:     var(--color-gray-200);
+  --text-tertiary:      var(--color-gray-300);
   --text-disabled:      var(--color-gray-500);
   --text-placeholder:   var(--color-gray-500);
 

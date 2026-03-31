@@ -160,16 +160,6 @@ const openSettingsBtn = q<HTMLButtonElement>("#action-open-settings");
 const tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".tab-btn"));
 const tabPanels = Array.from(document.querySelectorAll<HTMLDivElement>(".tab-panel"));
 
-const SHORTCUT_STATUS_CLEAR_DELAY_MS = 4_000;
-let shortcutStatusTimer: ReturnType<typeof setTimeout> | null = null;
-
-const AI_STATUS_CLEAR_DELAY_MS = 4_000;
-const STOP_WORD_STATUS_CLEAR_DELAY_MS = 4_000;
-const SONIOX_KEY_STATUS_CLEAR_DELAY_MS = 4_000;
-const SONIOX_MODEL_STATUS_CLEAR_DELAY_MS = 4_000;
-const MODEL_STATUS_CLEAR_DELAY_MS = 4_000;
-const PROVIDER_KEY_STATUS_CLEAR_DELAY_MS = 4_000;
-
 const OPENAI_COMPATIBLE_PROVIDER: LlmProvider = "openai_compatible";
 const XAI_PROVIDER: LlmProvider = "xai";
 const GEMINI_PROVIDER: LlmProvider = "gemini";
@@ -186,12 +176,6 @@ const UPDATE_DOWNLOADING_LABEL = "Downloading…";
 const UPDATE_RETRY_LABEL = "Retry";
 const UPDATE_RESTARTING_LABEL = "Restarting…";
 
-let aiStatusTimer: ReturnType<typeof setTimeout> | null = null;
-let stopWordStatusTimer: ReturnType<typeof setTimeout> | null = null;
-let sonioxKeyStatusTimer: ReturnType<typeof setTimeout> | null = null;
-let sonioxModelStatusTimer: ReturnType<typeof setTimeout> | null = null;
-let modelStatusTimer: ReturnType<typeof setTimeout> | null = null;
-let providerKeyStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let updateAvailable: AppUpdate | null = null;
 let updateDownloading = false;
 let defaultStopWord = "thank you";
@@ -709,6 +693,7 @@ function syncProviderKeyLabel(): void {
 }
 
 function handleStopWordSave(): void {
+  clearStopWordStatus();
   const stopWord = stopWordInput.value.trim();
   if (!stopWord) {
     setStopWordStatus("Stop word cannot be empty.", true);
@@ -726,6 +711,7 @@ function handleStopWordSave(): void {
 }
 
 function handleStopWordReset(): void {
+  clearStopWordStatus();
   const resetOk = resetCustomStopWordPreference();
   if (!resetOk) {
     setStopWordStatus("Could not reset stop word. Storage may be unavailable.", true);
@@ -737,6 +723,7 @@ function handleStopWordReset(): void {
 }
 
 async function handleProviderKeySave(): Promise<void> {
+  clearProviderKeyStatus();
   const provider = llmProviderSelect.value as LlmProvider;
   const key = providerKeyInput.value.trim();
 
@@ -762,6 +749,7 @@ async function handleProviderKeySave(): Promise<void> {
 }
 
 async function handleSonioxKeySave(): Promise<void> {
+  clearSonioxKeyStatus();
   const key = sonioxKeyInput.value.trim();
   if (!key) {
     setSonioxKeyStatus("Soniox key cannot be empty.", true);
@@ -780,6 +768,7 @@ async function handleSonioxKeySave(): Promise<void> {
 }
 
 async function fetchSonioxModels(): Promise<void> {
+  clearSonioxModelStatus();
   setSonioxModelLoading(true);
   setSonioxModelStatus("Fetching Soniox realtime models…", false);
 
@@ -839,6 +828,7 @@ function showSonioxModelPlaceholder(): void {
 }
 
 async function fetchModels(): Promise<void> {
+  clearModelStatus();
   const provider = llmProviderSelect.value as LlmProvider;
   const baseUrl = llmBaseUrlInput.value.trim() || undefined;
 
@@ -1163,6 +1153,7 @@ async function saveRecordedShortcut(shortcut: string): Promise<void> {
 }
 
 async function handleMicShortcutSave(): Promise<void> {
+  clearShortcutStatus();
   // The shortcut is already saved when recording completes
   // This button is now just for explicit save if user typed something
   const currentShortcut = buildShortcutFromRecorder();
@@ -1175,6 +1166,7 @@ async function handleMicShortcutSave(): Promise<void> {
 }
 
 async function handleMicShortcutReset(): Promise<void> {
+  clearShortcutStatus();
   setMicShortcutBusy(true);
   try {
     const runtimeShortcut = await window.voiceToText.updateMicToggleShortcut(
@@ -1216,22 +1208,11 @@ function setShortcutStatus(message: string, isError: boolean): void {
   micShortcutStatus.textContent = message;
   micShortcutStatus.classList.toggle("is-error", isError);
   micShortcutStatus.classList.toggle("is-success", !isError);
-
-  if (shortcutStatusTimer !== null) {
-    clearTimeout(shortcutStatusTimer);
-  }
-  shortcutStatusTimer = setTimeout(() => {
-    clearShortcutStatus();
-  }, SHORTCUT_STATUS_CLEAR_DELAY_MS);
 }
 
 function clearShortcutStatus(): void {
   micShortcutStatus.textContent = "";
   micShortcutStatus.classList.remove("is-error", "is-success");
-  if (shortcutStatusTimer !== null) {
-    clearTimeout(shortcutStatusTimer);
-    shortcutStatusTimer = null;
-  }
 }
 
 // ─── Stop word status ─────────────────────────────────────────────────────
@@ -1240,23 +1221,11 @@ function setStopWordStatus(message: string, isError: boolean): void {
   stopWordStatus.textContent = message;
   stopWordStatus.classList.toggle("is-error", isError);
   stopWordStatus.classList.toggle("is-success", !isError);
-
-  if (stopWordStatusTimer !== null) {
-    clearTimeout(stopWordStatusTimer);
-  }
-
-  stopWordStatusTimer = setTimeout(() => {
-    clearStopWordStatus();
-  }, STOP_WORD_STATUS_CLEAR_DELAY_MS);
 }
 
 function clearStopWordStatus(): void {
   stopWordStatus.textContent = "";
   stopWordStatus.classList.remove("is-error", "is-success");
-  if (stopWordStatusTimer !== null) {
-    clearTimeout(stopWordStatusTimer);
-    stopWordStatusTimer = null;
-  }
 }
 
 // ─── AI status ────────────────────────────────────────────────────────────
@@ -1265,23 +1234,11 @@ function setAiStatus(message: string, isError: boolean): void {
   aiStatus.textContent = message;
   aiStatus.classList.toggle("is-error", isError);
   aiStatus.classList.toggle("is-success", !isError);
-
-  if (aiStatusTimer !== null) {
-    clearTimeout(aiStatusTimer);
-  }
-
-  aiStatusTimer = setTimeout(() => {
-    clearAiStatus();
-  }, AI_STATUS_CLEAR_DELAY_MS);
 }
 
 function clearAiStatus(): void {
   aiStatus.textContent = "";
   aiStatus.classList.remove("is-error", "is-success");
-  if (aiStatusTimer !== null) {
-    clearTimeout(aiStatusTimer);
-    aiStatusTimer = null;
-  }
 }
 
 // ─── Soniox key status ────────────────────────────────────────────────────
@@ -1290,46 +1247,22 @@ function setSonioxKeyStatus(message: string, isError: boolean): void {
   sonioxKeyStatus.textContent = message;
   sonioxKeyStatus.classList.toggle("is-error", isError);
   sonioxKeyStatus.classList.toggle("is-success", !isError);
-
-  if (sonioxKeyStatusTimer !== null) {
-    clearTimeout(sonioxKeyStatusTimer);
-  }
-
-  sonioxKeyStatusTimer = setTimeout(() => {
-    clearSonioxKeyStatus();
-  }, SONIOX_KEY_STATUS_CLEAR_DELAY_MS);
 }
 
 function clearSonioxKeyStatus(): void {
   sonioxKeyStatus.textContent = "";
   sonioxKeyStatus.classList.remove("is-error", "is-success");
-  if (sonioxKeyStatusTimer !== null) {
-    clearTimeout(sonioxKeyStatusTimer);
-    sonioxKeyStatusTimer = null;
-  }
 }
 
 function setSonioxModelStatus(message: string, isError: boolean): void {
   sonioxModelStatus.textContent = message;
   sonioxModelStatus.classList.toggle("is-error", isError);
   sonioxModelStatus.classList.toggle("is-success", !isError);
-
-  if (sonioxModelStatusTimer !== null) {
-    clearTimeout(sonioxModelStatusTimer);
-  }
-
-  sonioxModelStatusTimer = setTimeout(() => {
-    clearSonioxModelStatus();
-  }, SONIOX_MODEL_STATUS_CLEAR_DELAY_MS);
 }
 
 function clearSonioxModelStatus(): void {
   sonioxModelStatus.textContent = "";
   sonioxModelStatus.classList.remove("is-error", "is-success");
-  if (sonioxModelStatusTimer !== null) {
-    clearTimeout(sonioxModelStatusTimer);
-    sonioxModelStatusTimer = null;
-  }
 }
 
 // ─── Model status ─────────────────────────────────────────────────────────
@@ -1338,23 +1271,11 @@ function setModelStatus(message: string, isError: boolean): void {
   llmModelStatus.textContent = message;
   llmModelStatus.classList.toggle("is-error", isError);
   llmModelStatus.classList.toggle("is-success", !isError);
-
-  if (modelStatusTimer !== null) {
-    clearTimeout(modelStatusTimer);
-  }
-
-  modelStatusTimer = setTimeout(() => {
-    clearModelStatus();
-  }, MODEL_STATUS_CLEAR_DELAY_MS);
 }
 
 function clearModelStatus(): void {
   llmModelStatus.textContent = "";
   llmModelStatus.classList.remove("is-error", "is-success");
-  if (modelStatusTimer !== null) {
-    clearTimeout(modelStatusTimer);
-    modelStatusTimer = null;
-  }
 }
 
 // ─── Provider key status ──────────────────────────────────────────────────
@@ -1363,23 +1284,11 @@ function setProviderKeyStatus(message: string, isError: boolean): void {
   providerKeyStatus.textContent = message;
   providerKeyStatus.classList.toggle("is-error", isError);
   providerKeyStatus.classList.toggle("is-success", !isError);
-
-  if (providerKeyStatusTimer !== null) {
-    clearTimeout(providerKeyStatusTimer);
-  }
-
-  providerKeyStatusTimer = setTimeout(() => {
-    clearProviderKeyStatus();
-  }, PROVIDER_KEY_STATUS_CLEAR_DELAY_MS);
 }
 
 function clearProviderKeyStatus(): void {
   providerKeyStatus.textContent = "";
   providerKeyStatus.classList.remove("is-error", "is-success");
-  if (providerKeyStatusTimer !== null) {
-    clearTimeout(providerKeyStatusTimer);
-    providerKeyStatusTimer = null;
-  }
 }
 
 // ─── AI fieldset disabled sync ────────────────────────────────────────────
