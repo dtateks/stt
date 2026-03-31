@@ -33,7 +33,10 @@ const stateLabelEl    = document.getElementById("hud-state-label")   as HTMLSpan
 const clearBtn        = document.getElementById("hud-clear-btn")     as HTMLButtonElement;
 const closeBtn        = document.getElementById("hud-close-btn")     as HTMLButtonElement;
 
-const HUD_BUTTONS: HTMLButtonElement[] = [clearBtn, closeBtn];
+const HUD_BUTTONS: HTMLButtonElement[] = [
+  clearBtn,
+  closeBtn,
+];
 
 // ─── Controller ───────────────────────────────────────────────────────────
 
@@ -253,6 +256,7 @@ function bindControls(): void {
       void window.voiceToText?.hideBar();
     });
   });
+
 }
 
 // ─── State transitions ────────────────────────────────────────────────────

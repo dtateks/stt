@@ -527,60 +527,73 @@ export class BarSessionController {
       return;
     }
 
-    const result = await window.voiceToText.insertText(correctedText, {
+    await this.executeInsertionAndResumeListening(
+      correctedText,
+      sessionPreferences,
+      finalizationAttemptId,
+    );
+  }
+
+  private async executeInsertionAndResumeListening(
+    text: string,
+    sessionPreferences: ActiveSessionPreferences,
+    startAttemptId: number,
+  ): Promise<void> {
+    const result = await window.voiceToText.insertText(text, {
       enterMode: sessionPreferences.enterMode,
     });
-    if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
+    if (!this.isStartAttemptCurrent(startAttemptId)) {
       return;
     }
 
-    if (result.success) {
-      try {
-        const apiKey = await this.createTemporaryApiKey();
-        if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
-          return;
-        }
-        if (!apiKey) {
-          throw new Error(STARTUP_MISSING_KEY_ERROR_MESSAGE);
-        }
-
-        await this.startAudioPipeline(apiKey, sessionPreferences);
-        if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
-          await this.stopAudioPipeline().catch((error: unknown) => {
-            console.error("[session] stopAudioPipeline failed during stale finalization restart", error);
-          });
-          return;
-        }
-      } catch (restartError) {
-        console.error("[session] listening restart failed after insert", restartError);
-        await this.applyEvent("INSERT_ERROR"); // INSERTING → ERROR
-        this.setErrorMessage(
-          `${STREAM_RESTART_FAILED_ERROR_MESSAGE} ${formatErrorMessage(restartError)}`,
-        );
-        this.isFinalizingAfterStopWord = false;
-        this.applyPendingActiveSessionPreferencesRefresh();
-        return;
-      }
-
-      await this.applyEvent("INSERT_SUCCESS"); // INSERTING → SUCCESS
-      await new Promise<void>((resolve) =>
-        setTimeout(resolve, SUCCESS_AUTO_RETURN_MS)
-      );
-      if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
-        return;
-      }
-      this.client.resetTranscript();
-      await this.applyEvent("AUTO_RETURN"); // SUCCESS → LISTENING
-      this.isFinalizingAfterStopWord = false;
-      this.applyPendingActiveSessionPreferencesRefresh();
-      this.syncReminderBeepForCurrentState();
-    } else {
+    if (!result.success) {
       console.error("[insert] failed", result.error);
       await this.applyEvent("INSERT_ERROR"); // INSERTING → ERROR
       this.setErrorMessage(result.error ?? INSERT_FAILED_ERROR_MESSAGE);
       this.isFinalizingAfterStopWord = false;
       this.applyPendingActiveSessionPreferencesRefresh();
+      return;
     }
+
+    try {
+      const apiKey = await this.createTemporaryApiKey();
+      if (!this.isStartAttemptCurrent(startAttemptId)) {
+        return;
+      }
+      if (!apiKey) {
+        throw new Error(STARTUP_MISSING_KEY_ERROR_MESSAGE);
+      }
+
+      await this.startAudioPipeline(apiKey, sessionPreferences);
+      if (!this.isStartAttemptCurrent(startAttemptId)) {
+        await this.stopAudioPipeline().catch((error: unknown) => {
+          console.error("[session] stopAudioPipeline failed during stale finalization restart", error);
+        });
+        return;
+      }
+    } catch (restartError) {
+      console.error("[session] listening restart failed after insert", restartError);
+      await this.applyEvent("INSERT_ERROR"); // INSERTING → ERROR
+      this.setErrorMessage(
+        `${STREAM_RESTART_FAILED_ERROR_MESSAGE} ${formatErrorMessage(restartError)}`,
+      );
+      this.isFinalizingAfterStopWord = false;
+      this.applyPendingActiveSessionPreferencesRefresh();
+      return;
+    }
+
+    await this.applyEvent("INSERT_SUCCESS"); // INSERTING → SUCCESS
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, SUCCESS_AUTO_RETURN_MS)
+    );
+    if (!this.isStartAttemptCurrent(startAttemptId)) {
+      return;
+    }
+    this.client.resetTranscript();
+    await this.applyEvent("AUTO_RETURN"); // SUCCESS → LISTENING
+    this.isFinalizingAfterStopWord = false;
+    this.applyPendingActiveSessionPreferencesRefresh();
+    this.syncReminderBeepForCurrentState();
   }
 
   private async finalizeStopWordTranscript(rawTranscript: string): Promise<string> {

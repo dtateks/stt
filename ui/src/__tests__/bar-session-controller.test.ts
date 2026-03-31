@@ -275,8 +275,8 @@ describe("BarSessionController", () => {
     });
     storage.loadLlmProviderPreference.mockImplementation((defaultProvider: "xai" | "openai_compatible" | "gemini") => defaultProvider);
     storage.loadPreferences.mockReturnValue({
-      enterMode: true,
-      outputLang: "auto",
+    enterMode: true,
+    outputLang: "auto",
       sonioxTerms: ["alpha"],
       skipLlm: false,
     });

@@ -608,7 +608,7 @@ describe("waveformShouldRun — production predicate from bar-render.ts", () => 
     }
   });
 
-  it("covers all 7 BarState values (exhaustive — no state is accidentally unhandled)", () => {
+  it("covers all BarState values (exhaustive — no state is accidentally unhandled)", () => {
     const allStates: BarState[] = [
       "HIDDEN", "CONNECTING", "LISTENING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
     ];
