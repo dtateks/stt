@@ -12,7 +12,7 @@ const DEFAULT_CAPABILITY: &str = "default";
 const BAR_CAPABILITY: &str = "bar";
 const MAIN_WINDOW_LABEL: &str = "main";
 const BAR_WINDOW_LABEL: &str = "bar";
-const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 29] = [
+const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 30] = [
     "allow-get-config",
     "allow-has-soniox-key",
     "allow-create-soniox-temporary-key",
@@ -39,6 +39,7 @@ const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 29] = [
     "allow-hide-bar",
     "allow-set-mouse-events",
     "allow-show-settings",
+    "allow-fit-main-window-to-content",
     "allow-get-platform-runtime-info",
     "allow-get-mic-toggle-shortcut",
     "allow-update-mic-toggle-shortcut",

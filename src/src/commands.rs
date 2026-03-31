@@ -3,7 +3,7 @@ use std::future::Future;
 use std::sync::OnceLock;
 
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, LogicalSize, Manager, Size};
 
 use crate::credentials;
 use crate::llm_service;
@@ -17,6 +17,9 @@ use crate::BAR_WINDOW_LABEL;
 const MAIN_WINDOW_LABEL: &str = "main";
 static CACHED_LLM_CONFIG: OnceLock<Result<llm_service::LlmConfig, String>> = OnceLock::new();
 const SONIOX_KEY_REQUIRED_MESSAGE: &str = "Soniox API key is required";
+const MAIN_WINDOW_AUTO_FIT_CHROME_PADDING: f64 = 48.0;
+const MAIN_WINDOW_AUTO_FIT_MIN_HEIGHT: f64 = 560.0;
+const MAIN_WINDOW_AUTO_FIT_MAX_HEIGHT: f64 = 880.0;
 
 fn trimmed_soniox_key(soniox_key: String) -> String {
     soniox_key.trim().to_string()
@@ -307,6 +310,33 @@ pub fn show_settings(app: AppHandle) -> Result<(), String> {
     };
 
     crate::platform_app_shell::show_settings(&main_window).map_err(|error| error.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn fit_main_window_to_content(app: AppHandle, content_height: f64) -> Result<(), String> {
+    if !content_height.is_finite() {
+        return Err("content_height must be a finite number".to_string());
+    }
+
+    let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return Err("main window not found".to_string());
+    };
+
+    let scale_factor = main_window.scale_factor().map_err(|error| error.to_string())?;
+    let inner_size = main_window.inner_size().map_err(|error| error.to_string())?;
+    let logical_width = f64::from(inner_size.width) / scale_factor;
+
+    if logical_width <= 0.0 {
+        return Err("main window width is unavailable".to_string());
+    }
+
+    let bounded_content_height = content_height.max(0.0);
+    let target_height = (bounded_content_height + MAIN_WINDOW_AUTO_FIT_CHROME_PADDING)
+        .clamp(MAIN_WINDOW_AUTO_FIT_MIN_HEIGHT, MAIN_WINDOW_AUTO_FIT_MAX_HEIGHT);
+
+    main_window
+        .set_size(Size::Logical(LogicalSize::new(logical_width, target_height)))
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

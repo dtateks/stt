@@ -219,6 +219,12 @@
           "markdownDescription": "Enables the ensure_text_insertion_permission command without any pre-configured scope."
         },
         {
+          "description": "Enables the fit_main_window_to_content command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-fit-main-window-to-content",
+          "markdownDescription": "Enables the fit_main_window_to_content command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_config command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-config",
@@ -391,6 +397,12 @@
           "type": "string",
           "const": "deny-ensure-text-insertion-permission",
           "markdownDescription": "Denies the ensure_text_insertion_permission command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the fit_main_window_to_content command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-fit-main-window-to-content",
+          "markdownDescription": "Denies the fit_main_window_to_content command without any pre-configured scope."
         },
         {
           "description": "Denies the get_config command without any pre-configured scope.",

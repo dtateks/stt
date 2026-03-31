@@ -1,8 +1,8 @@
 use std::sync::Mutex;
 use tauri::utils::config::WindowConfig;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, WebviewWindow, WebviewWindowBuilder,
-    WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, Theme, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -603,6 +603,8 @@ pub(crate) fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
             .initialization_script(include_str!("../../ui/tauri-bridge.js"))
             .build()?;
 
+    main_window.set_theme(Some(Theme::Dark))?;
+
     let main_window_for_events = main_window.clone();
     main_window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -811,6 +813,7 @@ pub fn run() {
             commands::hide_bar,
             commands::set_mouse_events,
             commands::show_settings,
+            commands::fit_main_window_to_content,
             commands::get_platform_runtime_info,
             commands::get_mic_toggle_shortcut,
             commands::update_mic_toggle_shortcut,

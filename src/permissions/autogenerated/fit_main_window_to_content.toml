@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-fit-main-window-to-content"
+description = "Enables the fit_main_window_to_content command without any pre-configured scope."
+commands.allow = ["fit_main_window_to_content"]
+
+[[permission]]
+identifier = "deny-fit-main-window-to-content"
+description = "Denies the fit_main_window_to_content command without any pre-configured scope."
+commands.deny = ["fit_main_window_to_content"]
