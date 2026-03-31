@@ -17,7 +17,13 @@
  * to PASSIVE after hide/stop.
  */
 
-import type { BarState, AppConfig, LlmRequestOptions, TranscriptResult } from "./types.ts";
+import type {
+  BarState,
+  AppConfig,
+  LlmRequestOptions,
+  SonioxTemporaryApiKeyResult,
+  TranscriptResult,
+} from "./types.ts";
 import { transition, type BarEvent } from "./bar-state-machine.ts";
 import {
   detectStopWordWithNormalizedStopWord,
@@ -62,6 +68,8 @@ const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
 const DEFAULT_SONIOX_MODEL = "stt-rt-v4";
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
 const STOP_WORD_FINALIZE_TIMEOUT_MS = 1_000;
+const TEMPORARY_API_KEY_REFRESH_LEAD_MS = 60_000;
+const TEMPORARY_API_KEY_MINT_RETRY_COUNT = 1;
 
 export type OverlayMode = "PASSIVE" | "INTERACTIVE";
 
@@ -73,6 +81,11 @@ interface ActiveSessionPreferences {
   normalizedStopWord: string;
   sonioxTerms: string[];
   llmOptions: LlmRequestOptions | null;
+}
+
+interface CachedTemporaryApiKey {
+  apiKey: string;
+  expiresAtMs: number;
 }
 
 export type StateChangeCallback        = (state: BarState) => void;
@@ -91,6 +104,9 @@ export class BarSessionController {
   private pendingActiveSessionPreferencesRefresh = false;
   private isFinalizingAfterStopWord = false;
   private activeSessionPreferences: ActiveSessionPreferences | null = null;
+  private cachedTemporaryApiKey: CachedTemporaryApiKey | null = null;
+  private temporaryApiKeyRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private temporaryApiKeyRefreshPromise: Promise<string> | null = null;
 
   // Overlay interaction mode
   private overlayMode: OverlayMode = "PASSIVE";
@@ -128,6 +144,9 @@ export class BarSessionController {
     this.config = await window.voiceToText.getConfig();
     this.client.setConfig(this.config.soniox);
     window.addEventListener("storage", this.handleStorageChange);
+    void this.prewarmTemporaryApiKey().catch((error: unknown) => {
+      console.error("[session] temporary key prewarm failed", error);
+    });
 
     this.unlistenToggle = window.voiceToText.onToggleMic(() => {
       void this.handleToggle();
@@ -137,6 +156,7 @@ export class BarSessionController {
   destroy(): void {
     window.removeEventListener("storage", this.handleStorageChange);
     this.unlistenToggle?.();
+    this.clearTemporaryApiKeyRefreshTimer();
     void this.stopSession();
   }
 
@@ -526,14 +546,14 @@ export class BarSessionController {
       return;
     }
 
-    await this.executeInsertionAndCloseSession(
+    await this.executeInsertionAndRestartListening(
       correctedText,
       sessionPreferences.enterMode,
       finalizationAttemptId,
     );
   }
 
-  private async executeInsertionAndCloseSession(
+  private async executeInsertionAndRestartListening(
     text: string,
     enterMode: boolean,
     startAttemptId: number,
@@ -554,10 +574,53 @@ export class BarSessionController {
       return;
     }
 
+    const sessionPreferences = this.activeSessionPreferences;
+    if (!sessionPreferences) {
+      await this.applyEvent("INSERT_ERROR"); // INSERTING → ERROR
+      this.setErrorMessage(STREAM_RESTART_FAILED_ERROR_MESSAGE);
+      this.isFinalizingAfterStopWord = false;
+      this.applyPendingActiveSessionPreferencesRefresh();
+      return;
+    }
+
+    try {
+      const apiKey = await this.createTemporaryApiKey();
+      if (!this.isStartAttemptCurrent(startAttemptId)) {
+        return;
+      }
+      if (!apiKey) {
+        throw new Error(STARTUP_MISSING_KEY_ERROR_MESSAGE);
+      }
+
+      await this.startAudioPipeline(apiKey, sessionPreferences);
+      if (!this.isStartAttemptCurrent(startAttemptId)) {
+        await this.stopAudioPipeline().catch((error: unknown) => {
+          console.error("[session] stopAudioPipeline failed during stale finalization restart", error);
+        });
+        return;
+      }
+    } catch (restartError) {
+      console.error("[session] listening restart failed after insert", restartError);
+      await this.applyEvent("INSERT_ERROR"); // INSERTING → ERROR
+      this.setErrorMessage(
+        `${STREAM_RESTART_FAILED_ERROR_MESSAGE} ${formatErrorMessage(restartError)}`,
+      );
+      this.isFinalizingAfterStopWord = false;
+      this.applyPendingActiveSessionPreferencesRefresh();
+      return;
+    }
+
+    await this.applyEvent("INSERT_SUCCESS"); // INSERTING → SUCCESS
     this.client.resetTranscript();
+    this.onTranscriptChange?.({ finalText: "", interimText: "" });
+    if (!this.isStartAttemptCurrent(startAttemptId)) {
+      return;
+    }
+
     this.isFinalizingAfterStopWord = false;
+    await this.applyEvent("AUTO_RETURN"); // SUCCESS → LISTENING
     this.applyPendingActiveSessionPreferencesRefresh();
-    await this.stopSession();
+    this.syncReminderBeepForCurrentState();
   }
 
   private async finalizeStopWordTranscript(rawTranscript: string): Promise<string> {
@@ -741,13 +804,107 @@ export class BarSessionController {
   }
 
   private async createTemporaryApiKey(): Promise<string> {
+    const reusableTemporaryApiKey = this.getReusableTemporaryApiKey();
+    if (reusableTemporaryApiKey) {
+      return reusableTemporaryApiKey.apiKey;
+    }
+
+    return this.refreshTemporaryApiKey();
+  }
+
+  private async prewarmTemporaryApiKey(): Promise<void> {
+    await this.refreshTemporaryApiKey();
+  }
+
+  private getReusableTemporaryApiKey(): CachedTemporaryApiKey | null {
+    if (!this.cachedTemporaryApiKey) {
+      return null;
+    }
+
+    if (this.cachedTemporaryApiKey.expiresAtMs - Date.now() <= TEMPORARY_API_KEY_REFRESH_LEAD_MS) {
+      this.cachedTemporaryApiKey = null;
+      return null;
+    }
+
+    return this.cachedTemporaryApiKey;
+  }
+
+  private async refreshTemporaryApiKey(): Promise<string> {
+    if (this.temporaryApiKeyRefreshPromise) {
+      return this.temporaryApiKeyRefreshPromise;
+    }
+
+    const refreshPromise = this.mintTemporaryApiKey(TEMPORARY_API_KEY_MINT_RETRY_COUNT);
+    this.temporaryApiKeyRefreshPromise = refreshPromise;
+
+    try {
+      return await refreshPromise;
+    } finally {
+      if (this.temporaryApiKeyRefreshPromise === refreshPromise) {
+        this.temporaryApiKeyRefreshPromise = null;
+      }
+    }
+  }
+
+  private async mintTemporaryApiKey(remainingRetryCount: number): Promise<string> {
     const hasSonioxKey = await window.voiceToText.hasSonioxKey();
     if (!hasSonioxKey) {
+      this.clearCachedTemporaryApiKey();
       return "";
     }
 
     const temporaryKey = await window.voiceToText.createSonioxTemporaryKey();
-    return temporaryKey.apiKey.trim();
+    const apiKey = temporaryKey.apiKey.trim();
+    if (!apiKey) {
+      this.clearCachedTemporaryApiKey();
+      return "";
+    }
+
+    const expiresAtMs = resolveTemporaryApiKeyExpiryMs(temporaryKey);
+    if (expiresAtMs === null) {
+      this.clearCachedTemporaryApiKey();
+      return apiKey;
+    }
+
+    if (expiresAtMs - Date.now() <= TEMPORARY_API_KEY_REFRESH_LEAD_MS) {
+      this.clearCachedTemporaryApiKey();
+      if (remainingRetryCount > 0) {
+        return this.mintTemporaryApiKey(remainingRetryCount - 1);
+      }
+      return "";
+    }
+
+    this.cachedTemporaryApiKey = {
+      apiKey,
+      expiresAtMs,
+    };
+    this.scheduleTemporaryApiKeyRefresh(expiresAtMs);
+
+    return apiKey;
+  }
+
+  private scheduleTemporaryApiKeyRefresh(expiresAtMs: number): void {
+    this.clearTemporaryApiKeyRefreshTimer();
+    const refreshDelayMs = Math.max(0, expiresAtMs - Date.now() - TEMPORARY_API_KEY_REFRESH_LEAD_MS);
+    this.temporaryApiKeyRefreshTimer = setTimeout(() => {
+      void this.refreshTemporaryApiKey().catch((error: unknown) => {
+        console.error("[session] temporary key refresh failed", error);
+      });
+    }, refreshDelayMs);
+  }
+
+  private clearTemporaryApiKeyRefreshTimer(): void {
+    if (this.temporaryApiKeyRefreshTimer === null) {
+      return;
+    }
+
+    clearTimeout(this.temporaryApiKeyRefreshTimer);
+    this.temporaryApiKeyRefreshTimer = null;
+  }
+
+  private clearCachedTemporaryApiKey(): void {
+    this.cachedTemporaryApiKey = null;
+    this.clearTemporaryApiKeyRefreshTimer();
   }
 
   private isStartAttemptCurrent(startAttemptId: number): boolean {
@@ -763,6 +920,21 @@ function combineTranscriptText(finalText: string, interimText: string): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveTemporaryApiKeyExpiryMs(result: SonioxTemporaryApiKeyResult): number | null {
+  if (result.expiresAt) {
+    const expiresAtMs = Date.parse(result.expiresAt);
+    if (Number.isFinite(expiresAtMs)) {
+      return expiresAtMs;
+    }
+  }
+
+  if (typeof result.expiresInSeconds === "number" && result.expiresInSeconds > 0) {
+    return Date.now() + result.expiresInSeconds * 1_000;
+  }
+
+  return null;
 }
 
 function playReminderBeep(): void {

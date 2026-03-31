@@ -170,7 +170,7 @@ function createBridge(): {
     insertText: vi.fn(async () => ({ success: true })),
     correctTranscript: vi.fn(async (transcript: string) => transcript),
     hasSonioxKey: vi.fn(async () => true),
-    createSonioxTemporaryKey: vi.fn(async () => ({ apiKey: "soniox-key" })),
+    createSonioxTemporaryKey: vi.fn(async () => ({ apiKey: "soniox-key", expiresInSeconds: 3_600 })),
     hasXaiKey: vi.fn(async () => false),
     hasGeminiKey: vi.fn(async () => false),
     hasOpenaiCompatibleKey: vi.fn(async () => false),
@@ -300,6 +300,18 @@ describe("BarSessionController", () => {
     expect(mocks.getConfig).toHaveBeenCalledTimes(1);
     expect(soniox.instance.setConfig).toHaveBeenCalledWith(DEFAULT_CONFIG.soniox);
     expect(mocks.onToggleMic).toHaveBeenCalledTimes(1);
+  });
+
+  it("init prewarms the Soniox temporary key cache", async () => {
+    const { bridge, mocks } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await flushMicrotasks();
+
+    expect(mocks.hasSonioxKey).toHaveBeenCalledTimes(1);
+    expect(mocks.createSonioxTemporaryKey).toHaveBeenCalledTimes(1);
   });
 
   it("uses stored Soniox model when starting realtime session", async () => {
@@ -469,7 +481,7 @@ describe("BarSessionController", () => {
 
   it("keeps startup missing-key failures visible in ERROR", async () => {
     const { bridge, mocks } = createBridge();
-    mocks.hasSonioxKey.mockResolvedValueOnce(false);
+    mocks.hasSonioxKey.mockResolvedValue(false);
     window.voiceToText = bridge;
 
     const controller = new BarSessionController();
@@ -507,12 +519,13 @@ describe("BarSessionController", () => {
     expect(controller.getCurrentState()).toBe("HIDDEN");
   });
 
-  it("uses temporary Soniox keys for start and restart paths", async () => {
+  it("reuses the cached temporary Soniox key for startup and restart paths", async () => {
     const { bridge, mocks } = createBridge();
     window.voiceToText = bridge;
 
     const controller = new BarSessionController();
     await controller.init();
+    await flushMicrotasks();
     await controller.handleToggle();
 
     expect(mocks.hasSonioxKey).toHaveBeenCalledTimes(1);
@@ -523,8 +536,47 @@ describe("BarSessionController", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     await flushMicrotasks();
 
+    expect(mocks.hasSonioxKey).toHaveBeenCalledTimes(1);
+    expect(mocks.createSonioxTemporaryKey).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes the temporary Soniox key when the cached key is near expiry", async () => {
+    const { bridge, mocks } = createBridge();
+    mocks.createSonioxTemporaryKey
+      .mockResolvedValueOnce({ apiKey: "near-expiry-key", expiresInSeconds: 30 })
+      .mockResolvedValueOnce({ apiKey: "fresh-key", expiresInSeconds: 3_600 });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await flushMicrotasks();
+    await controller.handleToggle();
+
     expect(mocks.hasSonioxKey).toHaveBeenCalledTimes(2);
     expect(mocks.createSonioxTemporaryKey).toHaveBeenCalledTimes(2);
+    expect(soniox.instance.start).toHaveBeenCalledWith("fresh-key", { terms: ["alpha"] });
+  });
+
+  it("retries a near-expiry prewarm key during startup before surfacing missing-key error", async () => {
+    const { bridge, mocks } = createBridge();
+    mocks.createSonioxTemporaryKey
+      .mockResolvedValueOnce({ apiKey: "near-expiry-prewarm-key", expiresInSeconds: 30 })
+      .mockResolvedValueOnce({ apiKey: "fresh-prewarm-key", expiresInSeconds: 3_600 });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const errorMessages: Array<string | null> = [];
+    controller.onErrorMessageChange = (message) => errorMessages.push(message);
+
+    await controller.init();
+    await flushMicrotasks();
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(mocks.hasSonioxKey).toHaveBeenCalledTimes(2);
+    expect(mocks.createSonioxTemporaryKey).toHaveBeenCalledTimes(2);
+    expect(soniox.instance.start).toHaveBeenCalledWith("fresh-prewarm-key", { terms: ["alpha"] });
+    expect(errorMessages).toEqual([]);
   });
 
   it("finalizes the stop-word transcript before insert", async () => {
@@ -837,7 +889,7 @@ describe("BarSessionController", () => {
     expect(soniox.instance.start).toHaveBeenCalledTimes(2);
   });
 
-  it("hides immediately after insert and ignores stale transcript callbacks", async () => {
+  it("restarts listening after insert and ignores stale transcript callbacks", async () => {
     const { bridge, mocks } = createBridge();
     storage.loadPreferences.mockReturnValue({
       enterMode: true,
@@ -848,6 +900,8 @@ describe("BarSessionController", () => {
     window.voiceToText = bridge;
 
     const controller = new BarSessionController();
+    const transcriptChanges: TranscriptResult[] = [];
+    controller.onTranscriptChange = (result) => transcriptChanges.push(result);
     await controller.init();
     await controller.handleToggle();
 
@@ -861,13 +915,18 @@ describe("BarSessionController", () => {
     await flushMicrotasks();
     await settleStopWordFinalization();
     await flushMicrotasks();
+    await flushMicrotasks();
 
     expect(mocks.insertText).toHaveBeenCalledTimes(1);
-    expect(soniox.instance.stop).toHaveBeenCalledTimes(2);
-    expect(soniox.instance.start).toHaveBeenCalledTimes(1);
-    expect(controller.getCurrentState()).toBe("HIDDEN");
-    expect(controller.getOverlayMode()).toBe("PASSIVE");
-    expect(mocks.hideBar).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.stop).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.start).toHaveBeenCalledTimes(2);
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(controller.getOverlayMode()).toBe("INTERACTIVE");
+    expect(mocks.hideBar).not.toHaveBeenCalled();
+    expect(transcriptChanges[transcriptChanges.length - 1]).toEqual({
+      finalText: "",
+      interimText: "",
+    });
 
     staleTranscriptHandler?.({
       finalText: "hello hello 1234",
@@ -875,7 +934,7 @@ describe("BarSessionController", () => {
     });
     await flushMicrotasks();
 
-    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(controller.getCurrentState()).toBe("LISTENING");
     expect(mocks.insertText).toHaveBeenCalledTimes(1);
   });
 
@@ -915,10 +974,10 @@ describe("BarSessionController", () => {
 
     insertDeferred.resolve({ success: true });
     await flushMicrotasks();
+    await flushMicrotasks();
 
-    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(controller.getCurrentState()).toBe("LISTENING");
 
-    await controller.handleToggle();
     soniox.instance.onTranscript?.({
       finalText: "second command",
       interimText: "done now",
@@ -927,6 +986,44 @@ describe("BarSessionController", () => {
     await settleStopWordFinalization();
 
     expect(mocks.insertText).toHaveBeenNthCalledWith(2, "second command", { enterMode: false });
+  });
+
+  it("stays in ERROR when listening restart fails after insert succeeds", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      skipLlm: true,
+    });
+    soniox.instance.start
+      .mockImplementationOnce(async () => {})
+      .mockImplementationOnce(async () => {
+        throw new Error("network down");
+      });
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const errorMessages: Array<string | null> = [];
+    controller.onErrorMessageChange = (message) => errorMessages.push(message);
+
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({
+      finalText: "ship update",
+      interimText: "thank you",
+    });
+    await flushMicrotasks();
+    await settleStopWordFinalization();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(mocks.insertText).toHaveBeenCalledTimes(1);
+    expect(controller.getCurrentState()).toBe("ERROR");
+    expect(errorMessages[errorMessages.length - 1]).toContain(
+      "Could not reconnect to Soniox. Check your key/network, then retry. network down",
+    );
   });
 
   it("skips hasXaiKey lookup when skipLlm preference is enabled", async () => {
@@ -1111,7 +1208,7 @@ describe("BarSessionController", () => {
     );
   });
 
-  it("falls back to raw transcript after a non-retryable correction failure and hides immediately", async () => {
+  it("falls back to raw transcript after a non-retryable correction failure and resumes listening", async () => {
     const { bridge, mocks } = createBridge();
     storage.loadPreferences.mockReturnValue({
       enterMode: true,
@@ -1146,7 +1243,7 @@ describe("BarSessionController", () => {
     expect(mocks.correctTranscript).toHaveBeenCalledTimes(1);
     const [rawTranscript] = mocks.correctTranscript.mock.calls[0] ?? [];
     expect(mocks.insertText).toHaveBeenCalledWith(rawTranscript, { enterMode: true });
-    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(controller.getCurrentState()).toBe("LISTENING");
     expect(errorMessages.some((message) => message !== null)).toBe(false);
     expect(errorMessages).toEqual([]);
   });
@@ -1180,7 +1277,7 @@ describe("BarSessionController", () => {
 
     expect(mocks.correctTranscript).toHaveBeenCalledTimes(3);
     expect(mocks.insertText).toHaveBeenCalledWith("ship update", { enterMode: true });
-    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(controller.getCurrentState()).toBe("LISTENING");
   });
 
   it("recovers from mid-session stream interruption and returns to LISTENING", async () => {
