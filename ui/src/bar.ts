@@ -27,6 +27,7 @@ import {
   HEARTBEAT_ENERGY_SMOOTHING,
   HEARTBEAT_GLOW_WIDTH,
   HEARTBEAT_MIN_AMPLITUDE,
+  ECG_PULSE_CENTER_OFFSET,
 } from "./bar-render.ts";
 
 const CONNECTING_LABEL_DELAY_MS = 150;
@@ -237,7 +238,7 @@ function drawHeartbeatTrace(
     const phase = rawPhase < 0 ? rawPhase + 1 : rawPhase;
 
     const pulse = ecgPulse(phase);
-    const y = layout.centerY - pulse * layout.maxAmplitude * amplitude;
+    const y = layout.centerY - (pulse - ECG_PULSE_CENTER_OFFSET) * layout.maxAmplitude * amplitude;
 
     if (i === 0) {
       path.moveTo(x, y);
@@ -263,7 +264,7 @@ function drawIdleHeartbeat(layout: WaveformLayout): void {
     HEARTBEAT_IDLE_BPM,
     0.55,
     "rgba(110, 117, 129, 0.5)",
-    null,
+    "rgba(110, 117, 129, 0.1)",
   );
 }
 

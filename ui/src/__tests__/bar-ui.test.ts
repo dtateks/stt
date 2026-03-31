@@ -637,11 +637,15 @@ describe("ecgPulse — PQRST heartbeat shape", () => {
     expect(tWave).toBeLessThan(0.35);
   });
 
-  it("dips slightly negative at Q and S waves", () => {
+  it("dips significantly below baseline at S-wave for visible downward zigzag", () => {
+    const sWave = ecgPulse(0.32);
+    expect(sWave).toBeLessThan(-0.3);
+    expect(sWave).toBeGreaterThan(-0.7);
+  });
+
+  it("dips negative at Q-wave before R spike", () => {
     const qWave = ecgPulse(0.245);
-    const sWave = ecgPulse(0.315);
     expect(qWave).toBeLessThan(0);
-    expect(sWave).toBeLessThan(0);
   });
 
   it("is deterministic — same input produces same output", () => {

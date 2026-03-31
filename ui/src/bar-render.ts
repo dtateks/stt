@@ -32,12 +32,13 @@ const WAVEFORM_MAX_AMPLITUDE_RATIO = 0.8;
 
 // ─── ECG heartbeat shape ──────────────────────────────────────────────────────
 
-export const HEARTBEAT_IDLE_BPM = 55;
-export const HEARTBEAT_ACTIVE_BPM_BOOST = 35;
-export const HEARTBEAT_VISIBLE_CYCLES = 1.8;
+export const HEARTBEAT_IDLE_BPM = 40;
+export const HEARTBEAT_ACTIVE_BPM_BOOST = 30;
+export const HEARTBEAT_VISIBLE_CYCLES = 1.5;
 export const HEARTBEAT_ENERGY_SMOOTHING = 0.12;
-export const HEARTBEAT_GLOW_WIDTH = 4;
+export const HEARTBEAT_GLOW_WIDTH = 6;
 export const HEARTBEAT_MIN_AMPLITUDE = 0.35;
+export const ECG_PULSE_CENTER_OFFSET = 0.25;
 
 function gaussian(x: number, mu: number, sigma: number): number {
   const normalized = (x - mu) / sigma;
@@ -45,14 +46,16 @@ function gaussian(x: number, mu: number, sigma: number): number {
 }
 
 /**
- * ECG PQRST pulse shape — maps beat phase (0..1) to amplitude (-0.1..1.0).
- * Approximates a clinical lead-II ECG trace using sum-of-Gaussians.
+ * ECG PQRST pulse shape — maps beat phase (0..1) to amplitude (~-0.5..+1.0).
+ * R-wave spikes up, S-wave dips down sharply — creates the visible
+ * up-down zigzag centered on the baseline. Proportions match a clinical
+ * lead-II trace where the S-wave is roughly half the R-wave amplitude.
  */
 export function ecgPulse(phase: number): number {
   const p = gaussian(phase, 0.12, 0.028) * 0.14;
-  const q = -gaussian(phase, 0.245, 0.016) * 0.06;
+  const q = -gaussian(phase, 0.245, 0.016) * 0.10;
   const r = gaussian(phase, 0.28, 0.013) * 1.0;
-  const s = -gaussian(phase, 0.315, 0.016) * 0.09;
+  const s = -gaussian(phase, 0.32, 0.015) * 0.5;
   const t = gaussian(phase, 0.44, 0.04) * 0.20;
   return p + q + r + s + t;
 }
