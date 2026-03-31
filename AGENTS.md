@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
 **Updated:** 2026-03-31 00:00
-**Commit:** e8cfee2d
+**Commit:** d4fc254a
 **Branch:** main
 
 ## OVERVIEW
@@ -90,7 +90,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | Shortcut recorder | `ui/src/shortcut-display.ts`, `ui/src/shortcut-recorder-logic.ts`, `ui/src/main.ts` | canonical shortcut tokens stay in storage; recorder auto-saves on record and reset paths, no explicit save button; status text is the confirmation surface, not a separate save affordance |
 | Floating HUD shell / clipping | `ui/bar.html`, `ui/src/bar.css`, `ui/src/bar-render.ts` | HTML/body/root sizing and clipping; keep the webview shell transparent, rounded, and render-only |
 | HUD render/state | `ui/src/bar.ts`, `ui/src/bar-render.ts` | orchestration only in `bar.ts`; render helpers keep cleaned command text frozen through PROCESSING/INSERTING |
-| HUD session control | `ui/src/bar-session-controller.ts` | overlay mode, timers, STT, stop-word gating, live session preference refresh, deferred refresh during finalization, immediate stop-word `finalizeCurrentUtterance()` with timeout fallback, error recovery, selective LLM retry fallback |
+| HUD session control | `ui/src/bar-session-controller.ts` | overlay mode, timers, STT, stop-word gating, Soniox temp-key prewarm/cache/refresh, live session preference refresh, deferred refresh during finalization, immediate stop-word `finalizeCurrentUtterance()` with timeout fallback, error recovery, selective LLM retry fallback |
 | HUD positioning / macOS window setup | `src/src/lib.rs`, `src/src/commands.rs` | bottom-center placement, Retina scale-factor correction, `tauri-nspanel` panel API, `HUDPanel`/`tauri_panel!`, `ManagerExt::get_webview_panel`, panel-level mouse events, transparent panel/webview setup |
 | HUD state machine | `ui/src/bar-state-machine.ts` | pure state transitions for bar lifecycle |
 | UI persistence/defaults | `ui/src/storage.ts`, `ui/tauri-bridge.js` | localStorage helpers + shared defaults |
@@ -146,14 +146,14 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | HUD chrome | `html`, `body`, and the HUD root must fill the full window, stay transparent, and use `overflow: hidden` so the rounded webview shell clips to the pill radius.
 | HUD render split | `bar.ts` binds DOM refs and delegates pure DOM updates to `bar-render.ts`; keep render helpers free of module-scope side effects.
 | HUD transcript flow | `ui/src/bar-render.ts`, `ui/src/bar.css`, `ui/src/__tests__/bar-ui.test.ts` | visible bar renders final+interim as one continuous line with newest text pinned in view and older text clipped on the left; punctuation-only interim fragments like `...` do not count as meaningful live transcript or pending-state evidence; terminal punctuation in the visible transcript suppresses the synthetic pending ellipsis; trailing pending ellipsis appears only while LISTENING and interim transcript has meaningful non-terminal content; it disappears once the token is final or interim text is empty; error-state transcript keeps start-visible truncation and is not right-pinned |
-| Session recovery | Startup failures and failed stream restarts keep the HUD visible in `ERROR` with actionable guidance until the user closes or retries.
+| Session recovery | Startup failures and failed stream restarts keep the HUD visible in `ERROR` with actionable guidance until the user closes or retries. Successful insert clears the transcript and resumes listening in place; if that restart fails, surface `ERROR` with reconnect guidance.
 | Startup permission denial recovery | Permission-denied startup paths hide the HUD back to `HIDDEN`/`PASSIVE` so the next toggle can retry immediately after the user grants access; non-permission startup failures stay visible in `ERROR`.
-| Finalization flow | Stop-word detection uses combined final+interim transcript in the controller; success path freezes the cleaned command text through PROCESSING and INSERTING, then closes the HUD immediately after successful insert.
+| Finalization flow | Stop-word detection uses combined final+interim transcript in the controller; success path freezes the cleaned command text through PROCESSING and INSERTING, then restarts listening in place with a cleared transcript after successful insert.
 | State ownership | `bar-session-controller.ts` owns timers, mouse events, and session lifecycle; `bar.ts` stays rendering-focused.
-| Stop-word finalization | `ui/src/bar-session-controller.ts` stops the Soniox pipeline before insert/correction, closes the HUD immediately after a successful insert, and invalidates stale transcript/error callbacks with `transcriptGeneration` so one utterance cannot insert twice.
+| Stop-word finalization | `ui/src/bar-session-controller.ts` stops the Soniox pipeline before insert/correction, restarts listening in place after a successful insert, and invalidates stale transcript/error callbacks with `transcriptGeneration` so one utterance cannot insert twice.
 | Soniox WS init | `ui/src/soniox-client.ts` sends the official Soniox context object shape with transcription vocabulary hints in `terms` only; do not use `translation_terms` in this app’s transcription pipeline. Manual finalization uses `<fin>` / `<end>` markers plus endpoint-detection config, not ad hoc transcript heuristics. |
 | Soniox endpoint delay | `ui/src/soniox-client.ts`, `ui/src/bar-session-controller.ts`, `config.json` | `max_endpoint_delay_ms` intentionally sits at 1800 for less aggressive dictation endpointing; keep it aligned with the immediate stop-word `finalizeCurrentUtterance()` flow. |
-| LLM correction fallback | When transcript correction fails, retry only transient/recoverable failures (timeouts, transport/network issues, provider 408/429/5xx); deterministic failures fall back to raw after the first failed attempt, then successful raw insert closes the HUD immediately with no linger.
+| LLM correction fallback | When transcript correction fails, retry only transient/recoverable failures (timeouts, transport/network issues, provider 408/429/5xx); deterministic failures fall back to raw after the first failed attempt, then successful raw insert clears the transcript and restarts listening in place with no success linger.
 | Main window split | `main.ts` owns async orchestration; `main-logic.ts` stays pure and accepts explicit element parameters.
 | Main window reopen sequence | `src/src/lib.rs` restores a hidden main window with `unminimize() -> show() -> set_focus()`; single-instance and explicit show flows use the same sequence.
 | Shortcut labels | `shortcut-display.ts` owns token-to-platform-native label formatting (macOS symbols vs Windows key names); recorder storage keeps canonical values and only the label view changes.
@@ -171,9 +171,12 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | LLM model defaults | `ui/src/main.ts`, `ui/src/storage.ts` | provider-scoped model storage: xAI defaults to `grok-4-1-fast-non-reasoning`, Gemini defaults to `gemini-2.5-flash-lite`, and OpenAI-compatible intentionally has no default model |
 | LLM correction hot path | `ui/src/main.ts` attempts correction directly; provider key preflight stays in the bridge, not the UI hot path. `src/src/commands.rs` caches the bundled LLM config, and `src/src/llm_service.rs` reuses one shared reqwest client.
 | Live HUD session prefs | `ui/src/bar-session-controller.ts` listens for storage changes, refreshes active stop-word/correction prefs in place, defers refresh while stop-word finalization runs, then applies the pending refresh after finalization so main-UI setting changes take effect without restarting the HUD.
+| Soniox temp-key cache | `ui/src/bar-session-controller.ts` | prewarm and cache Soniox temporary keys before startup; reuse cached keys while still valid and refresh before expiry instead of minting on every hot path |
+| HUD startup affordance | `ui/bar.html`, `ui/src/bar.ts`, `ui/src/bar.css`, `ui/src/bar-session-controller.ts` | fast startups suppress CONNECTING briefly; slow startups may reveal it after a short delay |
+| HUD leading indicator | `ui/bar.html`, `ui/src/bar.css`, `ui/src/bar.ts` | no separate status dot; leading indicator is the waveform line itself |
 | UI status feedback | `ui/src/main.ts`, `ui/src/__tests__/main-status-feedback.test.ts` | success statuses auto-clear after ~4s; later errors cancel pending clears and stay visible until replaced |
 | Control center vocabulary | `ui/index.html`, `ui/src/main.ts`, `ui/src/storage.ts` | vocabulary remains a first-class setting in the single-panel layout; the main panel shows the entry point + count, and the dialog stays the detailed editing surface |
-| HUD layout | `ui/bar.html`, `ui/src/bar.css`, `ui/src/bar.ts` | transcript stays visually primary; leading indicator/waveform, content, and actions are split into explicit layout regions; control chrome remains secondary to the transcript |
+| HUD layout | `ui/bar.html`, `ui/src/bar.css`, `ui/src/bar.ts` | transcript stays visually primary; heartbeat-style horizontal waveform replaces the old status dot/vertical bars; content and actions stay split into explicit layout regions; control chrome remains secondary to the transcript |
 | Waveform reuse | `ui/src/bar.ts` caches waveform layout and analyser buffers by canvas size / bin count to avoid per-frame reallocations.
 | Tests | `ui/src/__tests__/logic.test.ts` stays pure: no DOM, bridge, or network.
 | Verification after changes | After every successful fix or change, always rebuild the app (`npm run build`) to confirm the bundled output is correct; tests alone are not sufficient for macOS runtime behavior.
@@ -204,7 +207,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 - Sending snake_case bridge payloads to commands that omit `#[tauri::command(rename_all = "snake_case")]`; Tauri defaults to camelCase args and throws `invalid args` at runtime, including `is_active`/`isActive` mismatches.
 - Routing Gemini through OpenAI-compatible transport, response parsing, or credential checks; Gemini uses its own endpoint and API key path.
 - Freezing stop-word or correction prefs for the entire HUD session; active prefs now refresh from storage changes and may apply after stop-word finalization completes.
-- Hiding AI correction failures during HUD finalization; raw transcript fallback now retries only transient/recoverable failures, then proceeds silently and closes immediately after a successful insert.
+- Hiding AI correction failures during HUD finalization; raw transcript fallback now retries only transient/recoverable failures, then proceeds silently and restarts listening in place after a successful insert.
 - Leaving residual non-final Soniox tokens in `interimText` when a `<fin>` / `<end>` marker arrives in the same message; promote them into final text first so the HUD does not keep the pending ellipsis after finalization.
 - Rendering the synthetic pending ellipsis when the visible transcript already ends in sentence-terminal punctuation (`.`, `!`, `?`, `...`, `…`, or CJK equivalents); terminal punctuation suppresses the ellipsis even while LISTENING.
 - Changing enter-mode insertion order or delay; paste still happens before Enter, and Enter mode sends Enter twice with a 230ms repeat delay on both macOS and Windows.
@@ -212,6 +215,9 @@ The app now supports **cross-platform runtime parity** through a shared platform
 - Moving provider-key preflight into the UI correction hot path; the UI now attempts correction directly.
 - Recreating reqwest clients or LLM config per correction request; the Rust path now shares both.
 - Reallocating waveform layout / analyser buffers on every frame; bar rendering reuses both by size.
+- Minting a fresh Soniox temporary key on every HUD startup; the bar session controller now prewarms, caches, and refreshes before expiry.
+- Restoring a persistent CONNECTING label on fast HUD startups; brief suppression is intentional, slow startups still surface it.
+- Reintroducing a separate status dot or vertical-bars waveform; the HUD indicator is now the heartbeat-style horizontal line.
 - Importing the Soniox PCM worklet as an inlined data URL; it must stay a real `?url&no-inline` asset to satisfy CSP.
 - Using `translation_terms` for transcription vocabulary hints; this app’s Soniox context is `terms`-only.
 - Reading the long-lived Soniox API key in the renderer when `has_soniox_key`/`create_soniox_temporary_key` already cover presence and temporary-key flows.
@@ -312,7 +318,7 @@ npm test
 - `ui/bar.html` and `ui/src/bar.css` now split the HUD into leading / content / action regions so the transcript can stay primary while controls remain deferential.
 - `ui/src/bar-session-controller.ts` now checks stop words against combined final + interim transcript, refreshes active session prefs from storage changes in place, and applies pending updates after finalization.
 - `ui/src/bar-session-controller.ts` now calls `finalizeCurrentUtterance()` immediately after stop-word detection, falls back to the detected transcript on timeout/error, and stops audio only after the finalization attempt.
-- `ui/src/bar-session-controller.ts` now retries LLM correction only for transient/recoverable failures, and deterministic failures fall back to raw before the HUD closes immediately on successful insert.
+- `ui/src/bar-session-controller.ts` now retries LLM correction only for transient/recoverable failures, and deterministic failures fall back to raw before the HUD clears and resumes listening in place on successful insert.
 - `config.json` keeps `soniox.max_endpoint_delay_ms` at 1800; `max_non_final_tokens_duration_ms` stays unchanged because upstream docs still do not cover it.
 - `ui/src/storage.ts` defaults `skipLlm` to true so LLM correction stays off the default path.
 - `ui/src/storage.ts` normalizes provider defaults so Gemini gets its own model slot and openai_compatible retains the base-url path.
@@ -321,7 +327,8 @@ npm test
 - `ui/src/__tests__/main-credential-sync.test.ts` covers setup->prefs verification and focus revalidation.
 - `npm run build` emits only the macOS `.app` bundle; build DMGs explicitly with `npm run build:dmg`.
 - Updater runtime config (`plugins.updater.pubkey` + endpoint) can stay in `src/tauri.conf.json`, but updater archives for releases must be packaged/signature-generated after the app bundle is ad-hoc signed; do not rely on `bundle.createUpdaterArtifacts` for this project.
-- Successful insert hides the HUD immediately; no success linger.
+- Successful insert keeps the HUD open, clears the transcript, and resumes listening in place; no success linger.
+- If post-insert restart fails, surface `ERROR` with reconnect guidance instead of hiding the HUD.
 - Credentials persist under `voice-to-text/credentials.json`; do not rely on removed legacy support dirs.
 - `ui/src/__tests__/setup.ts` must load before storage tests; it replaces Node 25 `localStorage` with a predictable in-memory implementation.
 - `src/tests/window_shell.rs` is the invariant check for renderer permissions, plugin pruning, and build allow-list alignment.
