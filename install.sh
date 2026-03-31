@@ -16,10 +16,15 @@ APP_BUNDLE_SOURCE_DOWNLOADED_RELEASE="downloaded-release"
 APP_BUNDLE_SOURCE_SOURCE_BUILD="source-build"
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SIGN_SCRIPT_PATH="$SCRIPT_ROOT/scripts/sign-macos-app.sh"
+BOOTSTRAP_LOCAL_REVIEW_SIGNING_CERT_PATH="$SCRIPT_ROOT/scripts/bootstrap-local-review-signing-cert.sh"
 ENTITLEMENTS_PATH="$SCRIPT_ROOT/src/Entitlements.plist"
+SIGNING_MODE_LOCAL_REVIEW="local-review"
 SIGNING_MODE_SOURCE_FALLBACK="source-fallback"
+LOCAL_REVIEW_SIGNING_IDENTITY_DEFAULT="Voice to Text Local Review Signing"
+LOCAL_REVIEW_SIGNING_IDENTITY="${STT_LOCAL_REVIEW_SIGNING_IDENTITY:-$LOCAL_REVIEW_SIGNING_IDENTITY_DEFAULT}"
 SIGNING_LANE_PRESERVED_RELEASE="preserved-release"
 SIGNING_LANE_EXPLICIT="explicit"
+SIGNING_LANE_LOCAL_REVIEW="local-review"
 SIGNING_LANE_AD_HOC="ad-hoc"
 SIGNING_LANE_NOT_CONFIGURED="not-configured"
 TEMP_DIR=""
@@ -60,6 +65,15 @@ sign_bundle_with_mode() {
 	fi
 
 	STT_SIGNING_MODE="$signing_mode" "$SIGN_SCRIPT_PATH" "$bundle_path" "$ENTITLEMENTS_PATH"
+}
+
+bootstrap_local_review_signing_cert() {
+	if [ ! -x "$BOOTSTRAP_LOCAL_REVIEW_SIGNING_CERT_PATH" ]; then
+		echo "Warning: local-review signing bootstrap script missing at $BOOTSTRAP_LOCAL_REVIEW_SIGNING_CERT_PATH" >&2
+		return 1
+	fi
+
+	"$BOOTSTRAP_LOCAL_REVIEW_SIGNING_CERT_PATH"
 }
 
 detect_release_arch() {
@@ -225,7 +239,7 @@ install_app_bundle() {
 	fi
 }
 
-sign_source_build_for_public_install() {
+configure_install_signing_lane() {
 	local bundle_path="$1"
 
 	if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
@@ -235,25 +249,32 @@ sign_source_build_for_public_install() {
 		fi
 
 		INSTALL_SIGNING_LANE="$SIGNING_LANE_EXPLICIT"
-	else
-		INSTALL_SIGNING_LANE="$SIGNING_LANE_AD_HOC"
-	fi
-
-	echo "Signing source-built fallback bundle for public install..."
-	sign_bundle_with_mode "$bundle_path" "$SIGNING_MODE_SOURCE_FALLBACK"
-}
-
-prepare_app_bundle_for_install() {
-	local bundle_path="$1"
-	local bundle_source="$2"
-
-	if [ "$bundle_source" = "$APP_BUNDLE_SOURCE_SOURCE_BUILD" ]; then
-		sign_source_build_for_public_install "$bundle_path"
 		return 0
 	fi
 
-	INSTALL_SIGNING_LANE="$SIGNING_LANE_PRESERVED_RELEASE"
+	if bootstrap_local_review_signing_cert >/dev/null 2>&1; then
+		if can_codesign_bundle_with_identity "$bundle_path" "$LOCAL_REVIEW_SIGNING_IDENTITY"; then
+			INSTALL_SIGNING_LANE="$SIGNING_LANE_LOCAL_REVIEW"
+			return 0
+		fi
+	else
+		echo "Warning: local-review signing bootstrap failed; continuing with ad-hoc fallback if needed." >&2
+	fi
+
+	INSTALL_SIGNING_LANE="$SIGNING_LANE_AD_HOC"
 	return 0
+}
+
+sign_bundle_for_install() {
+	local bundle_path="$1"
+
+	if [ "$APP_BUNDLE_SOURCE" != "$APP_BUNDLE_SOURCE_SOURCE_BUILD" ]; then
+		INSTALL_SIGNING_LANE="$SIGNING_LANE_PRESERVED_RELEASE"
+		return 0
+	fi
+
+	echo "Signing source-built fallback bundle for install..."
+	sign_bundle_with_mode "$bundle_path" "$SIGNING_MODE_LOCAL_REVIEW"
 }
 
 is_installed_app_running() {
@@ -341,7 +362,10 @@ else
 	APP_BUNDLE=$(find_downloaded_app_bundle "$DIST_DIR")
 	APP_BUNDLE_SOURCE="$APP_BUNDLE_SOURCE_SOURCE_BUILD"
 fi
-prepare_app_bundle_for_install "$APP_BUNDLE" "$APP_BUNDLE_SOURCE"
+if [ "$APP_BUNDLE_SOURCE" = "$APP_BUNDLE_SOURCE_SOURCE_BUILD" ]; then
+	configure_install_signing_lane "$APP_BUNDLE"
+fi
+sign_bundle_for_install "$APP_BUNDLE"
 validate_app_bundle "$APP_BUNDLE"
 install_app_bundle "$APP_BUNDLE"
 terminate_running_installed_app
@@ -354,6 +378,9 @@ case "$INSTALL_SIGNING_LANE" in
 	;;
 "$SIGNING_LANE_EXPLICIT")
 	echo "Install used explicit signing identity from APPLE_SIGNING_IDENTITY."
+	;;
+"$SIGNING_LANE_LOCAL_REVIEW")
+	echo "Install used the stable local-review signing identity."
 	;;
 "$SIGNING_LANE_AD_HOC")
 	echo "Install used ad-hoc signing for a source-built fallback bundle; macOS permissions may need to be re-granted after reinstall/update."
