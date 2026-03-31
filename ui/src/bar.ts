@@ -23,7 +23,6 @@ import {
   ecgPulse,
   HEARTBEAT_IDLE_BPM,
   HEARTBEAT_ACTIVE_BPM_BOOST,
-  HEARTBEAT_VISIBLE_CYCLES,
   HEARTBEAT_ENERGY_SMOOTHING,
   HEARTBEAT_GLOW_WIDTH,
   HEARTBEAT_MIN_AMPLITUDE,
@@ -225,21 +224,36 @@ function drawHeartbeatTrace(
 
   const now = performance.now() / 1000;
   const beatsPerSecond = bpm / 60;
-  const windowDuration = HEARTBEAT_VISIBLE_CYCLES / beatsPerSecond;
+  const cycleDuration = 1 / beatsPerSecond;
+
+  // Sweep cursor moves left-to-right across the canvas over one beat cycle,
+  // then wraps. The vertical spike happens at the cursor position.
+  const sweepPhase = (now / cycleDuration) % 1;
+  const cursorX = sweepPhase * layout.width;
 
   canvasCtx.lineCap = "round";
   canvasCtx.lineJoin = "miter";
 
+  // Draw the waveform behind the cursor (freshly drawn region).
+  // Each x position maps to a beat phase based on distance from cursor.
   const path = new Path2D();
 
   for (let i = 0; i < layout.pointCount; i++) {
     const t = i / (layout.pointCount - 1);
     const x = t * layout.width;
 
-    const timeAtPoint = now - (1 - t) * windowDuration;
-    const rawPhase = (timeAtPoint * beatsPerSecond) % 1;
-    const phase = rawPhase < 0 ? rawPhase + 1 : rawPhase;
+    // Distance behind the cursor (0 = at cursor, 1 = full width behind)
+    let behindRatio: number;
+    if (x <= cursorX) {
+      behindRatio = (cursorX - x) / layout.width;
+    } else {
+      // Wrapped portion from previous sweep
+      behindRatio = (cursorX + layout.width - x) / layout.width;
+    }
 
+    // Map distance-behind to beat phase: cursor is at phase 1.0 (just finished),
+    // full width behind is phase 0.0 (start of cycle)
+    const phase = 1.0 - behindRatio;
     const pulse = ecgPulse(phase);
     const y = layout.centerY - pulse * layout.maxAmplitude * amplitude;
 
