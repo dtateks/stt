@@ -90,6 +90,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | Shortcut recorder | `ui/src/shortcut-display.ts`, `ui/src/shortcut-recorder-logic.ts`, `ui/src/main.ts` | canonical shortcut tokens stay in storage; recorder auto-saves on record and reset paths, no explicit save button; status text is the confirmation surface, not a separate save affordance |
 | Floating HUD shell / clipping | `ui/bar.html`, `ui/src/bar.css`, `ui/src/bar-render.ts` | HTML/body/root sizing and clipping; keep the webview shell transparent, rounded, and render-only |
 | HUD render/state | `ui/src/bar.ts`, `ui/src/bar-render.ts` | orchestration only in `bar.ts`; render helpers keep cleaned command text frozen through PAUSED/RESUMING/PROCESSING/INSERTING |
+| HUD waveform gating | `ui/src/bar-render.ts`, `ui/src/bar.ts` | `waveformShouldRun` is audio-active-only; use `waveformShouldBeVisible` for HUD visibility checks |
 | HUD session control | `ui/src/bar-session-controller.ts` | overlay mode, timers, STT, pause/resume, stop-word gating, Soniox temp-key prewarm/cache/refresh, live session preference refresh, deferred refresh during finalization, immediate stop-word `finalizeCurrentUtterance()` with timeout fallback, error recovery, selective LLM retry fallback |
 | HUD positioning / macOS window setup | `src/src/lib.rs`, `src/src/commands.rs` | bottom-center placement, Retina scale-factor correction, `tauri-nspanel` panel API, `HUDPanel`/`tauri_panel!`, `ManagerExt::get_webview_panel`, panel-level mouse events, transparent panel/webview setup |
 | HUD state machine | `ui/src/bar-state-machine.ts` | pure state transitions for bar lifecycle |
@@ -135,6 +136,8 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | Startup bridge gate | `ui/src/bridge-ready.ts`, `ui/src/main.ts`, `ui/src/bar.ts` wait for `window.voiceToText` before startup key checks and permission prompts.
 | Startup permission checks | `ui/src/startup-permissions.ts` requests microphone → accessibility → text insertion in order, keeps going after individual failures, and `ui/src/main.ts` turns the results into advisory copy only.
 | Bar show order | `configure_bar_panel()` / `configure_bar_webview_transparency()` and `position_bar_window_bottom_center()` run before `panel.show()`; reversing that flashes opaque content. The show path must not make the NSPanel key window.
+| macOS bar runtime sequence | `src/src/lib.rs` | `run_macos_bar_runtime_configuration_sequence(...)` reasserts panel + webview transparency on every show cycle; keep the runtime hardening seam intact |
+| macOS bar resize contract | `src/tauri.conf.json` | bar window stays `resizable: true` with fixed `minWidth` / `maxWidth` and `minHeight` / `maxHeight` pinned to `600×56` |
 | macOS HUD spaces | `HUDPanel` collection behavior uses `CanJoinAllSpaces` + `FullScreenAuxiliary`; keep the panel anchored between Spaces.
 | macOS HUD level | `1001` keeps the HUD above fullscreen apps; it must stay above `NSScreenSaverWindowLevel` for reliable overlay.
 | macOS HUD movement | `NSWindowCollectionBehavior::Stationary` remains part of the panel flag set.
@@ -151,6 +154,7 @@ The app now supports **cross-platform runtime parity** through a shared platform
 | Finalization flow | Stop-word detection uses combined final+interim transcript in the controller; success path freezes the cleaned command text through PROCESSING and INSERTING, then restarts listening in place with a cleared transcript after successful insert.
 | State ownership | `bar-session-controller.ts` owns timers, mouse events, pause/resume transitions, and session lifecycle; `bar.ts` stays rendering-focused.
 | Stop-word finalization | `ui/src/bar-session-controller.ts` stops the Soniox pipeline before insert/correction, restarts listening in place after a successful insert, and invalidates stale transcript/error callbacks with `transcriptGeneration` so one utterance cannot insert twice. Pause/resume keeps the preserved prefix outside the active session transcript until the resumed insert succeeds.
+| Soniox stop tiers | `ui/src/soniox-client.ts`, `ui/src/bar-session-controller.ts` | `stopStreamingSession()` preserves the graph for visible-session restarts; `stop()` is the full release path at true session boundaries |
 | Soniox WS init | `ui/src/soniox-client.ts` sends the official Soniox context object shape with transcription vocabulary hints in `terms` only; do not use `translation_terms` in this app’s transcription pipeline. Manual finalization uses `<fin>` / `<end>` markers plus endpoint-detection config, not ad hoc transcript heuristics. |
 | Soniox endpoint delay | `ui/src/soniox-client.ts`, `ui/src/bar-session-controller.ts`, `config.json` | `max_endpoint_delay_ms` intentionally sits at 1800 for less aggressive dictation endpointing; keep it aligned with the immediate stop-word `finalizeCurrentUtterance()` flow. |
 | LLM correction fallback | When transcript correction fails, retry only transient/recoverable failures (timeouts, transport/network issues, provider 408/429/5xx); deterministic failures fall back to raw after the first failed attempt, then successful raw insert clears the transcript and restarts listening in place with no success linger.
@@ -215,7 +219,11 @@ The app now supports **cross-platform runtime parity** through a shared platform
 - Moving provider-key preflight into the UI correction hot path; the UI now attempts correction directly.
 - Recreating reqwest clients or LLM config per correction request; the Rust path now shares both.
 - Reallocating waveform layout / analyser buffers on every frame; bar rendering reuses both by size.
+- Using `waveformShouldRun` as a visibility proxy; visibility now comes from `waveformShouldBeVisible`.
 - Reintroducing dominant full-width horizontal sweep/scroll motion in the HUD waveform, collapsing the heartbeat into a stationary one-point blip, hiding the waveform in visible non-hidden HUD states, or making low background noise render like a strong periodic pulse; the correct model keeps idle localized, stretches speech across almost the full short lane, and stays visible whenever the HUD is visible.
+- Expecting `stopStreamingSession()` to tear down the Soniox graph; that path intentionally preserves visible-session restart state.
+- Reverting the bar window to `resizable: false`; the fixed-size HUD now relies on `resizable: true` plus pinned min/max bounds.
+- Dropping per-show macOS transparency reassertion; the bar runtime sequence must reapply panel and webview transparency on each show cycle.
 - Minting a fresh Soniox temporary key on every HUD startup; the bar session controller now prewarms, caches, and refreshes before expiry.
 - Restoring a persistent CONNECTING label on fast HUD startups; brief suppression is intentional, slow startups still surface it.
 - Reintroducing a separate status dot or vertical-bars waveform; the HUD indicator is now the heartbeat-style horizontal line.
