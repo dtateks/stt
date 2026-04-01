@@ -480,9 +480,20 @@ export function resizeCanvasWithContext(
 }
 
 /**
- * Returns whether a given BarState should have the waveform animation running.
+ * Returns whether a given BarState needs the continuous RAF animation loop.
+ * Only audio-active states justify per-frame work — all other visible states
+ * render a single static idle heartbeat frame and stop.
  * Pure function — tested without any DOM or RAF dependency.
  */
 export function waveformShouldRun(state: BarState): boolean {
+  return state === "LISTENING" || state === "CONNECTING" || state === "RESUMING";
+}
+
+/**
+ * Returns whether a given BarState should show the waveform at all
+ * (either animated or as a single static frame).
+ * HIDDEN is the only state with no waveform render.
+ */
+export function waveformShouldBeVisible(state: BarState): boolean {
   return state !== "HIDDEN";
 }

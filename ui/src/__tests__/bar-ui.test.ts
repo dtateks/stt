@@ -37,6 +37,7 @@ import {
   scrollTranscriptToEnd,
   resizeCanvasWithContext,
   waveformShouldRun,
+  waveformShouldBeVisible,
   sampleWaveformY,
   ecgDisplacement,
   computeAudioHeartbeatParams,
@@ -651,18 +652,39 @@ describe("createWaveformLayout — pure geometry contract", () => {
 // These tests verify the predicate's contract directly, plus the RAF lifecycle
 // pattern that the production handler uses (start/stop idempotency).
 
-describe("waveformShouldRun — production predicate from bar-render.ts", () => {
-  it("returns true for every visible HUD state", () => {
-    const visibleStates: BarState[] = [
-      "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
+// ─── IMP-02: Waveform lifecycle — through real production predicates ───────────
+//
+// The production controller.onStateChange handler uses two predicates from
+// bar-render.ts to decide the waveform render tier:
+//   - waveformShouldRun(state): continuous RAF loop (audio-active states only)
+//   - waveformShouldBeVisible(state): static idle frame (visible non-audio states)
+//   - neither: no render at all (HIDDEN)
+//
+// This two-tier design eliminates continuous compositor/GPU work in states
+// where the waveform is visible but no audio analyser is providing data.
+
+describe("waveformShouldRun — continuous RAF only for audio-active states", () => {
+  it("returns true for audio-active states that need live animation", () => {
+    const audioActiveStates: BarState[] = [
+      "CONNECTING", "LISTENING", "RESUMING",
     ] as const;
 
-    for (const state of visibleStates) {
+    for (const state of audioActiveStates) {
       expect(waveformShouldRun(state)).toBe(true);
     }
   });
 
-  it("returns false only when the HUD is hidden", () => {
+  it("returns false for non-audio visible states (static idle frame, no RAF)", () => {
+    const staticVisibleStates: BarState[] = [
+      "PAUSED", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
+    ] as const;
+
+    for (const state of staticVisibleStates) {
+      expect(waveformShouldRun(state)).toBe(false);
+    }
+  });
+
+  it("returns false when the HUD is hidden", () => {
     expect(waveformShouldRun("HIDDEN")).toBe(false);
   });
 
@@ -670,25 +692,63 @@ describe("waveformShouldRun — production predicate from bar-render.ts", () => 
     const allStates: BarState[] = [
       "HIDDEN", "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
     ];
-    const runningStates = allStates.filter(waveformShouldRun);
-    const stoppedStates = allStates.filter((s) => !waveformShouldRun(s));
-    expect(runningStates).toEqual(["CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR"]);
-    expect(stoppedStates).toEqual(["HIDDEN"]);
-    expect(runningStates.length + stoppedStates.length).toBe(9);
+    const rafStates = allStates.filter(waveformShouldRun);
+    const nonRafStates = allStates.filter((s) => !waveformShouldRun(s));
+    expect(rafStates).toEqual(["CONNECTING", "LISTENING", "RESUMING"]);
+    expect(nonRafStates).toEqual(["HIDDEN", "PAUSED", "PROCESSING", "INSERTING", "SUCCESS", "ERROR"]);
+    expect(rafStates.length + nonRafStates.length).toBe(9);
   });
 });
 
-describe("waveform RAF lifecycle — controller.onStateChange behaviour contract", () => {
+describe("waveformShouldBeVisible — any visible state shows waveform (static or animated)", () => {
+  it("returns true for every visible HUD state", () => {
+    const visibleStates: BarState[] = [
+      "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
+    ] as const;
+
+    for (const state of visibleStates) {
+      expect(waveformShouldBeVisible(state)).toBe(true);
+    }
+  });
+
+  it("returns false only when the HUD is hidden", () => {
+    expect(waveformShouldBeVisible("HIDDEN")).toBe(false);
+  });
+
+  it("is a superset of waveformShouldRun — every RAF state is also visible", () => {
+    const allStates: BarState[] = [
+      "HIDDEN", "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
+    ];
+    for (const state of allStates) {
+      if (waveformShouldRun(state)) {
+        expect(waveformShouldBeVisible(state)).toBe(true);
+      }
+    }
+  });
+
+  it("covers all BarState values (exhaustive — no state is accidentally unhandled)", () => {
+    const allStates: BarState[] = [
+      "HIDDEN", "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
+    ];
+    const visibleStates = allStates.filter(waveformShouldBeVisible);
+    const hiddenStates = allStates.filter((s) => !waveformShouldBeVisible(s));
+    expect(visibleStates).toEqual(["CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR"]);
+    expect(hiddenStates).toEqual(["HIDDEN"]);
+    expect(visibleStates.length + hiddenStates.length).toBe(9);
+  });
+});
+
+describe("waveform RAF lifecycle — two-tier controller.onStateChange behaviour contract", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("schedules a RAF when waveformShouldRun returns true for a visible HUD state", () => {
+  it("schedules a RAF when waveformShouldRun returns true for an audio-active state", () => {
     const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(42);
     let rafId: number | null = null;
 
     // Simulate the production onStateChange handler pattern
-    const state: BarState = "INSERTING";
+    const state: BarState = "LISTENING";
     if (waveformShouldRun(state)) {
       if (rafId === null) {
         rafId = requestAnimationFrame(() => {});
@@ -699,13 +759,32 @@ describe("waveform RAF lifecycle — controller.onStateChange behaviour contract
     expect(rafId).toBe(42);
   });
 
-  it("cancels existing RAF only when waveformShouldRun returns false (HIDDEN)", () => {
+  it("does NOT schedule a RAF for non-audio visible states (static frame path)", () => {
+    const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(42);
+    let rafId: number | null = null;
+
+    // Non-audio visible states get a static frame, not continuous RAF
+    const staticStates: BarState[] = ["PROCESSING", "INSERTING", "SUCCESS", "ERROR", "PAUSED"];
+    for (const state of staticStates) {
+      rafId = null;
+      if (waveformShouldRun(state)) {
+        rafId = requestAnimationFrame(() => {});
+      }
+      expect(rafId).toBeNull();
+      // But the waveform IS still visible (static frame)
+      expect(waveformShouldBeVisible(state)).toBe(true);
+    }
+
+    expect(rafSpy).not.toHaveBeenCalled();
+  });
+
+  it("cancels existing RAF when transitioning to HIDDEN", () => {
     const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(42);
     const cancelSpy = vi.spyOn(window, "cancelAnimationFrame");
 
     let rafId: number | null = null;
 
-    // Start for a visible HUD state
+    // Start for an audio-active state
     if (waveformShouldRun("LISTENING")) {
       if (rafId === null) {
         rafId = requestAnimationFrame(() => {});
@@ -714,20 +793,44 @@ describe("waveform RAF lifecycle — controller.onStateChange behaviour contract
     expect(rafId).toBe(42);
     expect(rafSpy).toHaveBeenCalledTimes(1);
 
-    const stoppedStates: BarState[] = ["HIDDEN"];
-    for (const state of stoppedStates) {
-      // Restart for test isolation
-      rafId = 42;
-      if (!waveformShouldRun(state)) {
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-          rafId = null;
-        }
+    // HIDDEN stops everything
+    rafId = 42;
+    if (!waveformShouldRun("HIDDEN") && !waveformShouldBeVisible("HIDDEN")) {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
       }
-      expect(rafId).toBeNull();
     }
+    expect(rafId).toBeNull();
+    expect(cancelSpy).toHaveBeenCalledTimes(1);
+  });
 
-    expect(cancelSpy).toHaveBeenCalledTimes(stoppedStates.length);
+  it("cancels existing RAF when transitioning from audio-active to non-audio visible state", () => {
+    vi.spyOn(window, "requestAnimationFrame").mockReturnValue(42);
+    const cancelSpy = vi.spyOn(window, "cancelAnimationFrame");
+
+    let rafId: number | null = null;
+
+    // Start for LISTENING
+    if (waveformShouldRun("LISTENING")) {
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {});
+      }
+    }
+    expect(rafId).toBe(42);
+
+    // Transition to PROCESSING — RAF should stop, but waveform stays visible (static)
+    const nextState: BarState = "PROCESSING";
+    if (!waveformShouldRun(nextState) && waveformShouldBeVisible(nextState)) {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      // Production would call drawStaticIdleFrame() here
+    }
+    expect(rafId).toBeNull();
+    expect(cancelSpy).toHaveBeenCalledTimes(1);
+    expect(waveformShouldBeVisible(nextState)).toBe(true);
   });
 
   it("startWaveform pattern is idempotent — does not schedule multiple RAF loops", () => {

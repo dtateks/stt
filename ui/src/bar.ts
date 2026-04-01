@@ -20,6 +20,7 @@ import {
   type WaveformLayout,
   resizeCanvasWithContext,
   waveformShouldRun,
+  waveformShouldBeVisible,
   sampleWaveformY,
   computeRmsEnergy,
   computeAudioHeartbeatParams,
@@ -144,6 +145,18 @@ let waveformLayoutCache: WaveformLayout | null = null;
 let analyserDataBuffer: Uint8Array<ArrayBuffer> | null = null;
 let waveformStartTime: number | null = null;
 
+// Gradient cache — avoids per-frame createLinearGradient calls.
+// Invalidated when canvas width or opacity threshold changes.
+let cachedGradientWidth = 0;
+let cachedLineOpacityBucket = -1;
+let cachedGlowOpacityBucket = -1;
+let cachedLineGradient: CanvasGradient | null = null;
+let cachedGlowGradient: CanvasGradient | null = null;
+
+// Opacity bucketing granularity — gradients are rebuilt only when opacity
+// crosses a bucket boundary, not on every sub-pixel energy change.
+const GRADIENT_OPACITY_BUCKET_SIZE = 0.04;
+
 function getWaveformLayout(width: number, height: number): WaveformLayout {
   if (
     waveformLayoutCache !== null
@@ -181,6 +194,7 @@ function stopWaveform(): void {
     rafId = null;
   }
   waveformStartTime = null;
+  invalidateGradientCache();
   clearWaveform();
 }
 
@@ -188,6 +202,75 @@ function clearWaveform(): void {
   if (!canvasCtx) return;
   const dpr = window.devicePixelRatio || 1;
   canvasCtx.clearRect(0, 0, waveformCanvas.width / dpr, waveformCanvas.height / dpr);
+}
+
+function invalidateGradientCache(): void {
+  cachedGradientWidth = 0;
+  cachedLineOpacityBucket = -1;
+  cachedGlowOpacityBucket = -1;
+  cachedLineGradient = null;
+  cachedGlowGradient = null;
+}
+
+/**
+ * Returns a cached or fresh gradient pair for the audio heartbeat.
+ * Gradients are rebuilt only when the canvas width changes or the
+ * opacity bucket crosses a threshold — not on every frame.
+ */
+function getAudioGradients(
+  width: number,
+  lineOpacity: number,
+  glowOpacity: number,
+): { lineGradient: CanvasGradient; glowGradient: CanvasGradient } {
+  const lineBucket = Math.round(lineOpacity / GRADIENT_OPACITY_BUCKET_SIZE);
+  const glowBucket = Math.round(glowOpacity / GRADIENT_OPACITY_BUCKET_SIZE);
+
+  if (
+    cachedLineGradient !== null
+    && cachedGlowGradient !== null
+    && cachedGradientWidth === width
+    && cachedLineOpacityBucket === lineBucket
+    && cachedGlowOpacityBucket === glowBucket
+  ) {
+    return { lineGradient: cachedLineGradient, glowGradient: cachedGlowGradient };
+  }
+
+  const bucketedLineOpacity = lineBucket * GRADIENT_OPACITY_BUCKET_SIZE;
+  const bucketedGlowOpacity = glowBucket * GRADIENT_OPACITY_BUCKET_SIZE;
+
+  const lineGradient = canvasCtx!.createLinearGradient(0, 0, width, 0);
+  lineGradient.addColorStop(0, `rgba(56, 232, 255, ${bucketedLineOpacity})`);
+  lineGradient.addColorStop(1, `rgba(167, 139, 250, ${bucketedLineOpacity * 0.85})`);
+
+  const glowGradient = canvasCtx!.createLinearGradient(0, 0, width, 0);
+  glowGradient.addColorStop(0, `rgba(56, 232, 255, ${bucketedGlowOpacity})`);
+  glowGradient.addColorStop(1, `rgba(167, 139, 250, ${bucketedGlowOpacity * 0.8})`);
+
+  cachedGradientWidth = width;
+  cachedLineOpacityBucket = lineBucket;
+  cachedGlowOpacityBucket = glowBucket;
+  cachedLineGradient = lineGradient;
+  cachedGlowGradient = glowGradient;
+
+  return { lineGradient, glowGradient };
+}
+
+/**
+ * Renders a single static idle heartbeat frame — no RAF loop.
+ * Used for visible non-audio states (PROCESSING, INSERTING, etc.)
+ * where continuous animation is thermal waste.
+ */
+function drawStaticIdleFrame(): void {
+  if (!canvasCtx) return;
+
+  waveformStartTime = performance.now();
+  const dpr = window.devicePixelRatio || 1;
+  const logicalWidth = waveformCanvas.width / dpr;
+  const logicalHeight = waveformCanvas.height / dpr;
+  const layout = getWaveformLayout(logicalWidth, logicalHeight);
+
+  canvasCtx.clearRect(0, 0, logicalWidth, logicalHeight);
+  drawIdleHeartbeat(layout);
 }
 
 function drawWaveform(): void {
@@ -283,15 +366,9 @@ function drawAudioHeartbeat(data: Uint8Array<ArrayBuffer>, layout: WaveformLayou
   const glowOpacity = 0.05 + activeEnergy * 0.18;
   const lineOpacity = 0.36 + activeEnergy * 0.42;
 
-  const gradient = canvasCtx!.createLinearGradient(0, 0, layout.width, 0);
-  gradient.addColorStop(0, `rgba(56, 232, 255, ${lineOpacity})`);
-  gradient.addColorStop(1, `rgba(167, 139, 250, ${lineOpacity * 0.85})`);
+  const { lineGradient, glowGradient } = getAudioGradients(layout.width, lineOpacity, glowOpacity);
 
-  const glowGradient = canvasCtx!.createLinearGradient(0, 0, layout.width, 0);
-  glowGradient.addColorStop(0, `rgba(56, 232, 255, ${glowOpacity})`);
-  glowGradient.addColorStop(1, `rgba(167, 139, 250, ${glowOpacity * 0.8})`);
-
-  drawHeartbeatTrace(layout, bpm, amplitude, gradient, glowGradient);
+  drawHeartbeatTrace(layout, bpm, amplitude, lineGradient, glowGradient);
 }
 
 // ─── Pause button affordance ──────────────────────────────────────────────
@@ -378,9 +455,12 @@ controller.onStateChange = (state) => {
 
   if (waveformShouldRun(state)) {
     startWaveform();
+  } else if (waveformShouldBeVisible(state)) {
+    // Non-audio visible states: render one static idle frame, then stop
+    // the RAF loop. Visually identical but eliminates continuous compositor load.
+    stopWaveform();
+    drawStaticIdleFrame();
   } else {
-    // Stop animation only once the HUD is actually hidden so the waveform stays
-    // visible through CONNECTING, PROCESSING, INSERTING, SUCCESS, and ERROR.
     stopWaveform();
   }
 };
@@ -402,6 +482,7 @@ controller.onErrorMessageChange = (message: string | null) => {
 function resizeCanvas(): void {
   resizeCanvasWithContext(waveformCanvas, canvasCtx, window.devicePixelRatio || 1);
   waveformLayoutCache = null;
+  invalidateGradientCache();
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────
