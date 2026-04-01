@@ -48,7 +48,8 @@ type SonioxMock = {
   setConfig: ReturnType<typeof vi.fn<(config: AppConfig["soniox"]) => void>>;
   start: ReturnType<typeof vi.fn<(apiKey: string, context: SonioxContext) => Promise<void>>>;
   finalizeCurrentUtterance: ReturnType<typeof vi.fn<(fallbackTranscript: string) => Promise<string>>>;
-  stop: ReturnType<typeof vi.fn<() => void>>;
+  stopStreamingSession: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  stop: ReturnType<typeof vi.fn<() => Promise<void>>>;
   resetTranscript: ReturnType<typeof vi.fn<() => void>>;
   getFinalText: ReturnType<typeof vi.fn<() => string>>;
   getInterimText: ReturnType<typeof vi.fn<() => string>>;
@@ -62,7 +63,8 @@ const soniox = vi.hoisted(() => {
     setConfig: vi.fn(),
     start: vi.fn(async () => {}),
     finalizeCurrentUtterance: vi.fn(async (fallbackTranscript: string) => fallbackTranscript),
-    stop: vi.fn(),
+    stopStreamingSession: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
     resetTranscript: vi.fn(),
     getFinalText: vi.fn(() => ""),
     getInterimText: vi.fn(() => ""),
@@ -608,12 +610,14 @@ describe("BarSessionController", () => {
     await flushMicrotasks();
 
     expect(controller.getCurrentState()).toBe("PROCESSING");
+    expect(soniox.instance.stopStreamingSession).not.toHaveBeenCalled();
     expect(soniox.instance.stop).not.toHaveBeenCalled();
 
     await settleStopWordFinalization();
 
     expect(soniox.instance.finalizeCurrentUtterance).toHaveBeenCalledWith("send update thank you");
     expect(mocks.insertText).not.toHaveBeenCalled();
+    expect(soniox.instance.stopStreamingSession).not.toHaveBeenCalled();
     expect(soniox.instance.stop).not.toHaveBeenCalled();
 
     finalizedTranscript.resolve("send update from final thank you");
@@ -851,7 +855,8 @@ describe("BarSessionController", () => {
 
     expect(controller.getCurrentState()).toBe("LISTENING");
     expect(controller.getOverlayMode()).toBe("INTERACTIVE");
-    expect(soniox.instance.stop).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.stopStreamingSession).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.stop).not.toHaveBeenCalled();
     expect(soniox.instance.start).toHaveBeenCalledTimes(2);
     expect(mocks.hideBar).not.toHaveBeenCalled();
     expect(mocks.setMicState).toHaveBeenNthCalledWith(2, false);
@@ -891,6 +896,8 @@ describe("BarSessionController", () => {
     expect(controller.getCurrentState()).toBe("LISTENING");
     expect(mocks.insertText).not.toHaveBeenCalled();
     expect(soniox.instance.start).toHaveBeenCalledTimes(2);
+    expect(soniox.instance.stopStreamingSession).toHaveBeenCalledTimes(2);
+    expect(soniox.instance.stop).not.toHaveBeenCalled();
   });
 
   it("restarts listening after insert and ignores stale transcript callbacks", async () => {
@@ -922,7 +929,8 @@ describe("BarSessionController", () => {
     await flushMicrotasks();
 
     expect(mocks.insertText).toHaveBeenCalledTimes(1);
-    expect(soniox.instance.stop).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.stopStreamingSession).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.stop).not.toHaveBeenCalled();
     expect(soniox.instance.start).toHaveBeenCalledTimes(2);
     expect(controller.getCurrentState()).toBe("LISTENING");
     expect(controller.getOverlayMode()).toBe("INTERACTIVE");
@@ -1408,7 +1416,8 @@ describe("BarSessionController", () => {
     await controller.handlePauseResume();
 
     expect(controller.getCurrentState()).toBe("PAUSED");
-    expect(soniox.instance.stop).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.stopStreamingSession).toHaveBeenCalledTimes(1);
+    expect(soniox.instance.stop).not.toHaveBeenCalled();
     expect(mocks.setMicState).toHaveBeenCalledWith(false);
     expect(stateChanges).toContain("PAUSED");
   });

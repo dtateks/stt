@@ -47,6 +47,7 @@ export class SonioxClient implements SonioxSTTClient {
   private config: SonioxConfig | null = null;
   private ws: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
+  private sourceNode: MediaStreamAudioSourceNode | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private mediaStream: MediaStream | null = null;
@@ -54,6 +55,7 @@ export class SonioxClient implements SonioxSTTClient {
   private interimText = "";
   private active = false;
   private pendingFinalization: PendingFinalization | null = null;
+  private audioInitPromise: Promise<void> | null = null;
 
   setConfig(config: SonioxConfig): void {
     this.config = config;
@@ -61,22 +63,30 @@ export class SonioxClient implements SonioxSTTClient {
 
   async start(apiKey: string, context: SonioxContext): Promise<void> {
     if (!this.config) throw new Error("Soniox config not set before start()");
-    if (this.active) this.stop();
+    if (this.active) {
+      await this.stopStreamingSession();
+    }
 
     this.active = true;
     this.finalText = "";
     this.interimText = "";
     this.pendingFinalization = null;
 
-    await this.initAudio();
+    await this.ensureAudioGraph();
+    await this.activateAudioGraph();
     this.openWebSocket(apiKey, context);
   }
 
-  stop(): void {
+  async stopStreamingSession(): Promise<void> {
     this.active = false;
     this.rejectPendingFinalization(new Error("Soniox session stopped before finalization completed"));
     this.closeWebSocket();
-    this.releaseAudio();
+    await this.deactivateAudioGraph();
+  }
+
+  async stop(): Promise<void> {
+    await this.stopStreamingSession();
+    await this.releaseAudio();
   }
 
   async finalizeCurrentUtterance(fallbackTranscript: string): Promise<string> {
@@ -121,7 +131,23 @@ export class SonioxClient implements SonioxSTTClient {
 
   // ─── Private ─────────────────────────────────────────────────────────────
 
-  private async initAudio(): Promise<void> {
+  private async ensureAudioGraph(): Promise<void> {
+    if (this.audioContext && this.mediaStream && this.sourceNode && this.workletNode && this.analyserNode) {
+      return;
+    }
+
+    if (!this.audioInitPromise) {
+      this.audioInitPromise = this.initAudioGraph();
+    }
+
+    try {
+      await this.audioInitPromise;
+    } finally {
+      this.audioInitPromise = null;
+    }
+  }
+
+  private async initAudioGraph(): Promise<void> {
     const config = this.config!;
 
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -137,7 +163,7 @@ export class SonioxClient implements SonioxSTTClient {
 
     await this.audioContext.audioWorklet.addModule(pcmCaptureProcessorUrl);
 
-    const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+    this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
 
     this.analyserNode = this.audioContext.createAnalyser();
     this.analyserNode.fftSize = 256;
@@ -154,8 +180,28 @@ export class SonioxClient implements SonioxSTTClient {
       }
     };
 
-    source.connect(this.analyserNode);
-    source.connect(this.workletNode);
+    this.sourceNode.connect(this.analyserNode);
+    this.sourceNode.connect(this.workletNode);
+  }
+
+  private async activateAudioGraph(): Promise<void> {
+    this.mediaStream?.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+    });
+
+    if (this.audioContext && this.audioContext.state === "suspended") {
+      await this.audioContext.resume();
+    }
+  }
+
+  private async deactivateAudioGraph(): Promise<void> {
+    this.mediaStream?.getAudioTracks().forEach((track) => {
+      track.enabled = false;
+    });
+
+    if (this.audioContext && this.audioContext.state === "running") {
+      await this.audioContext.suspend();
+    }
   }
 
   private openWebSocket(apiKey: string, context: SonioxContext): void {
@@ -323,12 +369,16 @@ export class SonioxClient implements SonioxSTTClient {
     pendingFinalization.reject(error);
   }
 
-  private releaseAudio(): void {
+  private async releaseAudio(): Promise<void> {
+    this.sourceNode?.disconnect();
     this.workletNode?.disconnect();
     this.analyserNode?.disconnect();
     this.mediaStream?.getTracks().forEach((t) => { t.stop(); });
-    this.audioContext?.close();
+    if (this.audioContext && this.audioContext.state !== "closed") {
+      await this.audioContext.close();
+    }
 
+    this.sourceNode = null;
     this.workletNode = null;
     this.analyserNode = null;
     this.mediaStream = null;

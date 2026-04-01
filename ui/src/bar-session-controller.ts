@@ -211,7 +211,7 @@ export class BarSessionController {
 
     // Stop audio pipeline without affecting overlay mode — the HUD stays
     // visible and interactive throughout the reset.
-    await this.stopAudioPipeline().catch((error: unknown) => {
+    await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed during clear", error);
     });
 
@@ -236,7 +236,7 @@ export class BarSessionController {
 
       await this.startAudioPipeline(apiKey, sessionPreferences);
       if (!this.isStartAttemptCurrent(restartAttemptId)) {
-        await this.stopAudioPipeline().catch((error: unknown) => {
+        await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
           console.error("[session] stopAudioPipeline failed during stale clear restart", error);
         });
         return;
@@ -265,7 +265,7 @@ export class BarSessionController {
 
     this.pausedTranscript = { ...this.accumulatedTranscript };
 
-    await this.stopAudioPipeline().catch((error: unknown) => {
+    await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed during pause", error);
     });
 
@@ -299,7 +299,7 @@ export class BarSessionController {
 
       await this.startAudioPipeline(apiKey, sessionPreferences);
       if (!this.isStartAttemptCurrent(restartAttemptId)) {
-        await this.stopAudioPipeline().catch((error: unknown) => {
+        await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
           console.error("[session] stopAudioPipeline failed during stale resume restart", error);
         });
         return;
@@ -410,10 +410,16 @@ export class BarSessionController {
     }
   }
 
-  private async stopAudioPipeline(): Promise<void> {
+  private async stopAudioPipeline(
+    options: { releaseResources: boolean } = { releaseResources: true },
+  ): Promise<void> {
     this.invalidateTranscriptGeneration();
     this.stopReminderBeep();
-    this.client.stop();
+    if (options.releaseResources) {
+      await this.client.stop();
+    } else {
+      await this.client.stopStreamingSession();
+    }
     await window.voiceToText.setMicState(false);
   }
 
@@ -473,7 +479,7 @@ export class BarSessionController {
     this.activeSessionPreferences = null;
     this.pausedTranscript = null;
     this.accumulatedTranscript = { finalText: "", interimText: "" };
-    await this.stopAudioPipeline().catch((error: unknown) => {
+    await this.stopAudioPipeline({ releaseResources: true }).catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed", error);
     });
     await this.applyEvent("CLOSE").catch((error: unknown) => {
@@ -495,7 +501,7 @@ export class BarSessionController {
    * Keep the HUD visible with an actionable error until user close/retry.
    */
   private async handleStartupError(message: string): Promise<void> {
-    await this.stopAudioPipeline().catch((error: unknown) => {
+    await this.stopAudioPipeline({ releaseResources: true }).catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed during startup error", error);
     });
     this.setErrorMessage(message);
@@ -512,7 +518,7 @@ export class BarSessionController {
    * contract (ERROR → AUTO_RETURN → LISTENING), resuming the reminder beep.
    */
   private async handleStreamError(): Promise<void> {
-    await this.stopAudioPipeline().catch((error: unknown) => {
+    await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed during stream error", error);
     });
     await this.applyEvent("CONNECTION_ERROR"); // LISTENING/PROCESSING → ERROR
@@ -588,7 +594,7 @@ export class BarSessionController {
       this.onTranscriptChange?.({ finalText: commandText, interimText: "" });
     }
 
-    await this.stopAudioPipeline().catch((error: unknown) => {
+    await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed during stop-word finalization", error);
     });
     if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
@@ -683,7 +689,7 @@ export class BarSessionController {
 
       await this.startAudioPipeline(apiKey, sessionPreferences);
       if (!this.isStartAttemptCurrent(startAttemptId)) {
-        await this.stopAudioPipeline().catch((error: unknown) => {
+        await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
           console.error("[session] stopAudioPipeline failed during stale finalization restart", error);
         });
         return;
