@@ -80,6 +80,16 @@ body {
   box-shadow: 0 0 24px rgba(239, 68, 68, 0.12);
 }
 
+.hud[data-state="PAUSED"]::before {
+  opacity: 1;
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.1);
+}
+
+.hud[data-state="RESUMING"]::before {
+  opacity: 1;
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.1);
+}
+
 .hud-leading {
   display: flex;
   align-items: center;
@@ -158,6 +168,14 @@ body {
   color: var(--text-secondary);
 }
 
+.hud[data-state="PAUSED"] .transcript-final {
+  color: var(--text-secondary);
+}
+
+.hud[data-state="RESUMING"] .transcript-final {
+  color: var(--text-secondary);
+}
+
 /* ─── HUD action buttons ─────────────────────────────────────────────────── */
 .hud-actions-shell {
   display: flex;
@@ -219,6 +237,29 @@ body {
   height: 13px;
 }
 
+.hud-btn-pause svg {
+  width: 11px;
+  height: 11px;
+}
+
+.hud-btn-pause .hud-icon-resume {
+  display: none;
+}
+
+.hud-btn-pause[data-paused="true"] .hud-icon-pause {
+  display: none;
+}
+
+.hud-btn-pause[data-paused="true"] .hud-icon-resume {
+  display: block;
+}
+
+.hud-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+  pointer-events: none;
+}
+
 .hud-btn-close:hover {
   background: rgba(255, 255, 255, 0.07);
   color: rgba(255, 255, 255, 0.72);
@@ -267,6 +308,14 @@ body {
 
 .hud[data-state="ERROR"] .hud-state-label {
   color: var(--color-error-500);
+}
+
+.hud[data-state="PAUSED"] .hud-state-label {
+  color: var(--color-warning-500);
+}
+
+.hud[data-state="RESUMING"] .hud-state-label {
+  color: var(--color-warning-500);
 }
 
 /* ─── Separator ──────────────────────────────────────────────────────────── */

@@ -107,6 +107,14 @@ export class SonioxClient implements SonioxSTTClient {
     this.emitTranscript();
   }
 
+  getFinalText(): string {
+    return this.finalText;
+  }
+
+  getInterimText(): string {
+    return this.interimText;
+  }
+
   getAnalyser(): AnalyserNode | null {
     return this.analyserNode;
   }

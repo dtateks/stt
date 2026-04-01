@@ -166,6 +166,8 @@ export type BarState =
   | "HIDDEN"
   | "CONNECTING"
   | "LISTENING"
+  | "PAUSED"
+  | "RESUMING"
   | "PROCESSING"
   | "INSERTING"
   | "SUCCESS"
@@ -179,6 +181,8 @@ export interface SonioxSTTClient {
   finalizeCurrentUtterance(fallbackTranscript: string): Promise<string>;
   stop(): void;
   resetTranscript(): void;
+  getFinalText(): string;
+  getInterimText(): string;
   getAnalyser(): AnalyserNode | null;
   onTranscript: TranscriptCallback | null;
   onError: ErrorCallback | null;

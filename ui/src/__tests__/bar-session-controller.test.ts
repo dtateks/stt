@@ -50,6 +50,8 @@ type SonioxMock = {
   finalizeCurrentUtterance: ReturnType<typeof vi.fn<(fallbackTranscript: string) => Promise<string>>>;
   stop: ReturnType<typeof vi.fn<() => void>>;
   resetTranscript: ReturnType<typeof vi.fn<() => void>>;
+  getFinalText: ReturnType<typeof vi.fn<() => string>>;
+  getInterimText: ReturnType<typeof vi.fn<() => string>>;
   getAnalyser: ReturnType<typeof vi.fn<() => AnalyserNode | null>>;
 };
 
@@ -62,6 +64,8 @@ const soniox = vi.hoisted(() => {
     finalizeCurrentUtterance: vi.fn(async (fallbackTranscript: string) => fallbackTranscript),
     stop: vi.fn(),
     resetTranscript: vi.fn(),
+    getFinalText: vi.fn(() => ""),
+    getInterimText: vi.fn(() => ""),
     getAnalyser: vi.fn(() => null),
   };
 
@@ -1384,5 +1388,334 @@ describe("BarSessionController", () => {
 
     expect(controller.getCurrentState()).toBe("LISTENING");
     expect(setIntervalSpy).not.toHaveBeenCalled();
+  });
+
+  it("pauses from LISTENING, preserving full transcript snapshot and stopping audio", async () => {
+    const { bridge, mocks } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const stateChanges: string[] = [];
+    controller.onStateChange = (state) => stateChanges.push(state);
+    await controller.init();
+    await controller.handleToggle();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+
+    soniox.instance.onTranscript?.({ finalText: "hello world", interimText: "in progress" });
+    await flushMicrotasks();
+
+    await controller.handlePauseResume();
+
+    expect(controller.getCurrentState()).toBe("PAUSED");
+    expect(soniox.instance.stop).toHaveBeenCalledTimes(1);
+    expect(mocks.setMicState).toHaveBeenCalledWith(false);
+    expect(stateChanges).toContain("PAUSED");
+  });
+
+  it("resumes from PAUSED, emitting preserved transcript immediately and reaching LISTENING", async () => {
+    const { bridge, mocks } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const transcriptChanges: TranscriptResult[] = [];
+    const stateChanges: string[] = [];
+    controller.onTranscriptChange = (result) => transcriptChanges.push(result);
+    controller.onStateChange = (state) => stateChanges.push(state);
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({ finalText: "hello world", interimText: "" });
+    await flushMicrotasks();
+
+    await controller.handlePauseResume();
+    expect(controller.getCurrentState()).toBe("PAUSED");
+
+    await controller.handlePauseResume();
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(stateChanges).toContain("RESUMING");
+    expect(soniox.instance.start).toHaveBeenCalledTimes(2);
+    expect(mocks.setMicState).toHaveBeenCalledWith(true);
+    expect(transcriptChanges).toContainEqual({ finalText: "hello world", interimText: "" });
+  });
+
+  it("clear from PAUSED discards transcript and restarts fresh listening", async () => {
+    const { bridge, mocks } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({ finalText: "hello world", interimText: "" });
+    await flushMicrotasks();
+
+    await controller.handlePauseResume();
+    expect(controller.getCurrentState()).toBe("PAUSED");
+
+    await controller.handleClear();
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(soniox.instance.start).toHaveBeenCalledTimes(2);
+    expect(mocks.hideBar).not.toHaveBeenCalled();
+  });
+
+  it("close from PAUSED stops and hides the HUD", async () => {
+    const { bridge, mocks } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({ finalText: "hello world", interimText: "" });
+    await flushMicrotasks();
+
+    await controller.handlePauseResume();
+    expect(controller.getCurrentState()).toBe("PAUSED");
+
+    await controller.handleClose();
+
+    expect(controller.getCurrentState()).toBe("HIDDEN");
+    expect(controller.getOverlayMode()).toBe("PASSIVE");
+    expect(mocks.hideBar).toHaveBeenCalled();
+  });
+
+  it("handlePauseResume is a no-op outside LISTENING and PAUSED states", async () => {
+    const { bridge } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+
+    await controller.handlePauseResume();
+    expect(controller.getCurrentState()).toBe("HIDDEN");
+  });
+
+  it("resume handles missing API key gracefully", async () => {
+    const { bridge, mocks } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const errorMessages: Array<string | null> = [];
+    controller.onErrorMessageChange = (message) => errorMessages.push(message);
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({ finalText: "hello", interimText: "" });
+    await flushMicrotasks();
+
+    await controller.handlePauseResume();
+    expect(controller.getCurrentState()).toBe("PAUSED");
+
+    mocks.hasSonioxKey.mockResolvedValue(false);
+    await vi.advanceTimersByTimeAsync(3_540_000);
+    await flushMicrotasks();
+
+    await controller.handlePauseResume();
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("ERROR");
+    expect(errorMessages[errorMessages.length - 1]).toContain("Soniox API key is missing");
+  });
+
+  it("pause preserves both final and interim transcript text", async () => {
+    const { bridge } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const transcriptChanges: TranscriptResult[] = [];
+    controller.onTranscriptChange = (result) => transcriptChanges.push(result);
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({ finalText: "hello world", interimText: "in progress" });
+    await flushMicrotasks();
+
+    await controller.handlePauseResume();
+    expect(controller.getCurrentState()).toBe("PAUSED");
+
+    await controller.handlePauseResume();
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+    expect(transcriptChanges).toContainEqual({
+      finalText: "hello world",
+      interimText: "in progress",
+    });
+  });
+
+  it("resume composes preserved transcript with new live transcript", async () => {
+    const { bridge } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const transcriptChanges: TranscriptResult[] = [];
+    controller.onTranscriptChange = (result) => transcriptChanges.push(result);
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({ finalText: "first sentence", interimText: "partial" });
+    await flushMicrotasks();
+
+    await controller.handlePauseResume();
+    expect(controller.getCurrentState()).toBe("PAUSED");
+
+    await controller.handlePauseResume();
+    await flushMicrotasks();
+
+    expect(controller.getCurrentState()).toBe("LISTENING");
+
+    const liveHandler = soniox.instance.onTranscript;
+    expect(liveHandler).not.toBeNull();
+
+    liveHandler?.({ finalText: "second sentence", interimText: "typing" });
+    await flushMicrotasks();
+
+    expect(transcriptChanges).toContainEqual({
+      finalText: "first sentence partial second sentence",
+      interimText: "typing",
+    });
+  });
+
+  it("preserves cumulative transcript across multiple pause/resume cycles", async () => {
+    const { bridge } = createBridge();
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const transcriptChanges: TranscriptResult[] = [];
+    controller.onTranscriptChange = (result) => transcriptChanges.push(result);
+    await controller.init();
+    await controller.handleToggle();
+
+    // Cycle 1: speak, pause, resume
+    soniox.instance.onTranscript?.({ finalText: "first part", interimText: "interim one" });
+    await flushMicrotasks();
+
+    await controller.handlePauseResume(); // pause
+    expect(controller.getCurrentState()).toBe("PAUSED");
+
+    await controller.handlePauseResume(); // resume
+    await flushMicrotasks();
+    expect(controller.getCurrentState()).toBe("LISTENING");
+
+    // Speak more after first resume
+    soniox.instance.onTranscript?.({ finalText: "second part", interimText: "" });
+    await flushMicrotasks();
+
+    // Cycle 2: pause again, resume again
+    await controller.handlePauseResume(); // pause
+    expect(controller.getCurrentState()).toBe("PAUSED");
+
+    await controller.handlePauseResume(); // resume
+    await flushMicrotasks();
+    expect(controller.getCurrentState()).toBe("LISTENING");
+
+    // Speak more after second resume
+    soniox.instance.onTranscript?.({ finalText: "third part", interimText: "live" });
+    await flushMicrotasks();
+
+    expect(transcriptChanges).toContainEqual({
+      finalText: "first part interim one second part third part",
+      interimText: "live",
+    });
+  });
+
+  it("stop-word finalization after resume includes preserved prefix in inserted text", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      skipLlm: true,
+    });
+    soniox.instance.finalizeCurrentUtterance.mockImplementation(
+      async (fallbackTranscript: string) => fallbackTranscript,
+    );
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    const transcriptChanges: TranscriptResult[] = [];
+    controller.onTranscriptChange = (result) => transcriptChanges.push(result);
+    await controller.init();
+    await controller.handleToggle();
+
+    // Speak before pause
+    soniox.instance.onTranscript?.({ finalText: "send the report", interimText: "" });
+    await flushMicrotasks();
+
+    // Pause and resume
+    await controller.handlePauseResume(); // pause
+    expect(controller.getCurrentState()).toBe("PAUSED");
+
+    await controller.handlePauseResume(); // resume
+    await flushMicrotasks();
+    expect(controller.getCurrentState()).toBe("LISTENING");
+
+    // Speak stop word after resume — Soniox only returns resumed-session text
+    soniox.instance.onTranscript?.({ finalText: "to the client", interimText: "thank you" });
+    await flushMicrotasks();
+    await settleStopWordFinalization();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // Insert must include both the pre-pause prefix and the resumed-session text
+    expect(mocks.insertText).toHaveBeenCalledWith(
+      "send the report to the client",
+      { enterMode: true },
+    );
+  });
+
+  it("fresh utterance after paused-resumed insert does not reuse preserved prefix", async () => {
+    const { bridge, mocks } = createBridge();
+    storage.loadPreferences.mockReturnValue({
+      enterMode: true,
+      outputLang: "auto",
+      sonioxTerms: ["alpha"],
+      skipLlm: true,
+    });
+    soniox.instance.finalizeCurrentUtterance.mockImplementation(
+      async (fallbackTranscript: string) => fallbackTranscript,
+    );
+    window.voiceToText = bridge;
+
+    const controller = new BarSessionController();
+    await controller.init();
+    await controller.handleToggle();
+
+    soniox.instance.onTranscript?.({ finalText: "send the report", interimText: "" });
+    await flushMicrotasks();
+
+    await controller.handlePauseResume();
+    expect(controller.getCurrentState()).toBe("PAUSED");
+
+    await controller.handlePauseResume();
+    await flushMicrotasks();
+    expect(controller.getCurrentState()).toBe("LISTENING");
+
+    soniox.instance.onTranscript?.({ finalText: "to the client", interimText: "thank you" });
+    await flushMicrotasks();
+    await settleStopWordFinalization();
+    await flushMicrotasks();
+
+    expect(mocks.insertText).toHaveBeenNthCalledWith(
+      1,
+      "send the report to the client",
+      { enterMode: true },
+    );
+
+    soniox.instance.onTranscript?.({ finalText: "start fresh", interimText: "thank you" });
+    await flushMicrotasks();
+    await settleStopWordFinalization();
+    await flushMicrotasks();
+
+    expect(mocks.insertText).toHaveBeenNthCalledWith(
+      2,
+      "start fresh",
+      { enterMode: true },
+    );
   });
 });

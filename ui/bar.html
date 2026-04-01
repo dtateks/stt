@@ -91,6 +91,23 @@
 
         <div class="hud-actions" role="group" aria-label="HUD controls">
           <button
+            id="hud-pause-btn"
+            class="hud-btn hud-btn-pause"
+            type="button"
+            aria-label="Pause listening"
+            tabindex="-1"
+            disabled
+          >
+            <svg class="hud-icon-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="6" y="4" width="4" height="16"/>
+              <rect x="14" y="4" width="4" height="16"/>
+            </svg>
+            <svg class="hud-icon-resume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="6,3 20,12 6,21"/>
+            </svg>
+          </button>
+
+          <button
             id="hud-clear-btn"
             class="hud-btn hud-btn-clear"
             type="button"

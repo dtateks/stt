@@ -44,8 +44,10 @@ const transcriptPromptEl  = document.getElementById("transcript-prompt")  as HTM
 const stateLabelEl    = document.getElementById("hud-state-label")   as HTMLSpanElement;
 const clearBtn        = document.getElementById("hud-clear-btn")     as HTMLButtonElement;
 const closeBtn        = document.getElementById("hud-close-btn")     as HTMLButtonElement;
+const pauseBtn        = document.getElementById("hud-pause-btn")     as HTMLButtonElement;
 
 const HUD_BUTTONS: HTMLButtonElement[] = [
+  pauseBtn,
   clearBtn,
   closeBtn,
 ];
@@ -83,12 +85,13 @@ function clearConnectingLabelTimer(): void {
 function scheduleConnectingLabelPresentation(): void {
   clearConnectingLabelTimer();
   connectingLabelTimer = setTimeout(() => {
-    if (controller.getCurrentState() !== "CONNECTING") {
+    const currentState = controller.getCurrentState();
+    if (currentState !== "CONNECTING" && currentState !== "RESUMING") {
       return;
     }
 
     shouldShowConnectingLabel = true;
-    applyState("CONNECTING");
+    applyState(currentState);
   }, CONNECTING_LABEL_DELAY_MS);
 }
 
@@ -291,6 +294,17 @@ function drawAudioHeartbeat(data: Uint8Array<ArrayBuffer>, layout: WaveformLayou
   drawHeartbeatTrace(layout, bpm, amplitude, gradient, glowGradient);
 }
 
+// ─── Pause button affordance ──────────────────────────────────────────────
+
+const PAUSE_ENABLED_STATES = new Set<BarState>(["LISTENING", "PAUSED"]);
+
+function syncPauseButtonAffordance(state: BarState): void {
+  const isPaused = state === "PAUSED";
+  pauseBtn.disabled = !PAUSE_ENABLED_STATES.has(state);
+  pauseBtn.dataset.paused = isPaused ? "true" : "false";
+  pauseBtn.setAttribute("aria-label", isPaused ? "Resume listening" : "Pause listening");
+}
+
 // ─── Controls ─────────────────────────────────────────────────────────────
 
 function bindControls(): void {
@@ -316,6 +330,18 @@ function bindControls(): void {
     });
   });
 
+  pauseBtn.addEventListener("click", () => {
+    if (!window.voiceToText) {
+      return;
+    }
+
+    suppressHudButtonHover(pauseBtn);
+    clearHudButtonFocus();
+    void controller.handlePauseResume().catch((error: unknown) => {
+      console.error("[bar] pause/resume handler failed", error);
+    });
+  });
+
   closeBtn.addEventListener("click", () => {
     if (!window.voiceToText) {
       return;
@@ -334,7 +360,7 @@ function bindControls(): void {
 // ─── State transitions ────────────────────────────────────────────────────
 
 controller.onStateChange = (state) => {
-  if (state === "CONNECTING") {
+  if (state === "CONNECTING" || state === "RESUMING") {
     shouldShowConnectingLabel = false;
     scheduleConnectingLabelPresentation();
   } else {
@@ -343,6 +369,7 @@ controller.onStateChange = (state) => {
   }
 
   applyState(state);
+  syncPauseButtonAffordance(state);
 
   if (state === "HIDDEN" || state === "CONNECTING") {
     clearAllHudButtonHoverSuppression();
@@ -396,6 +423,7 @@ async function bootstrapBar(): Promise<void> {
   // Initialise in HIDDEN — no waveform animation until a session starts.
   applyState("HIDDEN");
   applyOverlayMode("PASSIVE");
+  syncPauseButtonAffordance("HIDDEN");
   clearAllHudButtonHoverSuppression();
   stopWaveform();
 

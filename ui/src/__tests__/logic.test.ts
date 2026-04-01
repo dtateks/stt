@@ -197,6 +197,65 @@ describe("bar state machine — transition", () => {
     expect(transition("LISTENING", "CLEAR").next).toBe("CONNECTING");
   });
 
+  it("LISTENING + PAUSE → PAUSED", () => {
+    expect(transition("LISTENING", "PAUSE").next).toBe("PAUSED");
+  });
+
+  it("PAUSED + RESUME → RESUMING", () => {
+    const r = transition("PAUSED", "RESUME");
+    expect(r.next).toBe("RESUMING");
+    expect(r.shouldShow).toBe(false);
+    expect(r.shouldHide).toBe(false);
+  });
+
+  it("PAUSED + CLEAR → CONNECTING", () => {
+    expect(transition("PAUSED", "CLEAR").next).toBe("CONNECTING");
+  });
+
+  it("PAUSED + TOGGLE → HIDDEN", () => {
+    const r = transition("PAUSED", "TOGGLE");
+    expect(r.next).toBe("HIDDEN");
+    expect(r.shouldHide).toBe(true);
+  });
+
+  it("PAUSED + CLOSE → HIDDEN", () => {
+    const r = transition("PAUSED", "CLOSE");
+    expect(r.next).toBe("HIDDEN");
+    expect(r.shouldHide).toBe(true);
+  });
+
+  it("PAUSED ignores irrelevant events", () => {
+    expect(transition("PAUSED", "CONNECTED").next).toBe("PAUSED");
+    expect(transition("PAUSED", "STOP_WORD_DETECTED").next).toBe("PAUSED");
+    expect(transition("PAUSED", "CONNECTION_ERROR").next).toBe("PAUSED");
+  });
+
+  it("RESUMING + CONNECTED → LISTENING", () => {
+    const r = transition("RESUMING", "CONNECTED");
+    expect(r.next).toBe("LISTENING");
+    expect(r.shouldShow).toBe(false);
+    expect(r.shouldHide).toBe(false);
+  });
+
+  it("RESUMING + CONNECTION_ERROR → ERROR", () => {
+    expect(transition("RESUMING", "CONNECTION_ERROR").next).toBe("ERROR");
+  });
+
+  it("RESUMING + CLEAR → CONNECTING", () => {
+    expect(transition("RESUMING", "CLEAR").next).toBe("CONNECTING");
+  });
+
+  it("RESUMING + CLOSE → HIDDEN", () => {
+    const r = transition("RESUMING", "CLOSE");
+    expect(r.next).toBe("HIDDEN");
+    expect(r.shouldHide).toBe(true);
+  });
+
+  it("RESUMING ignores irrelevant events", () => {
+    expect(transition("RESUMING", "STOP_WORD_DETECTED").next).toBe("RESUMING");
+    expect(transition("RESUMING", "PAUSE").next).toBe("RESUMING");
+  });
+
   // ── CRIT-01 regression: stream failure while LISTENING must not be ignored ──
   it("LISTENING + CONNECTION_ERROR → ERROR (stream failure mid-listen)", () => {
     const r = transition("LISTENING", "CONNECTION_ERROR");
@@ -261,13 +320,14 @@ describe("bar state machine — transition", () => {
 
   it("never leaks shouldShow AND shouldHide simultaneously", () => {
     const states = [
-      "HIDDEN", "CONNECTING", "LISTENING", "PROCESSING",
+      "HIDDEN", "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING",
       "INSERTING", "SUCCESS", "ERROR",
     ] as const;
     const events = [
       "TOGGLE", "CLOSE", "CONNECTED", "CONNECTION_ERROR",
       "PERMISSION_DENIED", "STOP_WORD_DETECTED", "LLM_DONE", "LLM_ERROR",
       "INSERT_SUCCESS", "INSERT_ERROR", "AUTO_RETURN", "CLEAR",
+      "PAUSE", "RESUME",
     ] as const;
 
     for (const state of states) {
@@ -291,7 +351,7 @@ describe("isActiveState", () => {
 
   it("returns true for all active states", () => {
     const activeStates = [
-      "CONNECTING", "LISTENING", "PROCESSING",
+      "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING",
       "INSERTING", "SUCCESS", "ERROR",
     ] as const;
     for (const state of activeStates) {

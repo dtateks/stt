@@ -107,6 +107,8 @@ export class BarSessionController {
   private cachedTemporaryApiKey: CachedTemporaryApiKey | null = null;
   private temporaryApiKeyRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private temporaryApiKeyRefreshPromise: Promise<string> | null = null;
+  private pausedTranscript: TranscriptResult | null = null;
+  private accumulatedTranscript: TranscriptResult = { finalText: "", interimText: "" };
 
   // Overlay interaction mode
   private overlayMode: OverlayMode = "PASSIVE";
@@ -204,6 +206,8 @@ export class BarSessionController {
     // Abandon any in-flight async work from the current session.
     this.isFinalizingAfterStopWord = false;
     this.pendingActiveSessionPreferencesRefresh = false;
+    this.pausedTranscript = null;
+    this.accumulatedTranscript = { finalText: "", interimText: "" };
 
     // Stop audio pipeline without affecting overlay mode — the HUD stays
     // visible and interactive throughout the reset.
@@ -246,6 +250,80 @@ export class BarSessionController {
         `${SESSION_START_FAILED_PREFIX}: ${formatErrorMessage(error)}`
       );
     }
+  }
+
+  async handlePauseResume(): Promise<void> {
+    if (this.state === "LISTENING") {
+      await this.handlePause();
+    } else if (this.state === "PAUSED") {
+      await this.handleResume();
+    }
+  }
+
+  private async handlePause(): Promise<void> {
+    if (this.state !== "LISTENING") return;
+
+    this.pausedTranscript = { ...this.accumulatedTranscript };
+
+    await this.stopAudioPipeline().catch((error: unknown) => {
+      console.error("[session] stopAudioPipeline failed during pause", error);
+    });
+
+    await this.applyEvent("PAUSE");
+    this.onTranscriptChange?.(this.pausedTranscript);
+  }
+
+  private async handleResume(): Promise<void> {
+    if (this.state !== "PAUSED") return;
+
+    const restartAttemptId = this.nextStartAttemptId();
+    const preservedTranscript = this.pausedTranscript;
+
+    this.onTranscriptChange?.(preservedTranscript ?? { finalText: "", interimText: "" });
+    await this.applyEvent("RESUME");
+
+    const prefs = loadPreferences();
+    this.activeSessionPreferences = this.createActiveSessionPreferences(prefs);
+    const sessionPreferences = this.activeSessionPreferences;
+
+    try {
+      const apiKey = await this.createTemporaryApiKey();
+      if (!this.isStartAttemptCurrent(restartAttemptId)) {
+        return;
+      }
+      if (!apiKey) {
+        await this.applyEvent("CONNECTION_ERROR");
+        await this.handleStartupError(STARTUP_MISSING_KEY_ERROR_MESSAGE);
+        return;
+      }
+
+      await this.startAudioPipeline(apiKey, sessionPreferences);
+      if (!this.isStartAttemptCurrent(restartAttemptId)) {
+        await this.stopAudioPipeline().catch((error: unknown) => {
+          console.error("[session] stopAudioPipeline failed during stale resume restart", error);
+        });
+        return;
+      }
+      await this.applyEvent("CONNECTED");
+      this.syncReminderBeepForCurrentState();
+    } catch (error) {
+      console.error("[session] resume restart failed", error);
+      await this.applyEvent("CONNECTION_ERROR");
+      await this.handleStartupError(
+        `${SESSION_START_FAILED_PREFIX}: ${formatErrorMessage(error)}`
+      );
+    }
+  }
+
+  private composeTranscript(live: TranscriptResult): TranscriptResult {
+    if (!this.pausedTranscript) return live;
+
+    const preserved = this.pausedTranscript;
+    const finalText = combineTranscriptText(
+      combineTranscriptText(preserved.finalText, preserved.interimText),
+      live.finalText,
+    );
+    return { finalText, interimText: live.interimText };
   }
 
   // ─── Overlay interaction mode ─────────────────────────────────────────────
@@ -361,7 +439,9 @@ export class BarSessionController {
       if (!currentSessionPreferences) return;
       if (this.isFinalizingAfterStopWord) return;
 
-      const liveTranscript = combineTranscriptText(result.finalText, result.interimText);
+      const composed = this.composeTranscript(result);
+      this.accumulatedTranscript = composed;
+      const liveTranscript = combineTranscriptText(composed.finalText, composed.interimText);
       if (
         detectStopWordWithNormalizedStopWord(
           liveTranscript,
@@ -369,11 +449,12 @@ export class BarSessionController {
         )
       ) {
         this.isFinalizingAfterStopWord = true;
-        void this.handleStopWordDetected(liveTranscript, currentSessionPreferences);
+        const currentSessionTranscript = combineTranscriptText(result.finalText, result.interimText);
+        void this.handleStopWordDetected(liveTranscript, currentSessionTranscript, currentSessionPreferences);
         return;
       }
 
-      this.onTranscriptChange?.(result);
+      this.onTranscriptChange?.(composed);
     };
 
     this.client.onError = (error) => {
@@ -390,6 +471,8 @@ export class BarSessionController {
     this.isFinalizingAfterStopWord = false;
     this.pendingActiveSessionPreferencesRefresh = false;
     this.activeSessionPreferences = null;
+    this.pausedTranscript = null;
+    this.accumulatedTranscript = { finalText: "", interimText: "" };
     await this.stopAudioPipeline().catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed", error);
     });
@@ -469,6 +552,7 @@ export class BarSessionController {
 
   private async handleStopWordDetected(
     rawTranscript: string,
+    currentSessionTranscript: string,
     sessionPreferences: ActiveSessionPreferences,
   ): Promise<void> {
     const finalizationAttemptId = this.startAttemptId;
@@ -481,12 +565,17 @@ export class BarSessionController {
       this.onTranscriptChange?.({ finalText: previewCommandText, interimText: "" });
     }
 
-    const finalizedTranscript = await this.finalizeStopWordTranscript(rawTranscript);
+    const finalizedCurrentSession = await this.finalizeStopWordTranscript(currentSessionTranscript);
     if (!this.isStartAttemptCurrent(finalizationAttemptId)) {
       return;
     }
 
-    const commandText = stripStopWord(finalizedTranscript, sessionPreferences.stopWord);
+    const preservedPrefix = this.pausedTranscript
+      ? combineTranscriptText(this.pausedTranscript.finalText, this.pausedTranscript.interimText)
+      : "";
+    const fullFinalizedTranscript = combineTranscriptText(preservedPrefix, finalizedCurrentSession);
+
+    const commandText = stripStopWord(fullFinalizedTranscript, sessionPreferences.stopWord);
     this.client.resetTranscript();
 
     if (!commandText.trim()) {
@@ -612,6 +701,8 @@ export class BarSessionController {
 
     await this.applyEvent("INSERT_SUCCESS"); // INSERTING → SUCCESS
     this.client.resetTranscript();
+    this.pausedTranscript = null;
+    this.accumulatedTranscript = { finalText: "", interimText: "" };
     this.onTranscriptChange?.({ finalText: "", interimText: "" });
     if (!this.isStartAttemptCurrent(startAttemptId)) {
       return;

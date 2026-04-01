@@ -17,6 +17,8 @@ export const STATE_LABELS: Record<BarState, string> = {
   HIDDEN:     "",
   CONNECTING: "Connecting",
   LISTENING:  "Listening",
+  PAUSED:     "Paused",
+  RESUMING:   "Resuming",
   PROCESSING: "Processing",
   INSERTING:  "Inserting",
   SUCCESS:    "Inserted",
@@ -360,6 +362,10 @@ export function applyState(
     transcriptInterimEl.textContent = "";
   }
 
+  if (state === "PAUSED") {
+    transcriptInterimEl.textContent = "";
+  }
+
   syncPromptVisibility(hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
 }
 
@@ -367,7 +373,7 @@ export function getPresentedStateLabel(
   state: BarState,
   options: StatePresentationOptions = {},
 ): string {
-  if (state === "CONNECTING" && options.showConnectingLabel === false) {
+  if ((state === "CONNECTING" || state === "RESUMING") && options.showConnectingLabel === false) {
     return "";
   }
 
@@ -384,6 +390,8 @@ export function applyTranscript(
   const state = hud.dataset.state;
   const isTranscriptVisibleState =
     state === "LISTENING" ||
+    state === "PAUSED" ||
+    state === "RESUMING" ||
     state === "PROCESSING" ||
     state === "INSERTING" ||
     state === "SUCCESS";

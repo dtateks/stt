@@ -20,7 +20,9 @@ export type BarEvent =
   | "INSERT_ERROR"
   | "AUTO_RETURN"
   | "CLOSE"
-  | "CLEAR";
+  | "CLEAR"
+  | "PAUSE"
+  | "RESUME";
 
 export interface TransitionResult {
   next: BarState;
@@ -56,6 +58,22 @@ export function transition(state: BarState, event: BarEvent): TransitionResult {
     case "LISTENING":
       if (event === "STOP_WORD_DETECTED") return { next: "PROCESSING", ...noop };
       // Stream failure while listening — surface as recoverable error.
+      if (event === "CONNECTION_ERROR") return { next: "ERROR", ...noop };
+      if (event === "PAUSE") return { next: "PAUSED", ...noop };
+      if (event === "CLEAR") return { next: "CONNECTING", ...noop };
+      if (event === "TOGGLE" || event === "CLOSE")
+        return { next: "HIDDEN", ...hide };
+      return { next: state, ...noop };
+
+    case "PAUSED":
+      if (event === "RESUME") return { next: "RESUMING", ...noop };
+      if (event === "CLEAR") return { next: "CONNECTING", ...noop };
+      if (event === "TOGGLE" || event === "CLOSE")
+        return { next: "HIDDEN", ...hide };
+      return { next: state, ...noop };
+
+    case "RESUMING":
+      if (event === "CONNECTED") return { next: "LISTENING", ...noop };
       if (event === "CONNECTION_ERROR") return { next: "ERROR", ...noop };
       if (event === "CLEAR") return { next: "CONNECTING", ...noop };
       if (event === "TOGGLE" || event === "CLOSE")

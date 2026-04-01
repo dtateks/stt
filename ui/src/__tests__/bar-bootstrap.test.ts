@@ -8,6 +8,7 @@ const controllerMocks = vi.hoisted(() => ({
   init: vi.fn(async () => {}),
   handleClose: vi.fn(async () => {}),
   handleClear: vi.fn(async () => {}),
+  handlePauseResume: vi.fn(async () => {}),
   currentState: "HIDDEN" as string,
   instance: null as {
     onStateChange: ((state: string) => void) | null;
@@ -41,6 +42,10 @@ vi.mock("../bar-session-controller.ts", () => ({
       await controllerMocks.handleClear();
     }
 
+    async handlePauseResume(): Promise<void> {
+      await controllerMocks.handlePauseResume();
+    }
+
     getAnalyserNode(): AnalyserNode | null {
       return null;
     }
@@ -59,6 +64,7 @@ function renderHudFixture(): void {
       <span id="transcript-interim"></span>
       <span id="transcript-prompt" hidden></span>
       <span id="hud-state-label"></span>
+      <button id="hud-pause-btn" type="button"></button>
       <button id="hud-clear-btn" type="button"></button>
       <button id="hud-close-btn" type="button"></button>
     </div>

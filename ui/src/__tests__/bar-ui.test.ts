@@ -93,6 +93,9 @@ function getTranscriptPrompt(): HTMLSpanElement {
 function getStateLabel(): HTMLSpanElement {
   return document.getElementById("hud-state-label") as HTMLSpanElement;
 }
+function getPauseBtn(): HTMLButtonElement {
+  return document.getElementById("hud-pause-btn") as HTMLButtonElement;
+}
 function getClearBtn(): HTMLButtonElement {
   return document.getElementById("hud-clear-btn") as HTMLButtonElement;
 }
@@ -111,7 +114,7 @@ describe("applyState — data-state reflection", () => {
 
   it("reflects every BarState on hud[data-state]", () => {
     const states: BarState[] = [
-      "HIDDEN", "CONNECTING", "LISTENING", "PROCESSING",
+      "HIDDEN", "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING",
       "INSERTING", "SUCCESS", "ERROR",
     ];
     for (const state of states) {
@@ -129,6 +132,8 @@ describe("applyState — data-state reflection", () => {
       ["HIDDEN",     ""],
       ["CONNECTING", "Connecting"],
       ["LISTENING",  "Listening"],
+      ["PAUSED",     "Paused"],
+      ["RESUMING",   "Resuming"],
       ["PROCESSING", "Processing"],
       ["INSERTING",  "Inserting"],
       ["SUCCESS",    "Inserted"],
@@ -212,6 +217,17 @@ describe("applyState — data-state reflection", () => {
     );
     expect(getTranscriptFinal().textContent).toBe("carry over");
   });
+
+  it("does NOT clear transcript when transitioning to RESUMING", () => {
+    getTranscriptFinal().textContent = "preserved from pause";
+    getHud().dataset.state = "PAUSED";
+    applyState(
+      "RESUMING",
+      getHud(), getStateLabel(),
+      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+    );
+    expect(getTranscriptFinal().textContent).toBe("preserved from pause");
+  });
 });
 
 // ─── syncPromptVisibility ─────────────────────────────────────────────────────
@@ -246,7 +262,7 @@ describe("syncPromptVisibility — prompt show/hide logic", () => {
   });
 
   it("hides prompt when state is not LISTENING even with empty transcript", () => {
-    const states: BarState[] = ["HIDDEN", "CONNECTING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR"];
+    const states: BarState[] = ["HIDDEN", "CONNECTING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR"];
     for (const state of states) {
       const hud = getHud();
       hud.dataset.state = state;
@@ -276,7 +292,7 @@ describe("applyTranscript — transcript content updates", () => {
   });
 
   it("updates transcript during active post-stop states", () => {
-    const activeStates: BarState[] = ["PROCESSING", "INSERTING", "SUCCESS"];
+    const activeStates: BarState[] = ["PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS"];
     for (const state of activeStates) {
       const hud = getHud();
       hud.dataset.state = state;
@@ -494,30 +510,33 @@ describe("applyOverlayMode — data-overlay and tabindex management", () => {
   afterEach(() => { document.body.innerHTML = ""; });
 
   it("sets data-overlay='passive' on PASSIVE mode", () => {
-    applyOverlayMode("PASSIVE", getHud(), [getClearBtn(), getCloseBtn()]);
+    applyOverlayMode("PASSIVE", getHud(), [getPauseBtn(), getClearBtn(), getCloseBtn()]);
     expect(getHud().dataset.overlay).toBe("passive");
   });
 
   it("sets data-overlay='interactive' on INTERACTIVE mode", () => {
-    applyOverlayMode("INTERACTIVE", getHud(), [getClearBtn(), getCloseBtn()]);
+    applyOverlayMode("INTERACTIVE", getHud(), [getPauseBtn(), getClearBtn(), getCloseBtn()]);
     expect(getHud().dataset.overlay).toBe("interactive");
   });
 
   it("sets tabindex=-1 on buttons in PASSIVE mode — buttons are not keyboard-reachable", () => {
-    applyOverlayMode("PASSIVE", getHud(), [getClearBtn(), getCloseBtn()]);
+    applyOverlayMode("PASSIVE", getHud(), [getPauseBtn(), getClearBtn(), getCloseBtn()]);
+    expect(getPauseBtn().tabIndex).toBe(-1);
     expect(getClearBtn().tabIndex).toBe(-1);
     expect(getCloseBtn().tabIndex).toBe(-1);
   });
 
   it("sets tabindex=0 on buttons in INTERACTIVE mode — buttons are keyboard-reachable", () => {
-    applyOverlayMode("INTERACTIVE", getHud(), [getClearBtn(), getCloseBtn()]);
+    applyOverlayMode("INTERACTIVE", getHud(), [getPauseBtn(), getClearBtn(), getCloseBtn()]);
+    expect(getPauseBtn().tabIndex).toBe(0);
     expect(getClearBtn().tabIndex).toBe(0);
     expect(getCloseBtn().tabIndex).toBe(0);
   });
 
   it("reverts tabindex to -1 when switching from INTERACTIVE back to PASSIVE", () => {
-    applyOverlayMode("INTERACTIVE", getHud(), [getClearBtn(), getCloseBtn()]);
-    applyOverlayMode("PASSIVE", getHud(), [getClearBtn(), getCloseBtn()]);
+    applyOverlayMode("INTERACTIVE", getHud(), [getPauseBtn(), getClearBtn(), getCloseBtn()]);
+    applyOverlayMode("PASSIVE", getHud(), [getPauseBtn(), getClearBtn(), getCloseBtn()]);
+    expect(getPauseBtn().tabIndex).toBe(-1);
     expect(getClearBtn().tabIndex).toBe(-1);
     expect(getCloseBtn().tabIndex).toBe(-1);
   });
@@ -635,8 +654,8 @@ describe("createWaveformLayout — pure geometry contract", () => {
 describe("waveformShouldRun — production predicate from bar-render.ts", () => {
   it("returns true for every visible HUD state", () => {
     const visibleStates: BarState[] = [
-      "CONNECTING", "LISTENING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
-    ];
+      "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
+    ] as const;
 
     for (const state of visibleStates) {
       expect(waveformShouldRun(state)).toBe(true);
@@ -649,13 +668,13 @@ describe("waveformShouldRun — production predicate from bar-render.ts", () => 
 
   it("covers all BarState values (exhaustive — no state is accidentally unhandled)", () => {
     const allStates: BarState[] = [
-      "HIDDEN", "CONNECTING", "LISTENING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
+      "HIDDEN", "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR",
     ];
     const runningStates = allStates.filter(waveformShouldRun);
     const stoppedStates = allStates.filter((s) => !waveformShouldRun(s));
-    expect(runningStates).toEqual(["CONNECTING", "LISTENING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR"]);
+    expect(runningStates).toEqual(["CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR"]);
     expect(stoppedStates).toEqual(["HIDDEN"]);
-    expect(runningStates.length + stoppedStates.length).toBe(7);
+    expect(runningStates.length + stoppedStates.length).toBe(9);
   });
 });
 
@@ -776,6 +795,27 @@ describe("bar.html — accessibility contract (production source)", () => {
     expect(getCloseBtn().getAttribute("aria-label")).toBe("Stop listening and close");
   });
 
+  it("pause button has accessible label", () => {
+    expect(getPauseBtn().getAttribute("aria-label")).toBe("Pause listening");
+  });
+
+  it("pause button starts disabled", () => {
+    expect(getPauseBtn().disabled).toBe(true);
+  });
+
+  it("pause button is type='button'", () => {
+    expect(getPauseBtn().getAttribute("type")).toBe("button");
+  });
+
+  it("pause button has pause and resume SVG icons", () => {
+    const pauseIcon = getPauseBtn().querySelector(".hud-icon-pause");
+    const resumeIcon = getPauseBtn().querySelector(".hud-icon-resume");
+    expect(pauseIcon).not.toBeNull();
+    expect(resumeIcon).not.toBeNull();
+    expect(pauseIcon?.getAttribute("aria-hidden")).toBe("true");
+    expect(resumeIcon?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("transcript final span has accessible label", () => {
     expect(getTranscriptFinal().getAttribute("aria-label")).toBe("Transcribed text");
   });
@@ -803,6 +843,7 @@ describe("bar.html — accessibility contract (production source)", () => {
   });
 
   it("action buttons are type='button'", () => {
+    expect(getPauseBtn().getAttribute("type")).toBe("button");
     expect(getClearBtn().getAttribute("type")).toBe("button");
     expect(getCloseBtn().getAttribute("type")).toBe("button");
   });
@@ -826,6 +867,7 @@ describe("bar.html — accessibility contract (production source)", () => {
   });
 
   it("buttons start with tabindex=-1 (not keyboard-reachable in default PASSIVE mode)", () => {
+    expect(getPauseBtn().tabIndex).toBe(-1);
     expect(getClearBtn().tabIndex).toBe(-1);
     expect(getCloseBtn().tabIndex).toBe(-1);
   });
@@ -854,10 +896,10 @@ describe("bar.html — structural contract (production source)", () => {
     expect(getCloseBtn().tagName).toBe("BUTTON");
   });
 
-  it("hud-actions contains exactly two buttons", () => {
+  it("hud-actions contains exactly three buttons", () => {
     const actions = document.querySelector(".hud-actions")!;
     const buttons = actions.querySelectorAll("button");
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(3);
   });
 });
 
@@ -869,7 +911,7 @@ describe("state-driven data attributes — CSS contract", () => {
 
   it("every BarState maps to a unique dataset.state value", () => {
     const states: BarState[] = [
-      "HIDDEN", "CONNECTING", "LISTENING", "PROCESSING",
+      "HIDDEN", "CONNECTING", "LISTENING", "PAUSED", "RESUMING", "PROCESSING",
       "INSERTING", "SUCCESS", "ERROR",
     ];
     const seen = new Set<string>();
@@ -883,7 +925,7 @@ describe("state-driven data attributes — CSS contract", () => {
       expect(seen.has(ds)).toBe(false);
       seen.add(ds);
     }
-    expect(seen.size).toBe(7);
+    expect(seen.size).toBe(9);
   });
 
   it("HIDDEN state produces empty state label text (CSS uses data-state, not text)", () => {
