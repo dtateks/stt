@@ -267,6 +267,19 @@ where
     Ok(())
 }
 
+pub fn run_macos_bar_runtime_configuration_sequence<ConfigureBarPanel, ConfigureBarWebview>(
+    mut configure_bar_panel: ConfigureBarPanel,
+    mut configure_bar_webview: ConfigureBarWebview,
+) -> tauri::Result<()>
+where
+    ConfigureBarPanel: FnMut(),
+    ConfigureBarWebview: FnMut() -> tauri::Result<()>,
+{
+    configure_bar_panel();
+    configure_bar_webview()?;
+    Ok(())
+}
+
 pub fn run_bar_order_front_without_focus_steal<OrderBarWindowFront>(
     mut order_bar_window_front: OrderBarWindowFront,
 ) -> tauri::Result<()>
@@ -349,7 +362,12 @@ pub(crate) fn show_bar_window_with_runtime_invariants(
         .map_err(|_| std::io::Error::other("bar panel not found"))?;
 
     run_bar_show_sequence(
-        || configure_bar_webview_transparency(bar_window),
+        || {
+            run_macos_bar_runtime_configuration_sequence(
+                || configure_bar_panel(&panel),
+                || configure_bar_webview_transparency(bar_window),
+            )
+        },
         || position_bar_window_bottom_center(app, bar_window),
         || {
             panel.show();

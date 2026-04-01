@@ -3,7 +3,8 @@ use std::path::Path;
 
 use serde_json::Value;
 use voice_to_text_lib::{
-    run_bar_close_request_sequence, run_bar_show_sequence, run_macos_reopen_window_sequence,
+    run_bar_close_request_sequence, run_bar_show_sequence,
+    run_macos_bar_runtime_configuration_sequence, run_macos_reopen_window_sequence,
     run_main_close_request_sequence, run_main_window_show_sequence,
 };
 
@@ -12,6 +13,8 @@ const DEFAULT_CAPABILITY: &str = "default";
 const BAR_CAPABILITY: &str = "bar";
 const MAIN_WINDOW_LABEL: &str = "main";
 const BAR_WINDOW_LABEL: &str = "bar";
+const BAR_WINDOW_WIDTH: u64 = 600;
+const BAR_WINDOW_HEIGHT: u64 = 56;
 const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 30] = [
     "allow-get-config",
     "allow-has-soniox-key",
@@ -264,7 +267,38 @@ fn tauri_config_keeps_window_and_packaging_runtime_invariants() {
         .expect("bar window should exist");
     assert_eq!(bar.get("create").and_then(Value::as_bool), Some(false));
     assert_eq!(bar.get("visible").and_then(Value::as_bool), Some(false));
+    assert_eq!(bar.get("decorations").and_then(Value::as_bool), Some(false));
+    assert_eq!(bar.get("alwaysOnTop").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        bar.get("visibleOnAllWorkspaces").and_then(Value::as_bool),
+        Some(true)
+    );
     assert_eq!(bar.get("transparent").and_then(Value::as_bool), Some(true));
+    assert_eq!(bar.get("resizable").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        bar.get("width").and_then(Value::as_u64),
+        Some(BAR_WINDOW_WIDTH)
+    );
+    assert_eq!(
+        bar.get("height").and_then(Value::as_u64),
+        Some(BAR_WINDOW_HEIGHT)
+    );
+    assert_eq!(
+        bar.get("minWidth").and_then(Value::as_u64),
+        Some(BAR_WINDOW_WIDTH)
+    );
+    assert_eq!(
+        bar.get("maxWidth").and_then(Value::as_u64),
+        Some(BAR_WINDOW_WIDTH)
+    );
+    assert_eq!(
+        bar.get("minHeight").and_then(Value::as_u64),
+        Some(BAR_WINDOW_HEIGHT)
+    );
+    assert_eq!(
+        bar.get("maxHeight").and_then(Value::as_u64),
+        Some(BAR_WINDOW_HEIGHT)
+    );
 
     assert_eq!(
         app.get("macOSPrivateApi").and_then(Value::as_bool),
@@ -459,6 +493,24 @@ fn runtime_invariant_keeps_bar_show_order_configure_position_show_front() {
         executed_steps.into_inner(),
         vec!["configure", "position", "show", "front"]
     );
+}
+
+#[test]
+fn runtime_invariant_macos_bar_configuration_runs_panel_before_webview_transparency() {
+    let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+    let result = run_macos_bar_runtime_configuration_sequence(
+        || {
+            executed_steps.borrow_mut().push("panel");
+        },
+        || {
+            executed_steps.borrow_mut().push("webview");
+            Ok(())
+        },
+    );
+
+    assert!(result.is_ok());
+    assert_eq!(executed_steps.into_inner(), vec!["panel", "webview"]);
 }
 
 #[test]
