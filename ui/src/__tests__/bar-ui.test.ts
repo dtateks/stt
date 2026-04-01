@@ -1043,9 +1043,9 @@ describe("ecgDisplacement — P-QRS-T piecewise-linear shape", () => {
   });
 
   it("S-wave dip is a downward displacement (d > 0)", () => {
-    const sWaveKeyframe = ECG_KEYFRAMES.find(kf => kf.d === 0.84);
+    const sWaveKeyframe = ECG_KEYFRAMES.find(kf => kf.d === 0.95);
     expect(sWaveKeyframe).toBeDefined();
-    expect(ecgDisplacement(sWaveKeyframe!.t)).toBeCloseTo(0.84, 5);
+    expect(ecgDisplacement(sWaveKeyframe!.t)).toBeCloseTo(0.95, 5);
   });
 
   it("has multiple distinct turning points — reads as angular zigzag, not a single blip", () => {
@@ -1056,9 +1056,9 @@ describe("ecgDisplacement — P-QRS-T piecewise-linear shape", () => {
 
   it("has consecutive angular turns in the QRS region (Q-R-S in quick succession)", () => {
     // Q, R, S keyframes should be close together in t-space, creating the zigzag
-    const qIdx = ECG_KEYFRAMES.findIndex(kf => kf.d === 0.22);
+    const qIdx = ECG_KEYFRAMES.findIndex(kf => kf.d === 0.28);
     const rIdx = ECG_KEYFRAMES.findIndex(kf => kf.d === -1.0);
-    const sIdx = ECG_KEYFRAMES.findIndex(kf => kf.d === 0.84);
+    const sIdx = ECG_KEYFRAMES.findIndex(kf => kf.d === 0.95);
 
     expect(qIdx).toBeGreaterThan(-1);
     expect(rIdx).toBeGreaterThan(qIdx);
@@ -1072,13 +1072,13 @@ describe("ecgDisplacement — P-QRS-T piecewise-linear shape", () => {
   it("interpolates smoothly between keyframes (piecewise-linear, no jumps)", () => {
     // Sample at midpoint between R-wave peak and S-wave dip
     const rKf = ECG_KEYFRAMES.find(kf => kf.d === -1.0)!;
-    const sKf = ECG_KEYFRAMES.find(kf => kf.d === 0.84)!;
+    const sKf = ECG_KEYFRAMES.find(kf => kf.d === 0.95)!;
     const midT = (rKf.t + sKf.t) / 2;
     const midD = ecgDisplacement(midT);
 
-    // Should be between -1.0 and 0.84 (linear interpolation)
+    // Should be between -1.0 and 0.95 (linear interpolation)
     expect(midD).toBeGreaterThan(-1.0);
-    expect(midD).toBeLessThan(0.84);
+    expect(midD).toBeLessThan(0.95);
   });
 
   it("clamps to boundary values for out-of-range input", () => {

@@ -36,7 +36,7 @@ export const HEARTBEAT_IDLE_BPM = 30;
 export const HEARTBEAT_ACTIVE_BPM_BOOST = 25;
 export const HEARTBEAT_ENERGY_SMOOTHING = 0.12;
 export const HEARTBEAT_GLOW_WIDTH = 7;
-export const HEARTBEAT_MIN_AMPLITUDE = 0.24;
+export const HEARTBEAT_MIN_AMPLITUDE = 0.36;
 export const ECG_CLUSTER_TRAVEL_RATIO = 0.08;
 export const HEARTBEAT_INTENSITY_FLOOR = 0.12;
 const AUDIO_REACTIVE_NOISE_FLOOR = 0.08;
@@ -49,8 +49,8 @@ export interface HeartbeatParams {
 export const HEARTBEAT_IDLE_AMPLITUDE = 0.46;
 export const ACTIVE_ECG_REGION_WIDTH_RATIO = 0.985;
 const ACTIVE_SPEECH_FOLD_COUNT = 10.8;
-const ACTIVE_SPEECH_FOLD_STRENGTH = 0.34;
-const LEFT_SIDE_FOLD_BOOST = 6.2;
+const ACTIVE_SPEECH_FOLD_STRENGTH = 0.56;
+const LEFT_SIDE_FOLD_BOOST = 9.4;
 
 // ─── ECG pulse shape ──────────────────────────────────────────────────────────
 
@@ -80,18 +80,18 @@ interface EcgKeyframe {
  */
 export const ECG_KEYFRAMES: readonly EcgKeyframe[] = [
   { t: 0.00, d:  0.00 },  // flat baseline start
-  { t: 0.04, d: -0.10 },  // early left-side bump removes the long flat start during speech
-  { t: 0.10, d:  0.06 },  // settle back through baseline
-  { t: 0.18, d: -0.16 },  // second left-side lift
-  { t: 0.26, d:  0.10 },  // left-side dip
+  { t: 0.04, d: -0.18 },  // early left-side bump — stronger
+  { t: 0.10, d:  0.12 },  // settle back through baseline — deeper
+  { t: 0.18, d: -0.28 },  // second left-side lift — much stronger
+  { t: 0.26, d:  0.20 },  // left-side dip — deeper
   { t: 0.32, d:  0.00 },  // brief baseline before the stronger complex
-  { t: 0.38, d:  0.22 },  // Q-wave dip (downward)
-  { t: 0.46, d: -0.58 },  // pre-R rise keeps the zigzag readable across the lane
-  { t: 0.54, d:  0.24 },  // rebound before the tallest spike
-  { t: 0.60, d: -1.00 },  // R-wave spike (sharp upward — tallest peak), now earlier/left-biased
-  { t: 0.68, d:  0.84 },  // S-wave dip (sharp downward)
-  { t: 0.76, d: -0.52 },  // rebound turn keeps the ECG clustered and angular
-  { t: 0.86, d:  0.18 },  // settling dip before the tail flattens out
+  { t: 0.38, d:  0.28 },  // Q-wave dip (downward) — deeper
+  { t: 0.46, d: -0.72 },  // pre-R rise — stronger
+  { t: 0.54, d:  0.36 },  // rebound before the tallest spike — deeper
+  { t: 0.60, d: -1.00 },  // R-wave spike (sharp upward — tallest peak)
+  { t: 0.68, d:  0.95 },  // S-wave dip (sharp downward) — deeper
+  { t: 0.76, d: -0.68 },  // rebound turn — stronger
+  { t: 0.86, d:  0.22 },  // settling dip — slightly deeper
   { t: 0.96, d:  0.00 },  // return to baseline
   { t: 1.00, d:  0.00 },  // flat baseline end
 ] as const;
