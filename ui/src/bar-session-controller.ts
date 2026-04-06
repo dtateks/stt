@@ -516,21 +516,31 @@ export class BarSessionController {
    * Mid-session stream error — session was live.
    * Show ERROR for the contract duration, then auto-return to LISTENING per
    * contract (ERROR → AUTO_RETURN → LISTENING), resuming the reminder beep.
+   *
+   * Guards with `startAttemptId` so overlapping recovery cycles from rapid
+   * successive WebSocket failures do not race against each other or against
+   * user-initiated toggle/close/clear actions.
    */
   private async handleStreamError(): Promise<void> {
+    const recoveryAttemptId = this.nextStartAttemptId();
+
     await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
       console.error("[session] stopAudioPipeline failed during stream error", error);
     });
+    if (!this.isStartAttemptCurrent(recoveryAttemptId)) return;
+
     await this.applyEvent("CONNECTION_ERROR"); // LISTENING/PROCESSING → ERROR
     this.setErrorMessage(STREAM_INTERRUPTED_ERROR_MESSAGE);
 
     await new Promise<void>((resolve) => setTimeout(resolve, ERROR_AUTO_RETURN_MS));
 
+    if (!this.isStartAttemptCurrent(recoveryAttemptId)) return;
     if (this.state !== "ERROR") return; // User closed during error display.
 
     // Attempt to restart the stream.
     try {
       const apiKey = await this.createTemporaryApiKey();
+      if (!this.isStartAttemptCurrent(recoveryAttemptId)) return;
       if (!apiKey) {
         this.setErrorMessage(STARTUP_MISSING_KEY_ERROR_MESSAGE);
         return;
@@ -543,10 +553,17 @@ export class BarSessionController {
       }
 
       await this.startAudioPipeline(apiKey, sessionPreferences);
+      if (!this.isStartAttemptCurrent(recoveryAttemptId)) {
+        await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
+          console.error("[session] stopAudioPipeline failed during stale stream recovery", error);
+        });
+        return;
+      }
 
       await this.applyEvent("AUTO_RETURN"); // ERROR → LISTENING
       this.syncReminderBeepForCurrentState();
     } catch (restartError) {
+      if (!this.isStartAttemptCurrent(recoveryAttemptId)) return;
       console.error("[session] stream restart failed", restartError);
       this.setErrorMessage(
         `${STREAM_RESTART_FAILED_ERROR_MESSAGE} ${formatErrorMessage(restartError)}`
@@ -1034,9 +1051,21 @@ function resolveTemporaryApiKeyExpiryMs(result: SonioxTemporaryApiKeyResult): nu
   return null;
 }
 
+/** Shared AudioContext for reminder beeps — avoids creating a new context per beep. */
+let reminderBeepAudioContext: AudioContext | null = null;
+
 function playReminderBeep(): void {
   try {
-    const ctx = new AudioContext();
+    if (!reminderBeepAudioContext || reminderBeepAudioContext.state === "closed") {
+      reminderBeepAudioContext = new AudioContext();
+    }
+
+    const ctx = reminderBeepAudioContext;
+
+    if (ctx.state === "suspended") {
+      void ctx.resume();
+    }
+
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
@@ -1050,7 +1079,10 @@ function playReminderBeep(): void {
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.3);
 
-    osc.onended = () => { void ctx.close(); };
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
   } catch (error) {
     console.warn("[audio] reminder beep skipped", formatErrorMessage(error));
   }
