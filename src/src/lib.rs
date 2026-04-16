@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::utils::config::WindowConfig;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, Theme, WebviewWindow,
@@ -89,24 +90,118 @@ fn register_toggle_mic_handler(app: &AppHandle, shortcut: &str) -> Result<(), St
     app.global_shortcut()
         .on_shortcut(shortcut, move |app, _, event| {
             if event.state == ShortcutState::Pressed {
+                eprintln!("[global-shortcut] toggle fired");
                 if let Some(bar_window) = app.get_webview_window(BAR_WINDOW_LABEL) {
-                    // macOS aggressively suspends JS execution in hidden
-                    // WKWebViews. After long idle periods (~12 h) the WebView
-                    // may be deeply suspended and will not process the emitted
-                    // event until it is woken.  Showing the window before
-                    // emitting ensures the WebView is active so the JS toggle
-                    // handler runs promptly.  The bar window has a transparent
-                    // background, so the brief pre-show is invisible to the
-                    // user; JS will configure content and positioning when it
-                    // processes the toggle event.
-                    if !bar_window.is_visible().unwrap_or(true) {
-                        let _ = platform_app_shell::show_bar(app, &bar_window);
+                    // If `is_visible()` fails, default to `false` so we err on
+                    // the side of showing the bar — waking the WebView is
+                    // cheaper than missing a toggle.  macOS suspends JS in
+                    // hidden WKWebViews; a bar that is actually hidden when
+                    // the shortcut fires must be shown before the emit so the
+                    // JS handler can run.  The bar window is transparent, so
+                    // an unnecessary re-show is invisible.
+                    let visible = bar_window.is_visible().unwrap_or(false);
+                    eprintln!("[global-shortcut] bar visible: {}", visible);
+                    if !visible {
+                        if let Err(error) = platform_app_shell::show_bar(app, &bar_window) {
+                            eprintln!("[global-shortcut] show_bar failed: {}", error);
+                        }
                     }
-                    let _ = bar_window.emit(TOGGLE_MIC_EVENT, ());
+                    if let Err(error) = bar_window.emit(TOGGLE_MIC_EVENT, ()) {
+                        eprintln!("[global-shortcut] emit failed: {}", error);
+                    }
                 }
             }
         })
         .map_err(|error| handler_registration_error_message(shortcut, &error.to_string()))
+}
+
+/// Re-register the active mic-toggle shortcut handler.
+///
+/// `tauri-plugin-global-shortcut` on macOS hooks the Carbon Event Manager.
+/// After system sleep/wake cycles — or after prolonged runtime — the OS-level
+/// handler can silently stop firing even though the plugin still reports the
+/// shortcut as registered.  Unregistering and re-attaching the handler
+/// restores event delivery.  This is the only reliable recovery path short of
+/// restarting the process.
+fn refresh_toggle_mic_shortcut(app: &AppHandle) -> Result<(), String> {
+    let shortcut_state = app.state::<MicToggleShortcutState>();
+    let shortcut = {
+        let active = shortcut_state
+            .active_shortcut
+            .lock()
+            .map_err(|_| lock_error_message())?;
+        active.clone()
+    };
+
+    let global_shortcut = app.global_shortcut();
+    if global_shortcut.is_registered(shortcut.as_str()) {
+        if let Err(error) = global_shortcut.unregister(shortcut.as_str()) {
+            eprintln!(
+                "[global-shortcut] refresh: unregister of `{}` failed (continuing): {}",
+                shortcut, error
+            );
+        }
+    }
+    register_toggle_mic_handler(app, &shortcut)
+}
+
+/// Background watchdog that keeps the global mic-toggle shortcut healthy.
+///
+/// Two failure modes are covered:
+///
+/// 1. **System sleep/wake.**  Monotonic clock drift between ticks far exceeds
+///    the configured interval when the process was suspended (the Mac slept).
+///    On wake the Carbon Event Manager registration may be stale; re-register
+///    immediately.  This is the dominant `~12 h` failure pattern — users
+///    leave their Mac overnight and come back to a dead shortcut.
+///
+/// 2. **Long continuous runtime.**  Even without a sleep cycle, the plugin
+///    can drift.  A periodic refresh every 30 min is a cheap safety net.
+fn spawn_global_shortcut_watchdog(app_handle: AppHandle) {
+    const TICK_INTERVAL: Duration = Duration::from_secs(60);
+    const WAKE_DRIFT_THRESHOLD: Duration = Duration::from_secs(120);
+    const PERIODIC_REFRESH_INTERVAL: Duration = Duration::from_secs(30 * 60);
+
+    std::thread::Builder::new()
+        .name("global-shortcut-watchdog".into())
+        .spawn(move || {
+            let mut last_tick = Instant::now();
+            let mut last_refresh = Instant::now();
+
+            loop {
+                std::thread::sleep(TICK_INTERVAL);
+                let now = Instant::now();
+                let since_last_tick = now.duration_since(last_tick);
+                last_tick = now;
+
+                let woke_from_sleep = since_last_tick > WAKE_DRIFT_THRESHOLD;
+                let periodic_due =
+                    now.duration_since(last_refresh) >= PERIODIC_REFRESH_INTERVAL;
+
+                if !woke_from_sleep && !periodic_due {
+                    continue;
+                }
+
+                if woke_from_sleep {
+                    eprintln!(
+                        "[global-shortcut] process suspension detected ({:?}); refreshing handler",
+                        since_last_tick
+                    );
+                } else {
+                    eprintln!("[global-shortcut] periodic refresh");
+                }
+
+                match refresh_toggle_mic_shortcut(&app_handle) {
+                    Ok(()) => {
+                        last_refresh = now;
+                    }
+                    Err(error) => {
+                        eprintln!("[global-shortcut] watchdog refresh failed: {}", error);
+                    }
+                }
+            }
+        })
+        .expect("global-shortcut watchdog thread must spawn");
 }
 
 fn register_toggle_mic_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
@@ -695,6 +790,7 @@ fn setup_global_shortcut(app: &tauri::App) -> tauri::Result<()> {
         return Ok(());
     }
 
+    spawn_global_shortcut_watchdog(app_handle);
     Ok(())
 }
 
