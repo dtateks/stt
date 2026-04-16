@@ -90,6 +90,18 @@ fn register_toggle_mic_handler(app: &AppHandle, shortcut: &str) -> Result<(), St
         .on_shortcut(shortcut, move |app, _, event| {
             if event.state == ShortcutState::Pressed {
                 if let Some(bar_window) = app.get_webview_window(BAR_WINDOW_LABEL) {
+                    // macOS aggressively suspends JS execution in hidden
+                    // WKWebViews. After long idle periods (~12 h) the WebView
+                    // may be deeply suspended and will not process the emitted
+                    // event until it is woken.  Showing the window before
+                    // emitting ensures the WebView is active so the JS toggle
+                    // handler runs promptly.  The bar window has a transparent
+                    // background, so the brief pre-show is invisible to the
+                    // user; JS will configure content and positioning when it
+                    // processes the toggle event.
+                    if !bar_window.is_visible().unwrap_or(true) {
+                        let _ = platform_app_shell::show_bar(app, &bar_window);
+                    }
                     let _ = bar_window.emit(TOGGLE_MIC_EVENT, ());
                 }
             }
