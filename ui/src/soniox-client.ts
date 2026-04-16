@@ -132,6 +132,13 @@ export class SonioxClient implements SonioxSTTClient {
   // ─── Private ─────────────────────────────────────────────────────────────
 
   private async ensureAudioGraph(): Promise<void> {
+    // An AudioContext that has been closed (explicitly or by the OS after
+    // prolonged interruption) cannot be resumed.  Tear down the entire graph
+    // so initAudioGraph() rebuilds from scratch.
+    if (this.audioContext && this.audioContext.state === "closed") {
+      await this.releaseAudio();
+    }
+
     if (this.audioContext && this.mediaStream && this.sourceNode && this.workletNode && this.analyserNode) {
       return;
     }
@@ -189,7 +196,10 @@ export class SonioxClient implements SonioxSTTClient {
       track.enabled = true;
     });
 
-    if (this.audioContext && this.audioContext.state === "suspended") {
+    // Resume from any non-running state: "suspended" (normal pause) and
+    // "interrupted" (macOS audio session interruption, e.g. sleep/wake,
+    // Bluetooth reconnection).  Only skip if already "running" or "closed".
+    if (this.audioContext && this.audioContext.state !== "running" && this.audioContext.state !== "closed") {
       await this.audioContext.resume();
     }
   }
@@ -375,7 +385,14 @@ export class SonioxClient implements SonioxSTTClient {
     this.analyserNode?.disconnect();
     this.mediaStream?.getTracks().forEach((t) => { t.stop(); });
     if (this.audioContext && this.audioContext.state !== "closed") {
-      await this.audioContext.close();
+      // audioContext.close() can hang on macOS when the context is in the
+      // "interrupted" state (e.g. after prolonged sleep/wake cycles).  Cap
+      // the wait so releaseAudio never blocks the session lifecycle.
+      const ctx = this.audioContext;
+      await Promise.race([
+        ctx.close().catch(() => {}),
+        new Promise<void>((r) => setTimeout(r, 2_000)),
+      ]);
     }
 
     this.sourceNode = null;

@@ -565,6 +565,11 @@ export class BarSessionController {
     } catch (restartError) {
       if (!this.isStartAttemptCurrent(recoveryAttemptId)) return;
       console.error("[session] stream restart failed", restartError);
+      // Release audio resources so they do not accumulate across repeated
+      // unrecoverable failures over long runtime (~12 h).
+      await this.stopAudioPipeline({ releaseResources: true }).catch((error: unknown) => {
+        console.error("[session] stopAudioPipeline failed during unrecoverable stream error", error);
+      });
       this.setErrorMessage(
         `${STREAM_RESTART_FAILED_ERROR_MESSAGE} ${formatErrorMessage(restartError)}`
       );
@@ -713,6 +718,10 @@ export class BarSessionController {
       }
     } catch (restartError) {
       console.error("[session] listening restart failed after insert", restartError);
+      // Release audio resources to prevent accumulation over long runtime.
+      await this.stopAudioPipeline({ releaseResources: true }).catch((error: unknown) => {
+        console.error("[session] stopAudioPipeline failed during insert restart failure", error);
+      });
       await this.applyEvent("INSERT_ERROR"); // INSERTING → ERROR
       this.setErrorMessage(
         `${STREAM_RESTART_FAILED_ERROR_MESSAGE} ${formatErrorMessage(restartError)}`,
