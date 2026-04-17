@@ -8,6 +8,8 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 #[cfg(target_os = "macos")]
+use block2::RcBlock;
+#[cfg(target_os = "macos")]
 use core_graphics::event::CGEvent;
 #[cfg(target_os = "macos")]
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
@@ -16,7 +18,11 @@ use objc2::msg_send;
 #[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSColor, NSWindowCollectionBehavior};
+use objc2_app_kit::{
+    NSColor, NSWindowCollectionBehavior, NSWorkspace, NSWorkspaceDidWakeNotification,
+    NSWorkspaceSessionDidBecomeActiveNotification, NSWorkspaceSessionDidResignActiveNotification,
+    NSWorkspaceWillSleepNotification,
+};
 #[cfg(target_os = "macos")]
 use objc2_foundation::{NSNumber, NSString};
 #[cfg(target_os = "macos")]
@@ -115,6 +121,63 @@ fn register_toggle_mic_handler(app: &AppHandle, shortcut: &str) -> Result<(), St
         .map_err(|error| handler_registration_error_message(shortcut, &error.to_string()))
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShortcutHealthEvent {
+    WillSleep,
+    DidWake,
+    SessionDidBecomeActive,
+    SessionDidResignActive,
+}
+
+#[cfg(target_os = "macos")]
+impl ShortcutHealthEvent {
+    fn label(self) -> &'static str {
+        match self {
+            Self::WillSleep => "workspace-will-sleep",
+            Self::DidWake => "workspace-did-wake",
+            Self::SessionDidBecomeActive => "workspace-session-did-become-active",
+            Self::SessionDidResignActive => "workspace-session-did-resign-active",
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_shortcut_health_event<RefreshShortcut, SuspendShortcut>(
+    event: ShortcutHealthEvent,
+    mut refresh_shortcut: RefreshShortcut,
+    mut suspend_shortcut: SuspendShortcut,
+) -> Result<(), String>
+where
+    RefreshShortcut: FnMut() -> Result<(), String>,
+    SuspendShortcut: FnMut() -> Result<(), String>,
+{
+    match event {
+        ShortcutHealthEvent::WillSleep | ShortcutHealthEvent::SessionDidResignActive => {
+            suspend_shortcut()
+        }
+        ShortcutHealthEvent::DidWake | ShortcutHealthEvent::SessionDidBecomeActive => {
+            refresh_shortcut()
+        }
+    }
+}
+
+fn unregister_toggle_mic_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
+    let global_shortcut = app.global_shortcut();
+    if global_shortcut.is_registered(shortcut) {
+        global_shortcut
+            .unregister(shortcut)
+            .map_err(|error| unregister_error_message(shortcut, &error.to_string()))?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn suspend_toggle_mic_shortcut(app: &AppHandle) -> Result<(), String> {
+    let shortcut = get_mic_toggle_shortcut(app)?;
+    unregister_toggle_mic_shortcut(app, &shortcut)
+}
+
 /// Re-register the active mic-toggle shortcut handler.
 ///
 /// `tauri-plugin-global-shortcut` on macOS hooks the Carbon Event Manager.
@@ -124,25 +187,98 @@ fn register_toggle_mic_handler(app: &AppHandle, shortcut: &str) -> Result<(), St
 /// restores event delivery.  This is the only reliable recovery path short of
 /// restarting the process.
 fn refresh_toggle_mic_shortcut(app: &AppHandle) -> Result<(), String> {
-    let shortcut_state = app.state::<MicToggleShortcutState>();
-    let shortcut = {
-        let active = shortcut_state
-            .active_shortcut
-            .lock()
-            .map_err(|_| lock_error_message())?;
-        active.clone()
-    };
+    let shortcut = get_mic_toggle_shortcut(app)?;
 
-    let global_shortcut = app.global_shortcut();
-    if global_shortcut.is_registered(shortcut.as_str()) {
-        if let Err(error) = global_shortcut.unregister(shortcut.as_str()) {
-            eprintln!(
-                "[global-shortcut] refresh: unregister of `{}` failed (continuing): {}",
-                shortcut, error
-            );
-        }
+    if let Err(error) = unregister_toggle_mic_shortcut(app, &shortcut) {
+        eprintln!(
+            "[global-shortcut] refresh: unregister of `{}` failed (continuing): {}",
+            shortcut, error
+        );
     }
     register_toggle_mic_handler(app, &shortcut)
+}
+
+#[cfg(target_os = "macos")]
+fn handle_macos_shortcut_health_event(app: &AppHandle, event: ShortcutHealthEvent) {
+    let label = event.label();
+    let result = run_macos_shortcut_health_event(
+        event,
+        || {
+            eprintln!("[global-shortcut] {}: refreshing handler", label);
+            refresh_toggle_mic_shortcut(app)
+        },
+        || {
+            eprintln!("[global-shortcut] {}: suspending handler", label);
+            suspend_toggle_mic_shortcut(app)
+        },
+    );
+
+    if let Err(error) = result {
+        eprintln!("[global-shortcut] {} failed: {}", label, error);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn install_global_shortcut_workspace_observers(app: &tauri::App) {
+    let notification_center = NSWorkspace::sharedWorkspace().notificationCenter();
+
+    let will_sleep_app = app.handle().clone();
+    let will_sleep_observer = RcBlock::new(move |_| {
+        handle_macos_shortcut_health_event(&will_sleep_app, ShortcutHealthEvent::WillSleep);
+    });
+    unsafe {
+        let _ = notification_center.addObserverForName_object_queue_usingBlock(
+            Some(NSWorkspaceWillSleepNotification),
+            None,
+            None,
+            &will_sleep_observer,
+        );
+    }
+
+    let did_wake_app = app.handle().clone();
+    let did_wake_observer = RcBlock::new(move |_| {
+        handle_macos_shortcut_health_event(&did_wake_app, ShortcutHealthEvent::DidWake);
+    });
+    unsafe {
+        let _ = notification_center.addObserverForName_object_queue_usingBlock(
+            Some(NSWorkspaceDidWakeNotification),
+            None,
+            None,
+            &did_wake_observer,
+        );
+    }
+
+    let session_active_app = app.handle().clone();
+    let session_active_observer = RcBlock::new(move |_| {
+        handle_macos_shortcut_health_event(
+            &session_active_app,
+            ShortcutHealthEvent::SessionDidBecomeActive,
+        );
+    });
+    unsafe {
+        let _ = notification_center.addObserverForName_object_queue_usingBlock(
+            Some(NSWorkspaceSessionDidBecomeActiveNotification),
+            None,
+            None,
+            &session_active_observer,
+        );
+    }
+
+    let session_resign_app = app.handle().clone();
+    let session_resign_observer = RcBlock::new(move |_| {
+        handle_macos_shortcut_health_event(
+            &session_resign_app,
+            ShortcutHealthEvent::SessionDidResignActive,
+        );
+    });
+    unsafe {
+        let _ = notification_center.addObserverForName_object_queue_usingBlock(
+            Some(NSWorkspaceSessionDidResignActiveNotification),
+            None,
+            None,
+            &session_resign_observer,
+        );
+    }
 }
 
 /// Background watchdog that keeps the global mic-toggle shortcut healthy.
@@ -790,6 +926,8 @@ fn setup_global_shortcut(app: &tauri::App) -> tauri::Result<()> {
         return Ok(());
     }
 
+    #[cfg(target_os = "macos")]
+    install_global_shortcut_workspace_observers(app);
     spawn_global_shortcut_watchdog(app_handle);
     Ok(())
 }
@@ -1102,6 +1240,62 @@ mod shortcut_transaction_tests {
             .borrow()
             .iter()
             .any(|item| item == "Control+Alt+Super+M"));
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod shortcut_health_tests {
+    use super::{run_macos_shortcut_health_event, ShortcutHealthEvent};
+    use std::cell::RefCell;
+
+    #[test]
+    fn workspace_wake_and_session_resume_refresh_shortcut_handler() {
+        for event in [
+            ShortcutHealthEvent::DidWake,
+            ShortcutHealthEvent::SessionDidBecomeActive,
+        ] {
+            let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+            let result = run_macos_shortcut_health_event(
+                event,
+                || {
+                    executed_steps.borrow_mut().push("refresh");
+                    Ok(())
+                },
+                || {
+                    executed_steps.borrow_mut().push("suspend");
+                    Ok(())
+                },
+            );
+
+            assert!(result.is_ok());
+            assert_eq!(executed_steps.into_inner(), vec!["refresh"]);
+        }
+    }
+
+    #[test]
+    fn workspace_sleep_and_session_resign_suspend_shortcut_handler() {
+        for event in [
+            ShortcutHealthEvent::WillSleep,
+            ShortcutHealthEvent::SessionDidResignActive,
+        ] {
+            let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+            let result = run_macos_shortcut_health_event(
+                event,
+                || {
+                    executed_steps.borrow_mut().push("refresh");
+                    Ok(())
+                },
+                || {
+                    executed_steps.borrow_mut().push("suspend");
+                    Ok(())
+                },
+            );
+
+            assert!(result.is_ok());
+            assert_eq!(executed_steps.into_inner(), vec!["suspend"]);
+        }
     }
 }
 
