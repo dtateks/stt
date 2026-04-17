@@ -274,6 +274,8 @@ async function init(): Promise<void> {
   }
 }
 
+let mainWindowResizeObserver: ResizeObserver | null = null;
+
 function initializeMainWindowAutoFit(): void {
   scheduleMainWindowFitToContent();
 
@@ -281,11 +283,26 @@ function initializeMainWindowAutoFit(): void {
     return;
   }
 
-  const observer = new ResizeObserver(() => {
+  mainWindowResizeObserver = new ResizeObserver(() => {
+    if (!settingsPanel.isConnected) {
+      teardownMainWindowAutoFit();
+      return;
+    }
     scheduleMainWindowFitToContent();
   });
 
-  observer.observe(settingsPanel);
+  mainWindowResizeObserver.observe(settingsPanel);
+}
+
+function teardownMainWindowAutoFit(): void {
+  if (pendingMainWindowFitTimer !== null) {
+    clearTimeout(pendingMainWindowFitTimer);
+    pendingMainWindowFitTimer = null;
+  }
+  if (mainWindowResizeObserver !== null) {
+    mainWindowResizeObserver.disconnect();
+    mainWindowResizeObserver = null;
+  }
 }
 
 function scheduleMainWindowFitToContent(): void {
@@ -295,12 +312,18 @@ function scheduleMainWindowFitToContent(): void {
 
   pendingMainWindowFitTimer = setTimeout(() => {
     pendingMainWindowFitTimer = null;
+    // Guard against the panel being detached (e.g. test teardown clearing
+    // document.body). Without this, a late-firing timer would call into a
+    // disposed jsdom environment or a missing bridge.
+    if (!settingsPanel.isConnected) {
+      return;
+    }
     void fitMainWindowToContent();
   }, MAIN_WINDOW_AUTO_FIT_DEBOUNCE_MS);
 }
 
 async function fitMainWindowToContent(): Promise<void> {
-  if (typeof window.voiceToText.fitMainWindowToContent !== "function") {
+  if (typeof window.voiceToText?.fitMainWindowToContent !== "function") {
     return;
   }
 
