@@ -26,6 +26,11 @@ body {
 }
 
 /* ─── HUD shell ──────────────────────────────────────────────────────────── */
+/*
+ * Glassmorphism surface: heavily translucent so the desktop bleeds through
+ * while remaining legible. Depends on the native NSPanel + WKWebView being
+ * cleared to transparent (see configure_bar_panel / configure_bar_webview_transparency).
+ */
 .hud {
   position: fixed;
   inset: 0;
@@ -38,10 +43,14 @@ body {
   overflow: hidden;
   isolation: isolate;
 
-  background: #0d0d0d;
-  border: 1px solid #222;
+  background: rgba(18, 18, 22, 0.38);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-2xl);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 /* State-driven border accent — subtle, not a glow show */
@@ -246,30 +255,135 @@ body {
   color: rgba(255, 255, 255, 0.42);
 }
 
-/* ─── State labels — compressed, secondary ───────────────────────────────── */
+/* ─── State indicator dot ────────────────────────────────────────────────── */
+/*
+ * The state label is presented as a small glowing dot instead of text.
+ * The text node is kept in the DOM for assistive technology and tests,
+ * but hidden visually via font-size:0. A ::before pseudo-element renders
+ * the dot and picks its color / animation from the parent hud[data-state].
+ */
 .hud-state-label {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   margin-inline-start: auto;
-  min-height: auto;
+  width: 10px;
+  height: 10px;
   padding: 0;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-disabled);
+  font-size: 0;
+  color: transparent;
   flex-shrink: 0;
   white-space: nowrap;
-  transition: color var(--duration-normal) var(--ease-out);
+  position: relative;
 }
 
-.hud[data-state="LISTENING"] .hud-state-label { color: #fff; }
-.hud[data-state="PROCESSING"] .hud-state-label { color: #ccc; }
-.hud[data-state="INSERTING"] .hud-state-label { color: #fff; }
-.hud[data-state="SUCCESS"] .hud-state-label { color: #10b981; }
-.hud[data-state="ERROR"] .hud-state-label { color: #ef4444; }
-.hud[data-state="PAUSED"] .hud-state-label { color: #f59e0b; }
-.hud[data-state="RESUMING"] .hud-state-label { color: #f59e0b; }
+.hud-state-label::before {
+  content: "";
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6e7681;
+  box-shadow: 0 0 0 0 rgba(110, 118, 129, 0);
+  transition:
+    background var(--duration-normal) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out),
+    transform var(--duration-normal) var(--ease-out);
+}
+
+/* LISTENING — calm green, breathing glow (ready to dictate) */
+.hud[data-state="LISTENING"] .hud-state-label::before {
+  background: #34d399;
+  box-shadow:
+    0 0 0 1px rgba(52, 211, 153, 0.35),
+    0 0 10px rgba(52, 211, 153, 0.55);
+  animation: hud-state-dot-breathe 2.4s var(--ease-in-out) infinite;
+}
+
+/* CONNECTING / RESUMING — cyan pulse while spinning up */
+.hud[data-state="CONNECTING"] .hud-state-label::before,
+.hud[data-state="RESUMING"] .hud-state-label::before {
+  background: #38e8ff;
+  box-shadow:
+    0 0 0 1px rgba(56, 232, 255, 0.4),
+    0 0 10px rgba(56, 232, 255, 0.6);
+  animation: hud-state-dot-pulse 1s var(--ease-in-out) infinite;
+}
+
+/* PROCESSING — amber orbit, ring spinner around the dot */
+.hud[data-state="PROCESSING"] .hud-state-label::before,
+.hud[data-state="INSERTING"] .hud-state-label::before {
+  background: #fbbf24;
+  box-shadow:
+    0 0 0 1px rgba(251, 191, 36, 0.35),
+    0 0 8px rgba(251, 191, 36, 0.5);
+}
+
+.hud[data-state="PROCESSING"] .hud-state-label::after,
+.hud[data-state="INSERTING"] .hud-state-label::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.25px solid transparent;
+  border-top-color: rgba(251, 191, 36, 0.9);
+  border-right-color: rgba(251, 191, 36, 0.45);
+  animation: hud-state-dot-spin 0.9s linear infinite;
+}
+
+/* SUCCESS — bright green confirmation */
+.hud[data-state="SUCCESS"] .hud-state-label::before {
+  background: #10b981;
+  box-shadow:
+    0 0 0 1px rgba(16, 185, 129, 0.45),
+    0 0 10px rgba(16, 185, 129, 0.7);
+}
+
+/* ERROR — red, slow pulse */
+.hud[data-state="ERROR"] .hud-state-label::before {
+  background: #ef4444;
+  box-shadow:
+    0 0 0 1px rgba(239, 68, 68, 0.45),
+    0 0 10px rgba(239, 68, 68, 0.65);
+  animation: hud-state-dot-pulse 1.5s var(--ease-in-out) infinite;
+}
+
+/* PAUSED — dim amber, steady (no animation) */
+.hud[data-state="PAUSED"] .hud-state-label::before {
+  background: #f59e0b;
+  box-shadow:
+    0 0 0 1px rgba(245, 158, 11, 0.3),
+    0 0 6px rgba(245, 158, 11, 0.4);
+}
+
+.hud[data-state="HIDDEN"] .hud-state-label::before {
+  background: transparent;
+  box-shadow: none;
+}
+
+@keyframes hud-state-dot-breathe {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow:
+      0 0 0 1px rgba(52, 211, 153, 0.3),
+      0 0 8px rgba(52, 211, 153, 0.45);
+  }
+  50% {
+    transform: scale(1.12);
+    box-shadow:
+      0 0 0 2px rgba(52, 211, 153, 0.45),
+      0 0 14px rgba(52, 211, 153, 0.75);
+  }
+}
+
+@keyframes hud-state-dot-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+@keyframes hud-state-dot-spin {
+  to { transform: rotate(360deg); }
+}
 
 /* ─── Separator ──────────────────────────────────────────────────────────── */
 .hud-sep {
@@ -296,7 +410,9 @@ body {
 
 /* ─── Reduced motion ─────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .hud::before {
+  .hud::before,
+  .hud-state-label::before,
+  .hud-state-label::after {
     animation: none !important;
     transition: background var(--duration-fast), opacity var(--duration-fast) !important;
   }
