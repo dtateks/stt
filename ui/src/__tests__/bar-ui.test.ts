@@ -963,10 +963,15 @@ describe("bar.html — accessibility contract (production source)", () => {
     expect(transcriptRegion?.getAttribute("aria-atomic")).toBe("false");
   });
 
-  it("state label is the trailing item inside the transcript row", () => {
-    const transcriptRegion = document.querySelector(".hud-transcript");
-    expect(transcriptRegion?.querySelector("#hud-state-label")).toBe(getStateLabel());
-    expect(transcriptRegion?.lastElementChild).toBe(getStateLabel());
+  it("state label sits inside the actions shell between the separator and the button group", () => {
+    const actionsShell = document.querySelector(".hud-actions-shell");
+    const separator = document.querySelector(".hud-sep");
+    const actionsGroup = document.querySelector(".hud-actions");
+
+    expect(actionsShell?.querySelector("#hud-state-label")).toBe(getStateLabel());
+    // Order: separator → state dot → actions group
+    expect(getStateLabel().previousElementSibling).toBe(separator);
+    expect(getStateLabel().nextElementSibling).toBe(actionsGroup);
   });
 
   it("buttons start with tabindex=-1 (not keyboard-reachable in default PASSIVE mode)", () => {
