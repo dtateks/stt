@@ -23,11 +23,6 @@
           <h1 id="prefs-ready-title" class="status-hero-title">Activation required</h1>
           <p id="prefs-ready-shortcut" class="status-hero-subtitle">Add a Soniox key to start dictation</p>
         </div>
-        <div class="status-hero-access" role="note">
-          <span class="access-tag">Microphone</span>
-          <span class="access-tag">Accessibility</span>
-          <span class="access-tag">Shortcut</span>
-        </div>
       </header>
 
       <!-- ── Banners ─────────────────────────────────────────────── -->
@@ -114,10 +109,6 @@
               Edit vocabulary
               <span id="vocab-count" class="vocab-badge" aria-label="vocabulary term count"></span>
             </button>
-
-            <p class="zone-hint zone-hint--subtle">
-              Keys stay local in <code>voice-to-text/credentials.json</code>. Env vars still work.
-            </p>
           </div>
         </section>
 
@@ -161,10 +152,7 @@
 
             <div class="toggle-stack">
               <div class="toggle-row">
-                <div class="toggle-content">
-                  <label class="toggle-label" for="pref-enter-mode">Auto-enter</label>
-                  <span class="toggle-desc">Send Return after paste</span>
-                </div>
+                <label class="toggle-label" for="pref-enter-mode">Auto-enter</label>
                 <label class="toggle-switch" aria-label="Send Enter after insert">
                   <input id="pref-enter-mode" type="checkbox" />
                   <span class="toggle-track" aria-hidden="true"></span>
@@ -172,10 +160,7 @@
               </div>
 
               <div class="toggle-row">
-                <div class="toggle-content">
-                  <label class="toggle-label" for="pref-reminder-beep">Reminder beep</label>
-                  <span class="toggle-desc">Sound while mic is on</span>
-                </div>
+                <label class="toggle-label" for="pref-reminder-beep">Reminder beep</label>
                 <label class="toggle-switch" aria-label="Reminder beep">
                   <input id="pref-reminder-beep" type="checkbox" />
                   <span class="toggle-track" aria-hidden="true"></span>
@@ -183,7 +168,7 @@
               </div>
             </div>
 
-            <p id="runtime-background-recovery" class="zone-hint zone-hint--subtle" aria-live="polite">Reopen the app to show settings if running in the background.</p>
+            <p id="runtime-background-recovery" class="zone-hint zone-hint--subtle is-hidden" aria-live="polite">Reopen the app to show settings if running in the background.</p>
           </div>
         </section>
 

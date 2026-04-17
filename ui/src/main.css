@@ -7,10 +7,18 @@ body {
   overflow: hidden;
 }
 
+/*
+ * Subtle ambient gradient backdrop (premium feel, not glass).
+ * The main window stays opaque — glassmorphism is reserved for the HUD —
+ * but the surfaces inside use layered translucency for depth.
+ */
 body {
   display: block;
   color: var(--text-primary);
-  background: #050505;
+  background:
+    radial-gradient(1200px 800px at 20% -10%, rgba(56, 232, 255, 0.06), transparent 60%),
+    radial-gradient(900px 600px at 110% 110%, rgba(167, 139, 250, 0.05), transparent 55%),
+    #050608;
 }
 
 .settings-panel {
@@ -25,7 +33,7 @@ body {
 
 .status-hero {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-4);
   padding: var(--space-4) 0;
@@ -85,38 +93,6 @@ body {
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
   line-height: var(--line-height-snug);
-}
-
-.status-hero-access {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.access-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: var(--space-6);
-  padding-inline: var(--space-3);
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border-subtle);
-  background: rgba(18, 24, 34, 0.95);
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  white-space: nowrap;
-}
-
-.access-tag::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--color-success-500);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
 }
 
 .banner {
@@ -182,8 +158,11 @@ body {
   flex-direction: column;
   padding: var(--space-4);
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border-default);
-  background: #0d0d0d;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(16, 18, 22, 0.72);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 
@@ -591,7 +570,7 @@ body {
 }
 
 .toggle-row {
-  min-height: 46px;
+  min-height: 40px;
   padding: var(--space-2) var(--space-3);
   display: flex;
   align-items: center;
@@ -603,23 +582,12 @@ body {
   border-top: 1px solid var(--border-default);
 }
 
-.toggle-content {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  gap: 2px;
-}
-
 .toggle-label {
   color: var(--text-primary);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
-}
-
-.toggle-desc {
-  color: var(--text-disabled);
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-snug);
+  flex: 1;
+  min-width: 0;
 }
 
 .toggle-switch {
@@ -1036,11 +1004,6 @@ code {
 }
 
 @media (max-width: 980px) {
-  html,
-  body {
-    overflow: auto;
-  }
-
   .settings-panel {
     min-block-size: auto;
     grid-template-rows: auto auto auto auto;
@@ -1052,11 +1015,6 @@ code {
 
   .status-hero {
     grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .status-hero-access {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
   }
 }
 
