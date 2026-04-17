@@ -239,12 +239,12 @@ function getAudioGradients(
   const bucketedGlowOpacity = glowBucket * GRADIENT_OPACITY_BUCKET_SIZE;
 
   const lineGradient = canvasCtx!.createLinearGradient(0, 0, width, 0);
-  lineGradient.addColorStop(0, `rgba(56, 232, 255, ${bucketedLineOpacity})`);
-  lineGradient.addColorStop(1, `rgba(167, 139, 250, ${bucketedLineOpacity * 0.85})`);
+  lineGradient.addColorStop(0, `rgba(255, 255, 255, ${bucketedLineOpacity})`);
+  lineGradient.addColorStop(1, `rgba(200, 200, 200, ${bucketedLineOpacity * 0.85})`);
 
   const glowGradient = canvasCtx!.createLinearGradient(0, 0, width, 0);
-  glowGradient.addColorStop(0, `rgba(56, 232, 255, ${bucketedGlowOpacity})`);
-  glowGradient.addColorStop(1, `rgba(167, 139, 250, ${bucketedGlowOpacity * 0.8})`);
+  glowGradient.addColorStop(0, `rgba(255, 255, 255, ${bucketedGlowOpacity})`);
+  glowGradient.addColorStop(1, `rgba(200, 200, 200, ${bucketedGlowOpacity * 0.8})`);
 
   cachedGradientWidth = width;
   cachedLineOpacityBucket = lineBucket;
