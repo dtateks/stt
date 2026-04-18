@@ -167,6 +167,7 @@ function createBridge(): {
     setMouseEvents: ReturnType<typeof vi.fn<VoiceToTextBridge["setMouseEvents"]>>;
     showSettings: ReturnType<typeof vi.fn<VoiceToTextBridge["showSettings"]>>;
     getPlatformRuntimeInfo: ReturnType<typeof vi.fn<VoiceToTextBridge["getPlatformRuntimeInfo"]>>;
+    consumePendingMicToggle: ReturnType<typeof vi.fn<VoiceToTextBridge["consumePendingMicToggle"]>>;
     getMicToggleShortcut: ReturnType<typeof vi.fn<VoiceToTextBridge["getMicToggleShortcut"]>>;
     updateMicToggleShortcut: ReturnType<typeof vi.fn<VoiceToTextBridge["updateMicToggleShortcut"]>>;
   };
@@ -202,6 +203,7 @@ function createBridge(): {
     setMouseEvents: vi.fn(async (_ignore: boolean) => {}),
     showSettings: vi.fn(async () => {}),
     getPlatformRuntimeInfo: vi.fn(async () => DEFAULT_PLATFORM_RUNTIME_INFO),
+    consumePendingMicToggle: vi.fn(async () => false),
     getMicToggleShortcut: vi.fn(async () => "Control+Alt+Super+V"),
     updateMicToggleShortcut: vi.fn(async (shortcut: string) => shortcut),
   };
@@ -237,6 +239,7 @@ function createBridge(): {
     setMouseEvents: mocks.setMouseEvents,
     showSettings: mocks.showSettings,
     getPlatformRuntimeInfo: mocks.getPlatformRuntimeInfo,
+    consumePendingMicToggle: mocks.consumePendingMicToggle,
     getMicToggleShortcut: mocks.getMicToggleShortcut,
     updateMicToggleShortcut: mocks.updateMicToggleShortcut,
   };

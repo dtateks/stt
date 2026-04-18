@@ -47,7 +47,7 @@ const MAIN_REQUIRED_APP_PERMISSIONS: [&str; 30] = [
     "allow-get-mic-toggle-shortcut",
     "allow-update-mic-toggle-shortcut",
 ];
-const BAR_REQUIRED_APP_PERMISSIONS: [&str; 15] = [
+const BAR_REQUIRED_APP_PERMISSIONS: [&str; 16] = [
     "allow-get-config",
     "allow-has-soniox-key",
     "allow-create-soniox-temporary-key",
@@ -63,6 +63,7 @@ const BAR_REQUIRED_APP_PERMISSIONS: [&str; 15] = [
     "allow-set-mouse-events",
     "allow-show-settings",
     "allow-get-platform-runtime-info",
+    "allow-consume-pending-mic-toggle",
 ];
 const UNUSED_PLUGIN_SHELL: &str = "tauri-plugin-shell";
 const UNUSED_PLUGIN_HTTP: &str = "tauri-plugin-http";

@@ -59,6 +59,7 @@ const controller = new BarSessionController();
 let connectingLabelTimer: ReturnType<typeof setTimeout> | null = null;
 let shouldShowConnectingLabel = true;
 let smoothedEnergy = 0;
+let didBootstrap = false;
 
 // ─── State rendering — thin wrappers that bind module DOM refs ────────────
 
@@ -434,6 +435,27 @@ function bindControls(): void {
 
 }
 
+async function consumePendingMicToggleIfNeeded(): Promise<void> {
+  const shouldToggle = await window.voiceToText?.consumePendingMicToggle?.() ?? false;
+  if (!shouldToggle) {
+    return;
+  }
+
+  await controller.handleToggle();
+}
+
+function bindVisibilityRegainPendingToggleConsumer(): void {
+  document.onvisibilitychange = () => {
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+
+    void consumePendingMicToggleIfNeeded().catch((error: unknown) => {
+      console.error("[bar] pending-toggle consume failed on visibility regain", error);
+    });
+  };
+}
+
 // ─── State transitions ────────────────────────────────────────────────────
 
 controller.onStateChange = (state) => {
@@ -488,7 +510,13 @@ function resizeCanvas(): void {
 // ─── Boot ─────────────────────────────────────────────────────────────────
 
 async function bootstrapBar(): Promise<void> {
+  if (didBootstrap) {
+    return;
+  }
+  didBootstrap = true;
+
   bindControls();
+  bindVisibilityRegainPendingToggleConsumer();
 
   try {
     await waitForVoiceToTextBridge();
@@ -508,7 +536,11 @@ async function bootstrapBar(): Promise<void> {
   clearAllHudButtonHoverSuppression();
   stopWaveform();
 
-  void controller.init();
+  void controller.init().then(() => {
+    return consumePendingMicToggleIfNeeded();
+  }).catch((error: unknown) => {
+    console.error("[bar] pending-toggle bootstrap consume failed", error);
+  });
 }
 
 document.addEventListener("DOMContentLoaded", () => {

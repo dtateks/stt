@@ -27,6 +27,7 @@ fn main() {
         "show_settings",
         "fit_main_window_to_content",
         "get_platform_runtime_info",
+        "consume_pending_mic_toggle",
         "get_mic_toggle_shortcut",
         "update_mic_toggle_shortcut",
     ]);

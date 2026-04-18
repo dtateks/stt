@@ -183,6 +183,9 @@
     getPlatformRuntimeInfo: () =>
       invoke("get_platform_runtime_info"),
 
+    consumePendingMicToggle: () =>
+      invoke("consume_pending_mic_toggle"),
+
     getMicToggleShortcut: () =>
       invoke("get_mic_toggle_shortcut"),
 

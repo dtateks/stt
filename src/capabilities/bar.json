@@ -19,6 +19,7 @@
     "allow-hide-bar",
     "allow-set-mouse-events",
     "allow-show-settings",
-    "allow-get-platform-runtime-info"
+    "allow-get-platform-runtime-info",
+    "allow-consume-pending-mic-toggle"
   ]
 }

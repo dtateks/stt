@@ -134,6 +134,7 @@ export interface VoiceToTextBridge {
   showSettings(): Promise<void>;
   fitMainWindowToContent?(contentHeight: number): Promise<void>;
   getPlatformRuntimeInfo(): Promise<PlatformRuntimeInfo>;
+  consumePendingMicToggle(): Promise<boolean>;
   getMicToggleShortcut(): Promise<string>;
   updateMicToggleShortcut(shortcut: string): Promise<string>;
 }

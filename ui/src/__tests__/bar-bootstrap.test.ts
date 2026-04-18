@@ -6,6 +6,7 @@ const bridge = vi.hoisted(() => ({
 
 const controllerMocks = vi.hoisted(() => ({
   init: vi.fn(async () => {}),
+  handleToggle: vi.fn(async () => {}),
   handleClose: vi.fn(async () => {}),
   handleClear: vi.fn(async () => {}),
   handlePauseResume: vi.fn(async () => {}),
@@ -36,6 +37,10 @@ vi.mock("../bar-session-controller.ts", () => ({
 
     async handleClose(): Promise<void> {
       await controllerMocks.handleClose();
+    }
+
+    async handleToggle(): Promise<void> {
+      await controllerMocks.handleToggle();
     }
 
     async handleClear(): Promise<void> {
@@ -167,6 +172,38 @@ describe("bar bootstrap fallback close behavior", () => {
 
     controllerMocks.instance?.onStateChange?.("HIDDEN");
     expect(closeBtn.dataset.hoverSuppressed).toBeUndefined();
+  });
+
+  it("consumes pending toggle exactly once across bootstrap and visibility regain", async () => {
+    const consumePendingMicToggle = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(false);
+    window.voiceToText = {
+      consumePendingMicToggle,
+    } as never;
+    bridge.waitForVoiceToTextBridge.mockResolvedValueOnce(window.voiceToText);
+
+    await bootstrapBarModule();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(consumePendingMicToggle).toHaveBeenCalledTimes(1);
+    expect(controllerMocks.handleToggle).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.onvisibilitychange?.(new Event("visibilitychange"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(consumePendingMicToggle).toHaveBeenCalledTimes(2);
+    expect(controllerMocks.handleToggle).toHaveBeenCalledTimes(1);
+
+    const hud = document.getElementById("hud") as HTMLDivElement;
+    expect(hud.dataset.state).toBe("HIDDEN");
   });
 });
 

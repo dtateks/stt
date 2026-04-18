@@ -345,6 +345,11 @@ pub fn get_platform_runtime_info() -> PlatformRuntimeInfo {
 }
 
 #[tauri::command]
+pub fn consume_pending_mic_toggle(app: AppHandle) -> Result<bool, String> {
+    crate::consume_pending_mic_toggle_request(&app)
+}
+
+#[tauri::command]
 pub fn get_mic_toggle_shortcut(app: AppHandle) -> Result<String, String> {
     crate::get_mic_toggle_shortcut(&app)
 }

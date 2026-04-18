@@ -66,6 +66,10 @@ struct MicToggleShortcutState {
     active_shortcut: Mutex<String>,
 }
 
+struct PendingMicToggleRequestState {
+    pending: Mutex<bool>,
+}
+
 impl Default for MicToggleShortcutState {
     fn default() -> Self {
         Self {
@@ -74,8 +78,77 @@ impl Default for MicToggleShortcutState {
     }
 }
 
+impl Default for PendingMicToggleRequestState {
+    fn default() -> Self {
+        Self {
+            pending: Mutex::new(false),
+        }
+    }
+}
+
 fn lock_error_message() -> String {
     "mic shortcut state is unavailable".to_string()
+}
+
+fn pending_toggle_lock_error_message() -> String {
+    "pending mic toggle state is unavailable".to_string()
+}
+
+fn consume_pending_toggle_request_state(pending_toggle: &mut bool) -> bool {
+    std::mem::take(pending_toggle)
+}
+
+fn mark_pending_mic_toggle_request(app: &AppHandle) -> Result<(), String> {
+    let pending_state = app.state::<PendingMicToggleRequestState>();
+    let mut pending_toggle = pending_state
+        .pending
+        .lock()
+        .map_err(|_| pending_toggle_lock_error_message())?;
+    *pending_toggle = true;
+    Ok(())
+}
+
+pub(crate) fn consume_pending_mic_toggle_request(app: &AppHandle) -> Result<bool, String> {
+    let pending_state = app.state::<PendingMicToggleRequestState>();
+    let mut pending_toggle = pending_state
+        .pending
+        .lock()
+        .map_err(|_| pending_toggle_lock_error_message())?;
+    Ok(consume_pending_toggle_request_state(&mut pending_toggle))
+}
+
+#[cfg(target_os = "macos")]
+fn is_bar_visible_for_shortcut(app: &AppHandle, bar_window: &WebviewWindow) -> bool {
+    if let Ok(panel) = app.get_webview_panel(BAR_WINDOW_LABEL) {
+        return panel.is_visible();
+    }
+
+    bar_window.is_visible().unwrap_or(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_bar_visible_for_shortcut(_app: &AppHandle, bar_window: &WebviewWindow) -> bool {
+    bar_window.is_visible().unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_shortcut_toggle_action<MarkPendingToggle, ShowBarWindow, EmitToggleMic>(
+    visible: bool,
+    mut mark_pending_toggle: MarkPendingToggle,
+    mut show_bar_window: ShowBarWindow,
+    mut emit_toggle_mic: EmitToggleMic,
+) where
+    MarkPendingToggle: FnMut(),
+    ShowBarWindow: FnMut(),
+    EmitToggleMic: FnMut(),
+{
+    if !visible {
+        mark_pending_toggle();
+        show_bar_window();
+        return;
+    }
+
+    emit_toggle_mic();
 }
 
 fn parse_error_message(shortcut: &str, error: &str) -> String {
@@ -98,20 +171,37 @@ fn register_toggle_mic_handler(app: &AppHandle, shortcut: &str) -> Result<(), St
             if event.state == ShortcutState::Pressed {
                 eprintln!("[global-shortcut] toggle fired");
                 if let Some(bar_window) = app.get_webview_window(BAR_WINDOW_LABEL) {
-                    // If `is_visible()` fails, default to `false` so we err on
-                    // the side of showing the bar — waking the WebView is
-                    // cheaper than missing a toggle.  macOS suspends JS in
-                    // hidden WKWebViews; a bar that is actually hidden when
-                    // the shortcut fires must be shown before the emit so the
-                    // JS handler can run.  The bar window is transparent, so
-                    // an unnecessary re-show is invisible.
-                    let visible = bar_window.is_visible().unwrap_or(false);
+                    let visible = is_bar_visible_for_shortcut(app, &bar_window);
                     eprintln!("[global-shortcut] bar visible: {}", visible);
+
+                    #[cfg(target_os = "macos")]
+                    run_macos_shortcut_toggle_action(
+                        visible,
+                        || {
+                            if let Err(error) = mark_pending_mic_toggle_request(app) {
+                                eprintln!("[global-shortcut] pending-toggle mark failed: {}", error);
+                            }
+                        },
+                        || {
+                            if let Err(error) = platform_app_shell::show_bar(app, &bar_window) {
+                                eprintln!("[global-shortcut] show_bar failed: {}", error);
+                            }
+                        },
+                        || {
+                            if let Err(error) = bar_window.emit(TOGGLE_MIC_EVENT, ()) {
+                                eprintln!("[global-shortcut] emit failed: {}", error);
+                            }
+                        },
+                    );
+
+                    #[cfg(not(target_os = "macos"))]
                     if !visible {
                         if let Err(error) = platform_app_shell::show_bar(app, &bar_window) {
                             eprintln!("[global-shortcut] show_bar failed: {}", error);
                         }
                     }
+
+                    #[cfg(not(target_os = "macos"))]
                     if let Err(error) = bar_window.emit(TOGGLE_MIC_EVENT, ()) {
                         eprintln!("[global-shortcut] emit failed: {}", error);
                     }
@@ -1036,6 +1126,7 @@ pub fn run() {
     let app = app
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(MicToggleShortcutState::default())
+        .manage(PendingMicToggleRequestState::default())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -1079,6 +1170,7 @@ pub fn run() {
             commands::show_settings,
             commands::fit_main_window_to_content,
             commands::get_platform_runtime_info,
+            commands::consume_pending_mic_toggle,
             commands::get_mic_toggle_shortcut,
             commands::update_mic_toggle_shortcut,
         ])
@@ -1093,6 +1185,7 @@ pub fn run() {
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
 
     #[test]
     fn bar_window_collection_behavior_keeps_hud_on_all_spaces_and_fullscreen() {
@@ -1109,11 +1202,42 @@ mod tests {
         assert!(behavior.contains(NSWindowCollectionBehavior::Stationary));
         assert!(!behavior.contains(NSWindowCollectionBehavior::MoveToActiveSpace));
     }
+
+    #[test]
+    fn macos_shortcut_hidden_bar_marks_pending_and_shows_without_emit() {
+        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+        run_macos_shortcut_toggle_action(
+            false,
+            || executed_steps.borrow_mut().push("mark-pending"),
+            || executed_steps.borrow_mut().push("show-bar"),
+            || executed_steps.borrow_mut().push("emit-toggle"),
+        );
+
+        assert_eq!(executed_steps.into_inner(), vec!["mark-pending", "show-bar"]);
+    }
+
+    #[test]
+    fn macos_shortcut_visible_bar_emits_without_mark_or_show() {
+        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+        run_macos_shortcut_toggle_action(
+            true,
+            || executed_steps.borrow_mut().push("mark-pending"),
+            || executed_steps.borrow_mut().push("show-bar"),
+            || executed_steps.borrow_mut().push("emit-toggle"),
+        );
+
+        assert_eq!(executed_steps.into_inner(), vec!["emit-toggle"]);
+    }
 }
 
 #[cfg(test)]
 mod shortcut_transaction_tests {
-    use super::{apply_mic_toggle_shortcut_update, apply_shortcut_update_transaction};
+    use super::{
+        apply_mic_toggle_shortcut_update, apply_shortcut_update_transaction,
+        consume_pending_toggle_request_state,
+    };
     use std::cell::RefCell;
 
     #[test]
@@ -1240,6 +1364,14 @@ mod shortcut_transaction_tests {
             .borrow()
             .iter()
             .any(|item| item == "Control+Alt+Super+M"));
+    }
+
+    #[test]
+    fn consume_pending_toggle_request_returns_true_once() {
+        let mut pending_toggle = true;
+
+        assert!(consume_pending_toggle_request_state(&mut pending_toggle));
+        assert!(!consume_pending_toggle_request_state(&mut pending_toggle));
     }
 }
 

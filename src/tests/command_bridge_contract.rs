@@ -10,7 +10,7 @@ use voice_to_text_lib::text_inserter::{
     build_insert_text_result, build_text_insertion_permission_result,
 };
 
-const COMMAND_NAMES: [&str; 29] = [
+const COMMAND_NAMES: [&str; 30] = [
     "get_config",
     "has_soniox_key",
     "create_soniox_temporary_key",
@@ -38,6 +38,7 @@ const COMMAND_NAMES: [&str; 29] = [
     "show_settings",
     "fit_main_window_to_content",
     "get_platform_runtime_info",
+    "consume_pending_mic_toggle",
     "get_mic_toggle_shortcut",
     "update_mic_toggle_shortcut",
 ];
@@ -314,6 +315,10 @@ fn bridge_payload_keys_match_rust_command_signatures() {
     assert!(
         bridge_js.contains("invoke(\"get_platform_runtime_info\")"),
         "get_platform_runtime_info bridge call must be present"
+    );
+    assert!(
+        bridge_js.contains("invoke(\"consume_pending_mic_toggle\")"),
+        "consume_pending_mic_toggle bridge call must be present"
     );
     assert!(
         bridge_js
