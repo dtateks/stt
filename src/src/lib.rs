@@ -117,18 +117,35 @@ pub(crate) fn consume_pending_mic_toggle_request(app: &AppHandle) -> Result<bool
     Ok(consume_pending_toggle_request_state(&mut pending_toggle))
 }
 
+/// Authoritative bar visibility check.
+///
+/// The previous implementation mirrored visibility in a Rust `Mutex<bool>`
+/// that was flipped only from UI-initiated code paths (`hideBar()` / `showBar()`).
+/// When macOS hid the panel via OS-level paths that bypass our flip — screen
+/// lock, fast user switch, session resign-active, space switch, or WebContent
+/// suspension making the JS side unresponsive — the mirror stayed stuck on
+/// `true`. Every subsequent shortcut press then routed to the "emit toggle to
+/// UI" branch instead of re-showing the HUD, so the shortcut silently did
+/// nothing until the user quit and relaunched the app.
+///
+/// Querying the real window/panel visibility every time eliminates that class
+/// of desync entirely.
 #[cfg(target_os = "macos")]
-fn is_bar_visible_for_shortcut(app: &AppHandle, bar_window: &WebviewWindow) -> bool {
-    if let Ok(panel) = app.get_webview_panel(BAR_WINDOW_LABEL) {
-        return panel.is_visible();
-    }
-
-    bar_window.is_visible().unwrap_or(false)
+fn is_bar_currently_visible(app: &AppHandle) -> Result<bool, String> {
+    let panel = app
+        .get_webview_panel(BAR_WINDOW_LABEL)
+        .map_err(|error| format!("bar panel not found: {error:?}"))?;
+    Ok(panel.is_visible())
 }
 
 #[cfg(not(target_os = "macos"))]
-fn is_bar_visible_for_shortcut(_app: &AppHandle, bar_window: &WebviewWindow) -> bool {
-    bar_window.is_visible().unwrap_or(false)
+fn is_bar_currently_visible(app: &AppHandle) -> Result<bool, String> {
+    let bar_window = app
+        .get_webview_window(BAR_WINDOW_LABEL)
+        .ok_or_else(|| "bar window not found".to_string())?;
+    bar_window
+        .is_visible()
+        .map_err(|error| format!("bar window visibility unavailable: {error}"))
 }
 
 #[cfg(target_os = "macos")]
@@ -171,7 +188,11 @@ fn register_toggle_mic_handler(app: &AppHandle, shortcut: &str) -> Result<(), St
             if event.state == ShortcutState::Pressed {
                 eprintln!("[global-shortcut] toggle fired");
                 if let Some(bar_window) = app.get_webview_window(BAR_WINDOW_LABEL) {
-                    let visible = is_bar_visible_for_shortcut(app, &bar_window);
+                    let visible = is_bar_currently_visible(app).unwrap_or_else(|error| {
+                        eprintln!("[global-shortcut] visibility query failed: {}", error);
+                        false
+                    });
+
                     eprintln!("[global-shortcut] bar visible: {}", visible);
 
                     #[cfg(target_os = "macos")]
@@ -712,7 +733,9 @@ pub(crate) fn show_bar_window_with_runtime_invariants(
                 Ok(())
             })
         },
-    )
+    )?;
+
+    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -725,7 +748,9 @@ pub(crate) fn show_bar_window_with_runtime_invariants(
         || position_bar_window_bottom_center(app, bar_window),
         || bar_window.show(),
         || run_bar_order_front_without_focus_steal(|| bar_window.set_always_on_top(true)),
-    )
+    )?;
+
+    Ok(())
 }
 
 pub(crate) fn show_main_window_with_runtime_invariants(
@@ -889,7 +914,8 @@ pub(crate) fn hide_bar_panel(app: &AppHandle) -> tauri::Result<()> {
     let bar_window = app
         .get_webview_window(BAR_WINDOW_LABEL)
         .ok_or_else(|| std::io::Error::other("bar window not found"))?;
-    bar_window.hide()
+    bar_window.hide()?;
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -975,12 +1001,12 @@ pub(crate) fn build_bar_window(app: &tauri::App) -> tauri::Result<()> {
             .initialization_script(include_str!("../../ui/tauri-bridge.js"))
             .build()?;
 
-    let bar_window_for_events = bar_window.clone();
+    let app_handle_for_events = app.handle().clone();
     bar_window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
             if let Err(error) = run_bar_close_request_sequence(
                 || api.prevent_close(),
-                || bar_window_for_events.hide(),
+                || hide_bar_panel(&app_handle_for_events),
             ) {
                 eprintln!("[bar] close-request hide failed: {}", error);
             }
