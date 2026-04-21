@@ -707,7 +707,7 @@ where
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn show_bar_window_with_runtime_invariants(
+fn run_bar_order_front_attempt(
     app: &AppHandle,
     bar_window: &WebviewWindow,
 ) -> tauri::Result<()> {
@@ -733,7 +733,87 @@ pub(crate) fn show_bar_window_with_runtime_invariants(
                 Ok(())
             })
         },
-    )?;
+    )
+}
+
+/// Upstream research shows that NSPanel windows with
+/// `CanJoinAllSpaces | FullScreenAuxiliary | Stationary` can become wedged
+/// after long runtime or Space/fullscreen transitions: `isVisible()` returns
+/// false, `orderFrontRegardless` appears to succeed, but the window never
+/// actually appears on screen and `CGWindowListCopyWindowInfo` reports it as
+/// off-screen (tauri-nspanel issue #76; Apple Forums thread 739438 for the
+/// WindowServer-registration class of failure). The only upstream-backed
+/// runtime recovery is to destroy the stale window and rebuild it, which is
+/// exactly what a full-app restart achieves. This function performs that
+/// recovery in-process so the user never has to restart the app.
+#[cfg(target_os = "macos")]
+fn recreate_bar_window_after_wedge(app: &AppHandle) -> tauri::Result<()> {
+    eprintln!("[global-shortcut] bar panel appears wedged; recreating window");
+
+    if let Some(stale_window) = app.get_webview_window(BAR_WINDOW_LABEL) {
+        if let Err(error) = stale_window.destroy() {
+            eprintln!(
+                "[global-shortcut] failed to destroy stale bar window: {}",
+                error
+            );
+        }
+    }
+
+    let bar_window =
+        WebviewWindowBuilder::from_config(app, get_window_config_from_handle(app, BAR_WINDOW_LABEL)?)?
+            .initialization_script(include_str!("../../ui/tauri-bridge.js"))
+            .build()?;
+
+    let app_handle_for_events = app.clone();
+    bar_window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            if let Err(error) = run_bar_close_request_sequence(
+                || api.prevent_close(),
+                || hide_bar_panel(&app_handle_for_events),
+            ) {
+                eprintln!("[bar] close-request hide failed: {}", error);
+            }
+        }
+    });
+
+    position_bar_window_bottom_center(app, &bar_window)?;
+
+    let panel = bar_window.to_panel::<HUDPanel>()?;
+    configure_bar_panel(&panel);
+    configure_bar_webview_transparency(&bar_window)?;
+
+    // Now run the normal show sequence on the fresh panel.
+    run_bar_order_front_attempt(app, &bar_window)?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn get_window_config_from_handle<'a>(
+    app: &'a AppHandle,
+    label: &str,
+) -> tauri::Result<&'a WindowConfig> {
+    app.config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == label)
+        .ok_or_else(|| std::io::Error::other(format!("missing window config for `{label}`")).into())
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn show_bar_window_with_runtime_invariants(
+    app: &AppHandle,
+    bar_window: &WebviewWindow,
+) -> tauri::Result<()> {
+    run_bar_order_front_attempt(app, bar_window)?;
+
+    // Verify the panel actually became visible. If the panel is wedged
+    // (see `recreate_bar_window_after_wedge` docstring for evidence), rebuild
+    // it from scratch. This is the upstream-evidence-backed recovery path.
+    if !is_bar_currently_visible(app).unwrap_or(false) {
+        recreate_bar_window_after_wedge(app)?;
+    }
 
     Ok(())
 }
