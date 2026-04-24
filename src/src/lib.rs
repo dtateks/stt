@@ -14,6 +14,10 @@ use core_graphics::event::CGEvent;
 #[cfg(target_os = "macos")]
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 #[cfg(target_os = "macos")]
+use core_graphics::window::{
+    create_window_list, kCGNullWindowID, kCGWindowListOptionOnScreenOnly,
+};
+#[cfg(target_os = "macos")]
 use objc2::msg_send;
 #[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
@@ -117,7 +121,7 @@ pub(crate) fn consume_pending_mic_toggle_request(app: &AppHandle) -> Result<bool
     Ok(consume_pending_toggle_request_state(&mut pending_toggle))
 }
 
-/// Authoritative bar visibility check.
+/// User-presented bar visibility check.
 ///
 /// The previous implementation mirrored visibility in a Rust `Mutex<bool>`
 /// that was flipped only from UI-initiated code paths (`hideBar()` / `showBar()`).
@@ -128,14 +132,74 @@ pub(crate) fn consume_pending_mic_toggle_request(app: &AppHandle) -> Result<bool
 /// UI" branch instead of re-showing the HUD, so the shortcut silently did
 /// nothing until the user quit and relaunched the app.
 ///
-/// Querying the real window/panel visibility every time eliminates that class
-/// of desync entirely.
+/// AppKit `isVisible` is not enough: a wedged Spaces/WindowServer state can
+/// report the panel as visible while CoreGraphics says its native window is not
+/// on screen. Shortcut routing must use the user-presented state so it re-runs
+/// the show path instead of emitting into an invisible HUD.
 #[cfg(target_os = "macos")]
 fn is_bar_currently_visible(app: &AppHandle) -> Result<bool, String> {
     let panel = app
         .get_webview_panel(BAR_WINDOW_LABEL)
         .map_err(|error| format!("bar panel not found: {error:?}"))?;
-    Ok(panel.is_visible())
+
+    let appkit_visible = panel.is_visible();
+    let panel_window_is_onscreen = appkit_visible
+        .then(|| is_panel_window_in_onscreen_list(&panel))
+        .flatten();
+
+    if appkit_visible && panel_window_is_onscreen == Some(false) {
+        eprintln!(
+            "[global-shortcut] bar panel is AppKit-visible but absent from CG on-screen window list"
+        );
+    }
+
+    if appkit_visible && panel_window_is_onscreen.is_none() {
+        eprintln!(
+            "[global-shortcut] bar panel on-screen state unavailable; treating as hidden"
+        );
+    }
+
+    Ok(bar_is_user_presented(
+        appkit_visible,
+        panel_window_is_onscreen,
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn bar_is_user_presented(appkit_visible: bool, panel_window_is_onscreen: Option<bool>) -> bool {
+    appkit_visible && panel_window_is_onscreen == Some(true)
+}
+
+#[cfg(target_os = "macos")]
+fn panel_window_number(panel: &tauri_nspanel::PanelHandle<tauri::Wry>) -> Option<u32> {
+    let window_number = panel.as_panel().windowNumber();
+    if window_number <= 0 {
+        return None;
+    }
+
+    Some(window_number as u32)
+}
+
+#[cfg(target_os = "macos")]
+fn is_panel_window_in_onscreen_list(
+    panel: &tauri_nspanel::PanelHandle<tauri::Wry>,
+) -> Option<bool> {
+    let window_number = panel_window_number(panel)?;
+    let onscreen_windows = create_window_list(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)?;
+    let onscreen_window_numbers = onscreen_windows
+        .iter()
+        .map(|window_number| *window_number)
+        .collect::<Vec<_>>();
+
+    Some(window_number_is_in_window_list(
+        window_number,
+        &onscreen_window_numbers,
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn window_number_is_in_window_list(window_number: u32, window_numbers: &[u32]) -> bool {
+    window_numbers.contains(&window_number)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -736,86 +800,12 @@ fn run_bar_order_front_attempt(
     )
 }
 
-/// Upstream research shows that NSPanel windows with
-/// `CanJoinAllSpaces | FullScreenAuxiliary | Stationary` can become wedged
-/// after long runtime or Space/fullscreen transitions: `isVisible()` returns
-/// false, `orderFrontRegardless` appears to succeed, but the window never
-/// actually appears on screen and `CGWindowListCopyWindowInfo` reports it as
-/// off-screen (tauri-nspanel issue #76; Apple Forums thread 739438 for the
-/// WindowServer-registration class of failure). The only upstream-backed
-/// runtime recovery is to destroy the stale window and rebuild it, which is
-/// exactly what a full-app restart achieves. This function performs that
-/// recovery in-process so the user never has to restart the app.
-#[cfg(target_os = "macos")]
-fn recreate_bar_window_after_wedge(app: &AppHandle) -> tauri::Result<()> {
-    eprintln!("[global-shortcut] bar panel appears wedged; recreating window");
-
-    if let Some(stale_window) = app.get_webview_window(BAR_WINDOW_LABEL) {
-        if let Err(error) = stale_window.destroy() {
-            eprintln!(
-                "[global-shortcut] failed to destroy stale bar window: {}",
-                error
-            );
-        }
-    }
-
-    let bar_window =
-        WebviewWindowBuilder::from_config(app, get_window_config_from_handle(app, BAR_WINDOW_LABEL)?)?
-            .initialization_script(include_str!("../../ui/tauri-bridge.js"))
-            .build()?;
-
-    let app_handle_for_events = app.clone();
-    bar_window.on_window_event(move |event| {
-        if let WindowEvent::CloseRequested { api, .. } = event {
-            if let Err(error) = run_bar_close_request_sequence(
-                || api.prevent_close(),
-                || hide_bar_panel(&app_handle_for_events),
-            ) {
-                eprintln!("[bar] close-request hide failed: {}", error);
-            }
-        }
-    });
-
-    position_bar_window_bottom_center(app, &bar_window)?;
-
-    let panel = bar_window.to_panel::<HUDPanel>()?;
-    configure_bar_panel(&panel);
-    configure_bar_webview_transparency(&bar_window)?;
-
-    // Now run the normal show sequence on the fresh panel.
-    run_bar_order_front_attempt(app, &bar_window)?;
-
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn get_window_config_from_handle<'a>(
-    app: &'a AppHandle,
-    label: &str,
-) -> tauri::Result<&'a WindowConfig> {
-    app.config()
-        .app
-        .windows
-        .iter()
-        .find(|config| config.label == label)
-        .ok_or_else(|| std::io::Error::other(format!("missing window config for `{label}`")).into())
-}
-
 #[cfg(target_os = "macos")]
 pub(crate) fn show_bar_window_with_runtime_invariants(
     app: &AppHandle,
     bar_window: &WebviewWindow,
 ) -> tauri::Result<()> {
-    run_bar_order_front_attempt(app, bar_window)?;
-
-    // Verify the panel actually became visible. If the panel is wedged
-    // (see `recreate_bar_window_after_wedge` docstring for evidence), rebuild
-    // it from scratch. This is the upstream-evidence-backed recovery path.
-    if !is_bar_currently_visible(app).unwrap_or(false) {
-        recreate_bar_window_after_wedge(app)?;
-    }
-
-    Ok(())
+    run_bar_order_front_attempt(app, bar_window)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -1335,6 +1325,20 @@ mod tests {
         );
 
         assert_eq!(executed_steps.into_inner(), vec!["emit-toggle"]);
+    }
+
+    #[test]
+    fn onscreen_window_list_presence_uses_panel_window_number() {
+        assert!(window_number_is_in_window_list(217622, &[100, 217622, 300]));
+        assert!(!window_number_is_in_window_list(217622, &[100, 200, 300]));
+    }
+
+    #[test]
+    fn bar_user_presented_requires_appkit_visibility_and_cg_onscreen_presence() {
+        assert!(!bar_is_user_presented(false, Some(true)));
+        assert!(bar_is_user_presented(true, Some(true)));
+        assert!(!bar_is_user_presented(true, Some(false)));
+        assert!(!bar_is_user_presented(true, None));
     }
 }
 
