@@ -19,6 +19,7 @@ import { createUpdateBanner, type UpdateBanner } from "./update-banner.ts";
 import { createPermissionBanner, type PermissionBanner } from "./permission-banner.ts";
 import { createMainWindowAutoFit } from "./main-window-auto-fit.ts";
 import { createProviderKeyEditor, type ProviderKeyEditor } from "./provider-key-editor.ts";
+import { createStopWordEditor, type StopWordEditor } from "./stop-word-editor.ts";
 import {
   DEFAULT_MIC_TOGGLE_SHORTCUT,
   loadPreferences,
@@ -261,6 +262,16 @@ const providerKeyEditor: ProviderKeyEditor = createProviderKeyEditor({
   onSaved: () => llmModelPicker.fetch(),
 });
 
+const stopWordEditor: StopWordEditor = createStopWordEditor({
+  inputEl: stopWordInput,
+  resetBtnEl: stopWordResetBtn,
+  statusField: stopWordStatusField,
+  getDefault: () => defaultStopWord,
+  load: () => loadCustomStopWordPreference(defaultStopWord),
+  save: (word) => saveCustomStopWordPreference(word),
+  reset: () => resetCustomStopWordPreference(),
+});
+
 const settingsDialog: SettingsDialog = createSettingsDialog({
   backdropEl: dialogBackdrop,
   dialogEl,
@@ -471,7 +482,7 @@ function loadPrefsUI(): void {
   const correctionEnabled = loadLlmCorrectionEnabledPreference();
   llmCorrectionToggle.checked = correctionEnabled;
   reminderBeepToggle.checked = loadReminderBeepEnabledPreference();
-  stopWordInput.value = loadCustomStopWordPreference(defaultStopWord);
+  stopWordEditor.applyLoaded();
 
   const provider = loadLlmProviderPreference(defaultLlmProvider);
   llmProviderSelect.value = provider;
@@ -572,21 +583,6 @@ function bindPrefs(): void {
     saveReminderBeepEnabledPreference(reminderBeepToggle.checked);
   });
 
-  stopWordInput.addEventListener("blur", () => {
-    handleStopWordSave();
-  });
-
-  stopWordResetBtn.addEventListener("click", () => {
-    handleStopWordReset();
-  });
-
-  stopWordInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      handleStopWordSave();
-    }
-  });
-
   llmProviderSelect.addEventListener("change", () => {
     const provider = llmProviderSelect.value as LlmProvider;
     saveLlmProviderPreference(provider);
@@ -673,36 +669,6 @@ function syncLlmBaseUrlVisibility(): void {
   const selectedProvider = llmProviderSelect.value as LlmProvider;
   const shouldShowBaseUrl = selectedProvider === OPENAI_COMPATIBLE_PROVIDER;
   llmBaseUrlRow.classList.toggle("is-hidden", !shouldShowBaseUrl);
-}
-
-function handleStopWordSave(): void {
-  stopWordStatusField.clear();
-  const stopWord = stopWordInput.value.trim();
-  if (!stopWord) {
-    stopWordStatusField.setError("Stop word cannot be empty.");
-    return;
-  }
-
-  const saved = saveCustomStopWordPreference(stopWord);
-  if (!saved) {
-    stopWordStatusField.setError("Could not save stop word. Storage may be unavailable.");
-    return;
-  }
-
-  stopWordInput.value = stopWord;
-  stopWordStatusField.setSuccess("Stop word saved.");
-}
-
-function handleStopWordReset(): void {
-  stopWordStatusField.clear();
-  const resetOk = resetCustomStopWordPreference();
-  if (!resetOk) {
-    stopWordStatusField.setError("Could not reset stop word. Storage may be unavailable.");
-    return;
-  }
-
-  stopWordInput.value = defaultStopWord;
-  stopWordStatusField.setSuccess("Stop word reset to default.");
 }
 
 // ─── Key state indicators ──────────────────────────────────────────────────
