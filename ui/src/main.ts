@@ -50,6 +50,7 @@ import {
   validateSonioxKey,
 } from "./main-logic.ts";
 import { statusField } from "./status-field.ts";
+import { createModelPicker, type ModelPicker } from "./model-picker.ts";
 
 // ─── Staged settings state ────────────────────────────────────────────────
 
@@ -196,6 +197,48 @@ const sonioxKeyStatusField = statusField(sonioxKeyStatus);
 const sonioxModelStatusField = statusField(sonioxModelStatus);
 const modelStatusField = statusField(llmModelStatus);
 const providerKeyStatusField = statusField(providerKeyStatus);
+
+const sonioxModelPicker: ModelPicker = createModelPicker({
+  selectEl: sonioxModelSelect,
+  fetchBtn: sonioxModelFetchBtn,
+  statusField: sonioxModelStatusField,
+  fetchModels: () => window.voiceToText.listSonioxModels(),
+  loadSavedModel: () => loadSonioxModelPreference(),
+  saveModel: (model) => {
+    saveSonioxModelPreference(model);
+  },
+  defaultModel: () => DEFAULT_SONIOX_MODEL,
+  copy: {
+    fetching: "Fetching Soniox realtime models…",
+    loaded: (count) => `Loaded ${count} Soniox models.`,
+    initialPlaceholder: "Click refresh to load Soniox realtime models",
+    chooseModelPlaceholder: "Choose a Soniox model",
+  },
+});
+
+const llmModelPicker: ModelPicker = createModelPicker({
+  selectEl: llmModelSelect,
+  fetchBtn: llmModelFetchBtn,
+  statusField: modelStatusField,
+  fetchModels: () => {
+    const provider = llmProviderSelect.value as LlmProvider;
+    const baseUrl = provider === OPENAI_COMPATIBLE_PROVIDER
+      ? llmBaseUrlInput.value.trim() || undefined
+      : undefined;
+    return window.voiceToText.listModels(provider, baseUrl);
+  },
+  loadSavedModel: () => loadLlmModelPreference(llmProviderSelect.value as LlmProvider),
+  saveModel: (model) => {
+    saveLlmModelPreference(llmProviderSelect.value as LlmProvider, model);
+  },
+  defaultModel: () => defaultModelForProvider(llmProviderSelect.value as LlmProvider),
+  copy: {
+    fetching: "Fetching models…",
+    loaded: (count) => `Loaded ${count} models.`,
+    initialPlaceholder: "Click refresh to load models",
+    chooseModelPlaceholder: "Choose a model",
+  },
+});
 let pendingMainWindowFitTimer: ReturnType<typeof setTimeout> | null = null;
 const DEFAULT_PLATFORM_RUNTIME_INFO: PlatformRuntimeInfo = {
   os: "macos",
@@ -243,7 +286,7 @@ async function init(): Promise<void> {
   setSonioxConnectionState(hasVerifiedSonioxKey);
   await loadRuntimeMicToggleShortcut();
   await loadKeyStates();
-  void fetchModels();
+  void llmModelPicker.fetch();
 
   let startupErrorMessage = keyCheck.error
     ? `Could not verify your API key. Check your connection and restart. (${keyCheck.error})`
@@ -257,7 +300,7 @@ async function init(): Promise<void> {
 
   if (hasVerifiedSonioxKey) {
     clearSetupError(setupError, sonioxInput);
-    void fetchSonioxModels();
+    void sonioxModelPicker.fetch();
     void checkForAppUpdate();
   } else if (!startupErrorMessage) {
     applySetupError(MISSING_SONIOX_KEY_SETUP_MESSAGE, setupError, sonioxInput);
@@ -505,7 +548,7 @@ async function handleSetupSubmit(): Promise<void> {
     sonioxInput.value = "";
     await loadKeyStates();
     sonioxKeyStatusField.setSuccess("Soniox API key saved.");
-    await fetchSonioxModels();
+    await sonioxModelPicker.fetch();
     void checkForAppUpdate();
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -560,10 +603,9 @@ function loadPrefsUI(): void {
   const savedShortcut = loadMicToggleShortcutPreference();
   renderShortcutRecorder(savedShortcut);
 
-  // Show placeholder in model select until fetch completes
-  // Real models are fetched from endpoint in fetchModels()
-  showModelPlaceholder();
-  showSonioxModelPlaceholder();
+  // Show placeholder in each model select until the picker fetches real models.
+  llmModelPicker.showInitialPlaceholder();
+  sonioxModelPicker.showInitialPlaceholder();
 }
 
 function bindCredentialScreenRevalidation(): void {
@@ -607,7 +649,7 @@ async function revalidateCredentialScreenState(): Promise<void> {
     clearSetupError(setupError, sonioxInput);
     await loadKeyStates();
     if (!wasReady) {
-      void fetchSonioxModels();
+      void sonioxModelPicker.fetch();
       void checkForAppUpdate();
     }
     return;
@@ -615,7 +657,7 @@ async function revalidateCredentialScreenState(): Promise<void> {
 
   sonioxInput.classList.remove("has-key");
   sonioxInput.placeholder = SONIOX_KEY_PLACEHOLDER;
-  showSonioxModelPlaceholder();
+  sonioxModelPicker.showInitialPlaceholder();
   sonioxModelStatusField.clear();
   applySetupError(MISSING_SONIOX_KEY_SETUP_MESSAGE, setupError, sonioxInput);
 }
@@ -666,12 +708,12 @@ function bindPrefs(): void {
     syncProviderKeyLabel();
     aiStatusField.setSuccess("Provider saved.");
     // Clear model selection until we fetch real models
-    showModelPlaceholder();
+    llmModelPicker.showInitialPlaceholder();
     modelStatusField.clear();
     // Load key state for the new provider
     void loadProviderKeyState(provider);
     // Fetch real models from endpoint
-    void fetchModels();
+    void llmModelPicker.fetch();
   });
 
   llmBaseUrlInput.addEventListener("change", () => {
@@ -692,7 +734,7 @@ function bindPrefs(): void {
   });
 
   llmModelFetchBtn.addEventListener("click", () => {
-    void fetchModels();
+    void llmModelPicker.fetch();
   });
 
   providerKeySaveBtn.addEventListener("click", () => {
@@ -710,7 +752,7 @@ function bindPrefs(): void {
   });
 
   sonioxModelFetchBtn.addEventListener("click", () => {
-    void fetchSonioxModels();
+    void sonioxModelPicker.fetch();
   });
 }
 
@@ -811,156 +853,10 @@ async function handleProviderKeySave(): Promise<void> {
     providerKeyInput.classList.add("has-key");
     providerKeyStatusField.setSuccess("API key saved.");
     // Auto-fetch models now that we have a key
-    await fetchModels();
+    await llmModelPicker.fetch();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     providerKeyStatusField.setError(`Could not save API key: ${message}`);
-  }
-}
-
-async function fetchSonioxModels(): Promise<void> {
-  sonioxModelStatusField.clear();
-  setSonioxModelLoading(true);
-  sonioxModelStatusField.setSuccess("Fetching Soniox realtime models…");
-
-  try {
-    const models = await window.voiceToText.listSonioxModels();
-    const savedModel = loadSonioxModelPreference();
-    const selectedModel = selectFetchedModel(models, savedModel, DEFAULT_SONIOX_MODEL) ?? models[0];
-    populateSonioxModelSelect(models, selectedModel);
-    saveSonioxModelPreference(selectedModel);
-    sonioxModelStatusField.setSuccess(`Loaded ${models.length} Soniox models.`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    sonioxModelStatusField.setError(message);
-    showSonioxModelPlaceholder();
-  } finally {
-    setSonioxModelLoading(false);
-  }
-}
-
-function populateSonioxModelSelect(models: string[], selectedModel: string): void {
-  sonioxModelSelect.innerHTML = "";
-
-  if (models.length === 0) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "No Soniox realtime models available — click refresh";
-    option.disabled = true;
-    sonioxModelSelect.appendChild(option);
-    sonioxModelSelect.value = "";
-    return;
-  }
-
-  for (const model of models) {
-    const option = document.createElement("option");
-    option.value = model;
-    option.textContent = model;
-    if (model === selectedModel) {
-      option.selected = true;
-    }
-    sonioxModelSelect.appendChild(option);
-  }
-}
-
-function setSonioxModelLoading(loading: boolean): void {
-  sonioxModelFetchBtn.disabled = loading;
-  sonioxModelFetchBtn.classList.toggle("is-loading", loading);
-}
-
-function showSonioxModelPlaceholder(): void {
-  sonioxModelSelect.innerHTML = "";
-  const option = document.createElement("option");
-  option.value = "";
-  option.textContent = "Click refresh to load Soniox realtime models";
-  option.disabled = true;
-  option.selected = true;
-  sonioxModelSelect.appendChild(option);
-}
-
-async function fetchModels(): Promise<void> {
-  modelStatusField.clear();
-  const provider = llmProviderSelect.value as LlmProvider;
-  const baseUrl = provider === OPENAI_COMPATIBLE_PROVIDER
-    ? llmBaseUrlInput.value.trim() || undefined
-    : undefined;
-
-  setModelLoading(true);
-  modelStatusField.setSuccess("Fetching models…");
-
-  try {
-    const models = await window.voiceToText.listModels(provider, baseUrl);
-    const savedModel = loadLlmModelPreference(provider);
-    const selectedModel = selectFetchedModel(models, savedModel, defaultModelForProvider(provider));
-    populateModelSelect(models, selectedModel);
-    if (selectedModel) {
-      saveLlmModelPreference(provider, selectedModel);
-    }
-    modelStatusField.setSuccess(`Loaded ${models.length} models.`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    modelStatusField.setError(message);
-    // Show helpful placeholder when fetch fails
-    showModelPlaceholder();
-  } finally {
-    setModelLoading(false);
-  }
-}
-
-function selectFetchedModel(
-  models: string[],
-  savedModel: string | null,
-  preferredDefaultModel: string | null,
-): string | null {
-  if (models.length === 0) {
-    throw new Error("No models returned from provider.");
-  }
-
-  if (savedModel && models.includes(savedModel)) {
-    return savedModel;
-  }
-
-  if (preferredDefaultModel && models.includes(preferredDefaultModel)) {
-    return preferredDefaultModel;
-  }
-
-  if (preferredDefaultModel === null) {
-    return null;
-  }
-
-  return models[0];
-}
-
-function populateModelSelect(models: string[], selectedModel: string | null): void {
-  llmModelSelect.innerHTML = "";
-
-  if (models.length === 0) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "No models available — click refresh";
-    option.disabled = true;
-    llmModelSelect.appendChild(option);
-    llmModelSelect.value = "";
-    return;
-  }
-
-  if (selectedModel === null) {
-    const placeholderOption = document.createElement("option");
-    placeholderOption.value = "";
-    placeholderOption.textContent = "Choose a model";
-    placeholderOption.disabled = true;
-    placeholderOption.selected = true;
-    llmModelSelect.appendChild(placeholderOption);
-  }
-
-  for (const model of models) {
-    const option = document.createElement("option");
-    option.value = model;
-    option.textContent = model;
-    if (model === selectedModel) {
-      option.selected = true;
-    }
-    llmModelSelect.appendChild(option);
   }
 }
 
@@ -973,21 +869,6 @@ function defaultModelForProvider(provider: LlmProvider): string | null {
   }
 
   return null;
-}
-
-function setModelLoading(loading: boolean): void {
-  llmModelFetchBtn.disabled = loading;
-  llmModelFetchBtn.classList.toggle("is-loading", loading);
-}
-
-function showModelPlaceholder(): void {
-  llmModelSelect.innerHTML = "";
-  const option = document.createElement("option");
-  option.value = "";
-  option.textContent = "Click refresh to load models";
-  option.disabled = true;
-  option.selected = true;
-  llmModelSelect.appendChild(option);
 }
 
 // ─── Key state indicators ──────────────────────────────────────────────────
