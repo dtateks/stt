@@ -16,6 +16,7 @@ import { shortcutCanonicalToDisplay } from "./shortcut-display.ts";
 import { createShortcutRecorder, type ShortcutRecorder } from "./shortcut-recorder.ts";
 import { createSettingsDialog, type SettingsDialog } from "./settings-dialog.ts";
 import { createUpdateBanner, type UpdateBanner } from "./update-banner.ts";
+import { createPermissionBanner, type PermissionBanner } from "./permission-banner.ts";
 import {
   DEFAULT_MIC_TOGGLE_SHORTCUT,
   loadPreferences,
@@ -115,8 +116,8 @@ const prefsReadyTitle = q<HTMLSpanElement>("#prefs-ready-title");
 const prefsReadyShortcut = q<HTMLSpanElement>("#prefs-ready-shortcut");
 
 // Permission banner
-const permissionBanner = q<HTMLDivElement>("#prefs-permission-banner");
-const permissionBannerText = q<HTMLSpanElement>("#prefs-permission-text");
+const permissionBannerEl = q<HTMLDivElement>("#prefs-permission-banner");
+const permissionBannerTextEl = q<HTMLSpanElement>("#prefs-permission-text");
 const backgroundRecoveryText = q<HTMLParagraphElement>("#runtime-background-recovery");
 const updateBannerEl = q<HTMLDivElement>("#update-banner");
 const updateBannerTextEl = q<HTMLSpanElement>("#update-banner-text");
@@ -245,6 +246,12 @@ const updateBanner: UpdateBanner = createUpdateBanner({
   relaunch: () => window.voiceToText.relaunchApp(),
 });
 
+const permissionBanner: PermissionBanner = createPermissionBanner({
+  bannerEl: permissionBannerEl,
+  textEl: permissionBannerTextEl,
+  checkPermissionsStatus: () => window.voiceToText.checkPermissionsStatus(),
+});
+
 const settingsDialog: SettingsDialog = createSettingsDialog({
   backdropEl: dialogBackdrop,
   dialogEl,
@@ -325,10 +332,9 @@ async function init(): Promise<void> {
   const anyDenied = permResults.some((r) => !r.granted);
   if (anyDenied) {
     const deniedResults = permResults.filter((result) => !result.granted);
-    showPermissionBanner(deniedResults, platformRuntimeInfo);
-    startPermissionPolling();
+    permissionBanner.show(deniedResults, platformRuntimeInfo);
   } else {
-    hidePermissionBanner();
+    permissionBanner.hide();
   }
 }
 
@@ -411,55 +417,10 @@ function getShortcutDisplayMode(runtimeInfo: PlatformRuntimeInfo): ShortcutDispl
   return runtimeInfo.shortcutDisplay === "windows" ? "windows" : "macos";
 }
 
-function getPermissionSettingsLabel(runtimeInfo: PlatformRuntimeInfo): string {
-  return runtimeInfo.os === "windows"
-    ? "Windows Settings → Privacy & security"
-    : "System Settings → Privacy & Security";
-}
-
 function getBackgroundRecoveryMessage(runtimeInfo: PlatformRuntimeInfo): string {
   return runtimeInfo.backgroundRecovery === "tray-reopen"
     ? "Reopen settings from the Windows notification area if running in the background."
     : "Reopen the app to show settings if running in the background.";
-}
-
-function formatPermissionName(permission: string): string {
-  return permission === "textInsertion" ? "text insertion" : permission;
-}
-
-function buildPermissionSummary(deniedResults: Array<{ permission: string }>): string {
-  return deniedResults.map((result) => formatPermissionName(result.permission)).join(", ");
-}
-
-function buildPermissionDetailMessage(
-  deniedResults: Array<{ message?: string }>,
-): string | null {
-  const details = deniedResults
-    .map((result) => result.message?.trim())
-    .filter((message): message is string => Boolean(message));
-
-  if (details.length === 0) {
-    return null;
-  }
-
-  return details.join(" ");
-}
-
-function buildStartupPermissionMessage(
-  deniedResults: Array<{ permission: string; message?: string }>,
-  runtimeInfo: PlatformRuntimeInfo,
-): string {
-  const summary = buildPermissionSummary(deniedResults);
-  const detailMessage = buildPermissionDetailMessage(deniedResults);
-  const settingsLabel = getPermissionSettingsLabel(runtimeInfo);
-
-  return [
-    `Some permissions were not granted (${summary}). Voice to Text may not function correctly.`,
-    detailMessage,
-    `Review them in ${settingsLabel}.`,
-  ]
-    .filter(Boolean)
-    .join(" ");
 }
 
 async function checkHasSonioxKey(
@@ -478,37 +439,6 @@ async function checkHasSonioxKey(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { hasKey: false, error: message };
-  }
-}
-
-// ─── Permission polling ───────────────────────────────────────────────────
-
-const PERMISSION_POLL_INTERVAL_MS = 2_000;
-let permissionPollTimer: ReturnType<typeof setInterval> | null = null;
-
-function startPermissionPolling(): void {
-  if (permissionPollTimer !== null) return;
-  permissionPollTimer = setInterval(() => {
-    void pollPermissions();
-  }, PERMISSION_POLL_INTERVAL_MS);
-}
-
-function stopPermissionPolling(): void {
-  if (permissionPollTimer !== null) {
-    clearInterval(permissionPollTimer);
-    permissionPollTimer = null;
-  }
-}
-
-async function pollPermissions(): Promise<void> {
-  try {
-    const status = await window.voiceToText.checkPermissionsStatus();
-    if (status.microphone && status.accessibility && status.automation) {
-      stopPermissionPolling();
-      hidePermissionBanner();
-    }
-  } catch {
-    // Polling failure is not actionable — keep polling.
   }
 }
 
@@ -937,29 +867,6 @@ function updateVocabCount(): void {
   const prefs = loadPreferences();
   const total = prefs.sonioxTerms.length;
   vocabCountBadge.textContent = total > 0 ? String(total) : "";
-}
-
-// ─── Permission banner (prefs screen) ─────────────────────────────────────
-
-function showPermissionBanner(
-  deniedResults: Array<{ permission: string; message?: string }>,
-  runtimeInfo: PlatformRuntimeInfo,
-): void {
-  const deniedList = buildPermissionSummary(deniedResults);
-  const detailMessage = buildPermissionDetailMessage(deniedResults);
-  const settingsLabel = getPermissionSettingsLabel(runtimeInfo);
-  permissionBannerText.textContent = [
-    `Missing permissions: ${deniedList}.`,
-    detailMessage,
-    `Review them in ${settingsLabel}.`,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  permissionBanner.classList.remove("is-hidden");
-}
-
-function hidePermissionBanner(): void {
-  permissionBanner.classList.add("is-hidden");
 }
 
 // ─── Action buttons ───────────────────────────────────────────────────────
