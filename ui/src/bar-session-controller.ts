@@ -47,6 +47,7 @@ import {
   providerLabel,
 } from "./llm-provider.ts";
 import { correctTranscriptWithRetry } from "./llm-correction.ts";
+import { createReminderBeepPlayer, type ReminderBeepPlayer } from "./reminder-beep.ts";
 import type { LlmProvider } from "./types.ts";
 
 const REMINDER_INTERVAL_MS   = 60_000;
@@ -88,6 +89,7 @@ export class BarSessionController {
   private isFinalizingAfterStopWord = false;
   private activeSessionPreferences: ActiveSessionPreferences | null = null;
   private temporaryApiKeyCache: TemporaryApiKeyCache;
+  private readonly reminderBeepPlayer: ReminderBeepPlayer = createReminderBeepPlayer();
   private pausedTranscript: TranscriptResult | null = null;
   private accumulatedTranscript: TranscriptResult = { finalText: "", interimText: "" };
 
@@ -754,7 +756,7 @@ export class BarSessionController {
 
     this.reminderTimer = setInterval(() => {
       if (this.state === "LISTENING") {
-        playReminderBeep();
+        this.reminderBeepPlayer.play();
       }
     }, REMINDER_INTERVAL_MS);
   }
@@ -919,43 +921,6 @@ function combineTranscriptText(finalText: string, interimText: string): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Shared AudioContext for reminder beeps — avoids creating a new context per beep. */
-let reminderBeepAudioContext: AudioContext | null = null;
-
-function playReminderBeep(): void {
-  try {
-    if (!reminderBeepAudioContext || reminderBeepAudioContext.state === "closed") {
-      reminderBeepAudioContext = new AudioContext();
-    }
-
-    const ctx = reminderBeepAudioContext;
-
-    if (ctx.state === "suspended") {
-      void ctx.resume();
-    }
-
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = "sine";
-    osc.frequency.value = 880;
-    gain.gain.setValueAtTime(0.05, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.3);
-
-    osc.onended = () => {
-      osc.disconnect();
-      gain.disconnect();
-    };
-  } catch (error) {
-    console.warn("[audio] reminder beep skipped", formatErrorMessage(error));
-  }
 }
 
 function formatErrorMessage(error: unknown): string {
