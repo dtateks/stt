@@ -49,6 +49,7 @@ import {
   clearSetupError,
   validateSonioxKey,
 } from "./main-logic.ts";
+import { statusField } from "./status-field.ts";
 
 // ─── Staged settings state ────────────────────────────────────────────────
 
@@ -188,8 +189,13 @@ let defaultLlmProvider: LlmProvider = XAI_PROVIDER;
 let defaultLlmBaseUrl = DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
 let hasVerifiedSonioxKey = false;
 
-const STATUS_AUTO_CLEAR_MS = 4_000;
-const statusClearTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
+const shortcutStatusField = statusField(micShortcutStatus);
+const stopWordStatusField = statusField(stopWordStatus);
+const aiStatusField = statusField(aiStatus);
+const sonioxKeyStatusField = statusField(sonioxKeyStatus);
+const sonioxModelStatusField = statusField(sonioxModelStatus);
+const modelStatusField = statusField(llmModelStatus);
+const providerKeyStatusField = statusField(providerKeyStatus);
 let pendingMainWindowFitTimer: ReturnType<typeof setTimeout> | null = null;
 const DEFAULT_PLATFORM_RUNTIME_INFO: PlatformRuntimeInfo = {
   os: "macos",
@@ -468,7 +474,7 @@ function bindSetupForm(): void {
 
 async function handleSetupSubmit(): Promise<void> {
   clearSetupError(setupError, sonioxInput);
-  clearSonioxKeyStatus();
+  sonioxKeyStatusField.clear();
 
   const sonioxKey = sonioxInput.value.trim();
 
@@ -498,7 +504,7 @@ async function handleSetupSubmit(): Promise<void> {
     clearSetupError(setupError, sonioxInput);
     sonioxInput.value = "";
     await loadKeyStates();
-    setSonioxKeyStatus("Soniox API key saved.", false);
+    sonioxKeyStatusField.setSuccess("Soniox API key saved.");
     await fetchSonioxModels();
     void checkForAppUpdate();
   } catch (error) {
@@ -542,13 +548,13 @@ function loadPrefsUI(): void {
   syncAiFieldsetDisabledState(correctionEnabled);
   syncProviderKeyLabel();
   updateVocabCount();
-  clearShortcutStatus();
-  clearStopWordStatus();
-  clearAiStatus();
-  clearSonioxKeyStatus();
-  clearSonioxModelStatus();
-  clearModelStatus();
-  clearProviderKeyStatus();
+  shortcutStatusField.clear();
+  stopWordStatusField.clear();
+  aiStatusField.clear();
+  sonioxKeyStatusField.clear();
+  sonioxModelStatusField.clear();
+  modelStatusField.clear();
+  providerKeyStatusField.clear();
 
   // Load saved shortcut into recorder
   const savedShortcut = loadMicToggleShortcutPreference();
@@ -610,7 +616,7 @@ async function revalidateCredentialScreenState(): Promise<void> {
   sonioxInput.classList.remove("has-key");
   sonioxInput.placeholder = SONIOX_KEY_PLACEHOLDER;
   showSonioxModelPlaceholder();
-  clearSonioxModelStatus();
+  sonioxModelStatusField.clear();
   applySetupError(MISSING_SONIOX_KEY_SETUP_MESSAGE, setupError, sonioxInput);
 }
 
@@ -621,7 +627,7 @@ function bindPrefs(): void {
 
   outputLangSelect.addEventListener("change", () => {
     saveOutputLang(outputLangSelect.value as OutputLang);
-    setAiStatus("Output language saved.", false);
+    aiStatusField.setSuccess("Output language saved.");
   });
 
   llmCorrectionToggle.addEventListener("change", () => {
@@ -658,10 +664,10 @@ function bindPrefs(): void {
     saveLlmProviderPreference(provider);
     syncLlmBaseUrlVisibility();
     syncProviderKeyLabel();
-    setAiStatus("Provider saved.", false);
+    aiStatusField.setSuccess("Provider saved.");
     // Clear model selection until we fetch real models
     showModelPlaceholder();
-    clearModelStatus();
+    modelStatusField.clear();
     // Load key state for the new provider
     void loadProviderKeyState(provider);
     // Fetch real models from endpoint
@@ -672,7 +678,7 @@ function bindPrefs(): void {
     const baseUrl = llmBaseUrlInput.value.trim();
     if (baseUrl) {
       saveLlmBaseUrlPreference(baseUrl);
-      setAiStatus("Base URL saved.", false);
+      aiStatusField.setSuccess("Base URL saved.");
     }
   });
 
@@ -681,7 +687,7 @@ function bindPrefs(): void {
     const model = llmModelSelect.value;
     if (model) {
       saveLlmModelPreference(provider, model);
-      setAiStatus("Model saved.", false);
+      aiStatusField.setSuccess("Model saved.");
     }
   });
 
@@ -700,7 +706,7 @@ function bindPrefs(): void {
     }
 
     saveSonioxModelPreference(model);
-    setSonioxModelStatus("Soniox model saved.", false);
+    sonioxModelStatusField.setSuccess("Soniox model saved.");
   });
 
   sonioxModelFetchBtn.addEventListener("click", () => {
@@ -757,37 +763,37 @@ function syncProviderKeyLabel(): void {
 }
 
 function handleStopWordSave(): void {
-  clearStopWordStatus();
+  stopWordStatusField.clear();
   const stopWord = stopWordInput.value.trim();
   if (!stopWord) {
-    setStopWordStatus("Stop word cannot be empty.", true);
+    stopWordStatusField.setError("Stop word cannot be empty.");
     return;
   }
 
   const saved = saveCustomStopWordPreference(stopWord);
   if (!saved) {
-    setStopWordStatus("Could not save stop word. Storage may be unavailable.", true);
+    stopWordStatusField.setError("Could not save stop word. Storage may be unavailable.");
     return;
   }
 
   stopWordInput.value = stopWord;
-  setStopWordStatus("Stop word saved.", false);
+  stopWordStatusField.setSuccess("Stop word saved.");
 }
 
 function handleStopWordReset(): void {
-  clearStopWordStatus();
+  stopWordStatusField.clear();
   const resetOk = resetCustomStopWordPreference();
   if (!resetOk) {
-    setStopWordStatus("Could not reset stop word. Storage may be unavailable.", true);
+    stopWordStatusField.setError("Could not reset stop word. Storage may be unavailable.");
     return;
   }
 
   stopWordInput.value = defaultStopWord;
-  setStopWordStatus("Stop word reset to default.", false);
+  stopWordStatusField.setSuccess("Stop word reset to default.");
 }
 
 async function handleProviderKeySave(): Promise<void> {
-  clearProviderKeyStatus();
+  providerKeyStatusField.clear();
   const provider = llmProviderSelect.value as LlmProvider;
   const key = providerKeyInput.value.trim();
 
@@ -803,19 +809,19 @@ async function handleProviderKeySave(): Promise<void> {
     // Update key state indicator
     providerKeyInput.placeholder = "••••••••••••••••";
     providerKeyInput.classList.add("has-key");
-    setProviderKeyStatus("API key saved.", false);
+    providerKeyStatusField.setSuccess("API key saved.");
     // Auto-fetch models now that we have a key
     await fetchModels();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setProviderKeyStatus(`Could not save API key: ${message}`, true);
+    providerKeyStatusField.setError(`Could not save API key: ${message}`);
   }
 }
 
 async function fetchSonioxModels(): Promise<void> {
-  clearSonioxModelStatus();
+  sonioxModelStatusField.clear();
   setSonioxModelLoading(true);
-  setSonioxModelStatus("Fetching Soniox realtime models…", false);
+  sonioxModelStatusField.setSuccess("Fetching Soniox realtime models…");
 
   try {
     const models = await window.voiceToText.listSonioxModels();
@@ -823,10 +829,10 @@ async function fetchSonioxModels(): Promise<void> {
     const selectedModel = selectFetchedModel(models, savedModel, DEFAULT_SONIOX_MODEL) ?? models[0];
     populateSonioxModelSelect(models, selectedModel);
     saveSonioxModelPreference(selectedModel);
-    setSonioxModelStatus(`Loaded ${models.length} Soniox models.`, false);
+    sonioxModelStatusField.setSuccess(`Loaded ${models.length} Soniox models.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setSonioxModelStatus(message, true);
+    sonioxModelStatusField.setError(message);
     showSonioxModelPlaceholder();
   } finally {
     setSonioxModelLoading(false);
@@ -873,14 +879,14 @@ function showSonioxModelPlaceholder(): void {
 }
 
 async function fetchModels(): Promise<void> {
-  clearModelStatus();
+  modelStatusField.clear();
   const provider = llmProviderSelect.value as LlmProvider;
   const baseUrl = provider === OPENAI_COMPATIBLE_PROVIDER
     ? llmBaseUrlInput.value.trim() || undefined
     : undefined;
 
   setModelLoading(true);
-  setModelStatus("Fetching models…", false);
+  modelStatusField.setSuccess("Fetching models…");
 
   try {
     const models = await window.voiceToText.listModels(provider, baseUrl);
@@ -890,10 +896,10 @@ async function fetchModels(): Promise<void> {
     if (selectedModel) {
       saveLlmModelPreference(provider, selectedModel);
     }
-    setModelStatus(`Loaded ${models.length} models.`, false);
+    modelStatusField.setSuccess(`Loaded ${models.length} models.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setModelStatus(message, true);
+    modelStatusField.setError(message);
     // Show helpful placeholder when fetch fails
     showModelPlaceholder();
   } finally {
@@ -1025,7 +1031,7 @@ async function loadProviderKeyState(provider: LlmProvider): Promise<void> {
       // Show masked placeholder to indicate key is present
       providerKeyInput.placeholder = "••••••••••••••••";
       providerKeyInput.classList.add("has-key");
-      setProviderKeyStatus("Key loaded.", false);
+      providerKeyStatusField.setSuccess("Key loaded.");
     } else {
       providerKeyInput.placeholder = "";
       providerKeyInput.classList.remove("has-key");
@@ -1042,7 +1048,7 @@ async function loadRuntimeMicToggleShortcut(): Promise<void> {
     updateReadyCardShortcut(runtimeShortcut);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setShortcutStatus(`Could not load current shortcut: ${message}`, true);
+    shortcutStatusField.setError(`Could not load current shortcut: ${message}`);
   }
 }
 
@@ -1206,24 +1212,22 @@ async function saveRecordedShortcut(shortcut: string): Promise<void> {
 
     const persisted = saveMicToggleShortcutPreference(runtimeShortcut);
     if (!persisted) {
-      setShortcutStatus(
-        "Shortcut updated, but local save failed. Storage may be unavailable.",
-        true,
-      );
+      shortcutStatusField.setError(
+        "Shortcut updated, but local save failed. Storage may be unavailable.");
       return;
     }
 
-    setShortcutStatus("Global shortcut saved.", false);
+    shortcutStatusField.setSuccess("Global shortcut saved.");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setShortcutStatus(`Could not save shortcut: ${message}`, true);
+    shortcutStatusField.setError(`Could not save shortcut: ${message}`);
   } finally {
     setMicShortcutBusy(false);
   }
 }
 
 async function handleMicShortcutReset(): Promise<void> {
-  clearShortcutStatus();
+  shortcutStatusField.clear();
   setMicShortcutBusy(true);
   try {
     const runtimeShortcut = await window.voiceToText.updateMicToggleShortcut(
@@ -1236,18 +1240,16 @@ async function handleMicShortcutReset(): Promise<void> {
     if (!cleared) {
       const fallbackSaved = saveMicToggleShortcutPreference(runtimeShortcut);
       if (!fallbackSaved) {
-        setShortcutStatus(
-          "Shortcut reset, but local storage is unavailable.",
-          true,
-        );
+        shortcutStatusField.setError(
+          "Shortcut reset, but local storage is unavailable.");
         return;
       }
     }
 
-    setShortcutStatus("Global shortcut reset to default.", false);
+    shortcutStatusField.setSuccess("Global shortcut reset to default.");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    setShortcutStatus(`Could not reset shortcut: ${message}`, true);
+    shortcutStatusField.setError(`Could not reset shortcut: ${message}`);
   } finally {
     setMicShortcutBusy(false);
   }
@@ -1255,145 +1257,6 @@ async function handleMicShortcutReset(): Promise<void> {
 
 function setMicShortcutBusy(isBusy: boolean): void {
   micShortcutResetBtn.disabled = isBusy;
-}
-
-function scheduleStatusClear(element: HTMLElement, clearFn: () => void): void {
-  cancelScheduledStatusClear(element);
-  const timerId = setTimeout(() => {
-    statusClearTimers.delete(element);
-    clearFn();
-  }, STATUS_AUTO_CLEAR_MS);
-  statusClearTimers.set(element, timerId);
-}
-
-function cancelScheduledStatusClear(element: HTMLElement): void {
-  const existing = statusClearTimers.get(element);
-  if (existing !== undefined) {
-    clearTimeout(existing);
-    statusClearTimers.delete(element);
-  }
-}
-
-function setShortcutStatus(message: string, isError: boolean): void {
-  micShortcutStatus.textContent = message;
-  micShortcutStatus.classList.toggle("is-error", isError);
-  micShortcutStatus.classList.toggle("is-success", !isError);
-  if (isError) {
-    cancelScheduledStatusClear(micShortcutStatus);
-  } else {
-    scheduleStatusClear(micShortcutStatus, clearShortcutStatus);
-  }
-}
-
-function clearShortcutStatus(): void {
-  micShortcutStatus.textContent = "";
-  micShortcutStatus.classList.remove("is-error", "is-success");
-}
-
-// ─── Stop word status ─────────────────────────────────────────────────────
-
-function setStopWordStatus(message: string, isError: boolean): void {
-  stopWordStatus.textContent = message;
-  stopWordStatus.classList.toggle("is-error", isError);
-  stopWordStatus.classList.toggle("is-success", !isError);
-  if (isError) {
-    cancelScheduledStatusClear(stopWordStatus);
-  } else {
-    scheduleStatusClear(stopWordStatus, clearStopWordStatus);
-  }
-}
-
-function clearStopWordStatus(): void {
-  stopWordStatus.textContent = "";
-  stopWordStatus.classList.remove("is-error", "is-success");
-}
-
-// ─── AI status ────────────────────────────────────────────────────────────
-
-function setAiStatus(message: string, isError: boolean): void {
-  aiStatus.textContent = message;
-  aiStatus.classList.toggle("is-error", isError);
-  aiStatus.classList.toggle("is-success", !isError);
-  if (isError) {
-    cancelScheduledStatusClear(aiStatus);
-  } else {
-    scheduleStatusClear(aiStatus, clearAiStatus);
-  }
-}
-
-function clearAiStatus(): void {
-  aiStatus.textContent = "";
-  aiStatus.classList.remove("is-error", "is-success");
-}
-
-// ─── Soniox key status ────────────────────────────────────────────────────
-
-function setSonioxKeyStatus(message: string, isError: boolean): void {
-  sonioxKeyStatus.textContent = message;
-  sonioxKeyStatus.classList.toggle("is-error", isError);
-  sonioxKeyStatus.classList.toggle("is-success", !isError);
-  if (isError) {
-    cancelScheduledStatusClear(sonioxKeyStatus);
-  } else {
-    scheduleStatusClear(sonioxKeyStatus, clearSonioxKeyStatus);
-  }
-}
-
-function clearSonioxKeyStatus(): void {
-  sonioxKeyStatus.textContent = "";
-  sonioxKeyStatus.classList.remove("is-error", "is-success");
-}
-
-function setSonioxModelStatus(message: string, isError: boolean): void {
-  sonioxModelStatus.textContent = message;
-  sonioxModelStatus.classList.toggle("is-error", isError);
-  sonioxModelStatus.classList.toggle("is-success", !isError);
-  if (isError) {
-    cancelScheduledStatusClear(sonioxModelStatus);
-  } else {
-    scheduleStatusClear(sonioxModelStatus, clearSonioxModelStatus);
-  }
-}
-
-function clearSonioxModelStatus(): void {
-  sonioxModelStatus.textContent = "";
-  sonioxModelStatus.classList.remove("is-error", "is-success");
-}
-
-// ─── Model status ─────────────────────────────────────────────────────────
-
-function setModelStatus(message: string, isError: boolean): void {
-  llmModelStatus.textContent = message;
-  llmModelStatus.classList.toggle("is-error", isError);
-  llmModelStatus.classList.toggle("is-success", !isError);
-  if (isError) {
-    cancelScheduledStatusClear(llmModelStatus);
-  } else {
-    scheduleStatusClear(llmModelStatus, clearModelStatus);
-  }
-}
-
-function clearModelStatus(): void {
-  llmModelStatus.textContent = "";
-  llmModelStatus.classList.remove("is-error", "is-success");
-}
-
-// ─── Provider key status ──────────────────────────────────────────────────
-
-function setProviderKeyStatus(message: string, isError: boolean): void {
-  providerKeyStatus.textContent = message;
-  providerKeyStatus.classList.toggle("is-error", isError);
-  providerKeyStatus.classList.toggle("is-success", !isError);
-  if (isError) {
-    cancelScheduledStatusClear(providerKeyStatus);
-  } else {
-    scheduleStatusClear(providerKeyStatus, clearProviderKeyStatus);
-  }
-}
-
-function clearProviderKeyStatus(): void {
-  providerKeyStatus.textContent = "";
-  providerKeyStatus.classList.remove("is-error", "is-success");
 }
 
 // ─── AI fieldset disabled sync ────────────────────────────────────────────
