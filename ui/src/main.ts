@@ -7,7 +7,6 @@
 
 import "./main.css";
 import type {
-  AppUpdate,
   LlmProvider,
   OutputLang,
   PlatformRuntimeInfo,
@@ -16,6 +15,7 @@ import type { ShortcutDisplayMode } from "./shortcut-display.ts";
 import { shortcutCanonicalToDisplay } from "./shortcut-display.ts";
 import { createShortcutRecorder, type ShortcutRecorder } from "./shortcut-recorder.ts";
 import { createSettingsDialog, type SettingsDialog } from "./settings-dialog.ts";
+import { createUpdateBanner, type UpdateBanner } from "./update-banner.ts";
 import {
   DEFAULT_MIC_TOGGLE_SHORTCUT,
   loadPreferences,
@@ -118,9 +118,9 @@ const prefsReadyShortcut = q<HTMLSpanElement>("#prefs-ready-shortcut");
 const permissionBanner = q<HTMLDivElement>("#prefs-permission-banner");
 const permissionBannerText = q<HTMLSpanElement>("#prefs-permission-text");
 const backgroundRecoveryText = q<HTMLParagraphElement>("#runtime-background-recovery");
-const updateBanner = q<HTMLDivElement>("#update-banner");
-const updateBannerText = q<HTMLSpanElement>("#update-banner-text");
-const updateBannerAction = q<HTMLButtonElement>("#update-banner-action");
+const updateBannerEl = q<HTMLDivElement>("#update-banner");
+const updateBannerTextEl = q<HTMLSpanElement>("#update-banner-text");
+const updateBannerActionEl = q<HTMLButtonElement>("#update-banner-action");
 
 // Status hero
 const statusHero = q<HTMLElement>(".status-hero");
@@ -156,14 +156,8 @@ const SETUP_BUTTON_LABEL = "Save key";
 const SETUP_BUTTON_SAVING_LABEL = "Saving…";
 const MISSING_SONIOX_KEY_SETUP_MESSAGE = "Soniox API key is missing. Add your key to activate dictation.";
 const CREDENTIAL_VERIFICATION_FAILED_MESSAGE = "Saved credentials could not be verified. Soniox API key still appears to be missing.";
-const UPDATE_BUTTON_LABEL = "Update";
-const UPDATE_DOWNLOADING_LABEL = "Downloading…";
-const UPDATE_RETRY_LABEL = "Retry";
-const UPDATE_RESTARTING_LABEL = "Restarting…";
 const MAIN_WINDOW_AUTO_FIT_DEBOUNCE_MS = 80;
 
-let updateAvailable: AppUpdate | null = null;
-let updateDownloading = false;
 let defaultStopWord = "thank you";
 let defaultLlmProvider: LlmProvider = XAI_PROVIDER;
 let defaultLlmBaseUrl = DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
@@ -243,6 +237,14 @@ const shortcutRecorder: ShortcutRecorder = createShortcutRecorder({
   defaultShortcut: DEFAULT_MIC_TOGGLE_SHORTCUT,
 });
 
+const updateBanner: UpdateBanner = createUpdateBanner({
+  bannerEl: updateBannerEl,
+  textEl: updateBannerTextEl,
+  actionBtnEl: updateBannerActionEl,
+  checkForUpdate: () => window.voiceToText.checkForUpdate(),
+  relaunch: () => window.voiceToText.relaunchApp(),
+});
+
 const settingsDialog: SettingsDialog = createSettingsDialog({
   backdropEl: dialogBackdrop,
   dialogEl,
@@ -266,7 +268,6 @@ async function init(): Promise<void> {
   bindSetupForm();
   bindPrefs();
   bindActionButtons();
-  bindUpdateBanner();
   loadPrefsUI();
   initializeMainWindowAutoFit();
   setSonioxConnectionState(false);
@@ -309,7 +310,7 @@ async function init(): Promise<void> {
   if (hasVerifiedSonioxKey) {
     clearSetupError(setupError, sonioxInput);
     void sonioxModelPicker.fetch();
-    void checkForAppUpdate();
+    void updateBanner.check();
   } else if (!startupErrorMessage) {
     applySetupError(MISSING_SONIOX_KEY_SETUP_MESSAGE, setupError, sonioxInput);
   }
@@ -557,7 +558,7 @@ async function handleSetupSubmit(): Promise<void> {
     await loadKeyStates();
     sonioxKeyStatusField.setSuccess("Soniox API key saved.");
     await sonioxModelPicker.fetch();
-    void checkForAppUpdate();
+    void updateBanner.check();
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     applySetupError(`Could not save your API key. Please try again. (${msg})`, setupError, sonioxInput);
@@ -658,7 +659,7 @@ async function revalidateCredentialScreenState(): Promise<void> {
     await loadKeyStates();
     if (!wasReady) {
       void sonioxModelPicker.fetch();
-      void checkForAppUpdate();
+      void updateBanner.check();
     }
     return;
   }
@@ -959,59 +960,6 @@ function showPermissionBanner(
 
 function hidePermissionBanner(): void {
   permissionBanner.classList.add("is-hidden");
-}
-
-async function checkForAppUpdate(): Promise<void> {
-  try {
-    const update = await window.voiceToText.checkForUpdate();
-    if (!update) {
-      return;
-    }
-
-    updateAvailable = update;
-    showUpdateBanner(update.version);
-  } catch {
-    hideUpdateBanner();
-  }
-}
-
-function showUpdateBanner(version: string): void {
-  updateBannerText.textContent = `Update available: v${version}`;
-  updateBannerAction.textContent = UPDATE_BUTTON_LABEL;
-  updateBannerAction.disabled = false;
-  updateBanner.classList.remove("is-hidden");
-}
-
-function hideUpdateBanner(): void {
-  updateBanner.classList.add("is-hidden");
-}
-
-function bindUpdateBanner(): void {
-  updateBannerAction.addEventListener("click", () => {
-    void handleUpdateInstall();
-  });
-}
-
-async function handleUpdateInstall(): Promise<void> {
-  if (!updateAvailable || updateDownloading) {
-    return;
-  }
-
-  updateDownloading = true;
-  updateBannerAction.textContent = UPDATE_DOWNLOADING_LABEL;
-  updateBannerAction.disabled = true;
-
-  try {
-    await updateAvailable.downloadAndInstall();
-    updateBannerAction.textContent = UPDATE_RESTARTING_LABEL;
-    await window.voiceToText.relaunchApp();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    updateBannerText.textContent = `Update failed: ${message}`;
-    updateBannerAction.textContent = UPDATE_RETRY_LABEL;
-    updateBannerAction.disabled = false;
-    updateDownloading = false;
-  }
 }
 
 // ─── Action buttons ───────────────────────────────────────────────────────
