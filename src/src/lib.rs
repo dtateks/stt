@@ -1,6 +1,7 @@
 use tauri::utils::config::WindowConfig;
 use tauri::{AppHandle, Manager, RunEvent, Theme, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
+mod autostart;
 pub mod bar_window;
 mod commands;
 mod helper_mode;
@@ -34,8 +35,9 @@ pub use platform_app_shell::{
     run_show_bar_contract, run_show_settings_contract,
 };
 
+use autostart::{setup_launch_at_login, should_show_main_window_on_current_launch};
+
 const MAIN_WINDOW_LABEL: &str = "main";
-const AUTOSTART_LAUNCH_FLAG: &str = "--launch-at-login";
 
 
 
@@ -102,17 +104,6 @@ fn show_main_window_on_initial_launch(app: &tauri::App) -> tauri::Result<()> {
     show_main_window_with_runtime_invariants(&main_window)
 }
 
-fn should_show_main_window_on_current_launch<Args, Arg>(args: Args) -> bool
-where
-    Args: IntoIterator<Item = Arg>,
-    Arg: AsRef<str>,
-{
-    !args
-        .into_iter()
-        .skip(1)
-        .any(|arg| arg.as_ref() == AUTOSTART_LAUNCH_FLAG)
-}
-
 fn reopen_main_window(app: &AppHandle) {
     if let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = show_main_window_with_runtime_invariants(&main_window);
@@ -165,90 +156,6 @@ pub(crate) fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-
-#[cfg(target_os = "macos")]
-fn is_running_from_macos_app_bundle_path(executable_path: &std::path::Path) -> bool {
-    let Some(macos_directory) = executable_path.parent() else {
-        return false;
-    };
-    let Some(contents_directory) = macos_directory.parent() else {
-        return false;
-    };
-    let Some(app_bundle_directory) = contents_directory.parent() else {
-        return false;
-    };
-
-    macos_directory.file_name() == Some(std::ffi::OsStr::new("MacOS"))
-        && contents_directory.file_name() == Some(std::ffi::OsStr::new("Contents"))
-        && app_bundle_directory.extension() == Some(std::ffi::OsStr::new("app"))
-}
-
-#[cfg(target_os = "macos")]
-fn run_launch_at_login_setup_flow<
-    ResolveCurrentExecutable,
-    InitializeAutostart,
-    ReadAutostartStatus,
-    EnableAutostart,
->(
-    resolve_current_executable: ResolveCurrentExecutable,
-    initialize_autostart: InitializeAutostart,
-    read_autostart_status: ReadAutostartStatus,
-    enable_autostart: EnableAutostart,
-) -> Result<(), String>
-where
-    ResolveCurrentExecutable: FnOnce() -> Result<std::path::PathBuf, String>,
-    InitializeAutostart: FnOnce() -> Result<(), String>,
-    ReadAutostartStatus: FnOnce() -> Result<bool, String>,
-    EnableAutostart: FnOnce() -> Result<(), String>,
-{
-    let executable_path = resolve_current_executable()?;
-    if !is_running_from_macos_app_bundle_path(executable_path.as_path()) {
-        return Ok(());
-    }
-
-    initialize_autostart()?;
-    if read_autostart_status()? {
-        return Ok(());
-    }
-
-    enable_autostart()
-}
-
-#[cfg(target_os = "macos")]
-fn setup_launch_at_login(app: &tauri::App) -> Result<(), String> {
-    use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
-
-    run_launch_at_login_setup_flow(
-        || {
-            std::env::current_exe().map_err(|error| {
-                format!("Could not resolve current executable for autostart: {error}")
-            })
-        },
-        || {
-            app.handle()
-                .plugin(tauri_plugin_autostart::init(
-                    MacosLauncher::LaunchAgent,
-                    Some(vec![AUTOSTART_LAUNCH_FLAG]),
-                ))
-                .map_err(|error| format!("Could not initialize autostart plugin: {error}"))
-        },
-        || {
-            app.autolaunch()
-                .is_enabled()
-                .map_err(|error| format!("Could not read autostart status: {error}"))
-        },
-        || {
-            app.autolaunch()
-                .enable()
-                .map_err(|error| format!("Could not enable launch-at-login: {error}"))
-        },
-    )
-}
-
-#[cfg(not(target_os = "macos"))]
-fn setup_launch_at_login(_app: &tauri::App) -> Result<(), String> {
-    Ok(())
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -326,124 +233,3 @@ pub fn run() {
     });
 }
 
-#[cfg(all(test, target_os = "macos"))]
-mod autostart_tests {
-    use super::{
-        is_running_from_macos_app_bundle_path, run_launch_at_login_setup_flow,
-        should_show_main_window_on_current_launch, AUTOSTART_LAUNCH_FLAG,
-    };
-    use std::cell::RefCell;
-    use std::path::{Path, PathBuf};
-
-    #[test]
-    fn launch_at_login_only_enables_for_standard_macos_app_bundles() {
-        assert!(is_running_from_macos_app_bundle_path(Path::new(
-            "/Applications/Voice to Text.app/Contents/MacOS/Voice to Text"
-        )));
-        assert!(!is_running_from_macos_app_bundle_path(Path::new(
-            "/Users/dta.teks/dev/stt/src/target/debug/voice_to_text"
-        )));
-        assert!(!is_running_from_macos_app_bundle_path(Path::new(
-            "/Users/dta.teks/dev/stt/Fake.app/cache/voice_to_text"
-        )));
-    }
-
-    #[test]
-    fn launch_at_login_skips_non_bundled_executables_before_initializing_plugin() {
-        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
-
-        let result = run_launch_at_login_setup_flow(
-            || {
-                Ok(PathBuf::from(
-                    "/Users/dta.teks/dev/stt/src/target/debug/voice_to_text",
-                ))
-            },
-            || {
-                executed_steps.borrow_mut().push("init");
-                Ok(())
-            },
-            || {
-                executed_steps.borrow_mut().push("is-enabled");
-                Ok(false)
-            },
-            || {
-                executed_steps.borrow_mut().push("enable");
-                Ok(())
-            },
-        );
-
-        assert!(result.is_ok());
-        assert!(executed_steps.borrow().is_empty());
-    }
-
-    #[test]
-    fn launch_at_login_enables_bundled_apps_only_when_disabled() {
-        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
-
-        let result = run_launch_at_login_setup_flow(
-            || {
-                Ok(PathBuf::from(
-                    "/Applications/Voice to Text.app/Contents/MacOS/Voice to Text",
-                ))
-            },
-            || {
-                executed_steps.borrow_mut().push("init");
-                Ok(())
-            },
-            || {
-                executed_steps.borrow_mut().push("is-enabled");
-                Ok(false)
-            },
-            || {
-                executed_steps.borrow_mut().push("enable");
-                Ok(())
-            },
-        );
-
-        assert!(result.is_ok());
-        assert_eq!(
-            executed_steps.into_inner(),
-            vec!["init", "is-enabled", "enable"]
-        );
-    }
-
-    #[test]
-    fn launch_at_login_skips_enable_when_autostart_is_already_active() {
-        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
-
-        let result = run_launch_at_login_setup_flow(
-            || {
-                Ok(PathBuf::from(
-                    "/Applications/Voice to Text.app/Contents/MacOS/Voice to Text",
-                ))
-            },
-            || {
-                executed_steps.borrow_mut().push("init");
-                Ok(())
-            },
-            || {
-                executed_steps.borrow_mut().push("is-enabled");
-                Ok(true)
-            },
-            || {
-                executed_steps.borrow_mut().push("enable");
-                Ok(())
-            },
-        );
-
-        assert!(result.is_ok());
-        assert_eq!(executed_steps.into_inner(), vec!["init", "is-enabled"]);
-    }
-
-    #[test]
-    fn launch_at_login_flag_keeps_initial_launch_hidden() {
-        assert!(should_show_main_window_on_current_launch([
-            "voice_to_text",
-            "--some-other-arg",
-        ]));
-        assert!(!should_show_main_window_on_current_launch([
-            "voice_to_text",
-            AUTOSTART_LAUNCH_FLAG,
-        ]));
-    }
-}
