@@ -20,35 +20,26 @@
 import type {
   BarState,
   AppConfig,
-  LlmRequestOptions,
   TranscriptResult,
 } from "./types.ts";
 import { transition, type BarEvent } from "./bar-state-machine.ts";
 import {
   detectStopWordWithNormalizedStopWord,
-  normalizeStopWord,
   stripStopWord,
 } from "./stop-word.ts";
 import { SonioxClient } from "./soniox-client.ts";
 import {
-  loadCustomStopWordPreference,
-  loadLlmBaseUrlPreference,
-  loadLlmModelPreference,
-  loadLlmProviderPreference,
   loadPreferences,
   loadReminderBeepEnabledPreference,
-  loadSonioxModelPreference,
 } from "./storage.ts";
 import { TemporaryApiKeyCache } from "./temporary-api-key-cache.ts";
-import {
-  DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-  XAI_PROVIDER,
-  defaultModelForProvider,
-  providerLabel,
-} from "./llm-provider.ts";
 import { correctTranscriptWithRetry } from "./llm-correction.ts";
 import { createReminderBeepPlayer, type ReminderBeepPlayer } from "./reminder-beep.ts";
-import type { LlmProvider } from "./types.ts";
+import {
+  type ActiveSessionPreferences,
+  createActiveSessionPreferences,
+  resolveSonioxConfigForSession,
+} from "./session-preferences.ts";
 
 const REMINDER_INTERVAL_MS   = 60_000;
 const ERROR_AUTO_RETURN_MS    = 2_000;
@@ -57,20 +48,9 @@ const STREAM_INTERRUPTED_ERROR_MESSAGE = "Connection interrupted. Retrying…";
 const STREAM_RESTART_FAILED_ERROR_MESSAGE = "Could not reconnect to Soniox. Check your key/network, then retry.";
 const INSERT_FAILED_ERROR_MESSAGE = "Could not insert text. Check accessibility permission, then retry.";
 const SESSION_START_FAILED_PREFIX = "Could not start listening";
-const DEFAULT_SONIOX_MODEL = "stt-rt-v4";
 const STOP_WORD_FINALIZE_TIMEOUT_MS = 1_000;
 
 export type OverlayMode = "PASSIVE" | "INTERACTIVE";
-
-interface ActiveSessionPreferences {
-  enterMode: boolean;
-  outputLang: "auto" | "english" | "vietnamese";
-  skipLlm: boolean;
-  stopWord: string;
-  normalizedStopWord: string;
-  sonioxTerms: string[];
-  llmOptions: LlmRequestOptions | null;
-}
 
 export type StateChangeCallback        = (state: BarState) => void;
 export type TranscriptChangeCallback   = (result: TranscriptResult) => void;
@@ -207,7 +187,7 @@ export class BarSessionController {
 
     // Rebuild fresh session preferences from current storage values.
     const prefs = loadPreferences();
-    this.activeSessionPreferences = this.createActiveSessionPreferences(prefs);
+    this.activeSessionPreferences = createActiveSessionPreferences(prefs, this.config);
     const sessionPreferences = this.activeSessionPreferences;
 
     try {
@@ -270,7 +250,7 @@ export class BarSessionController {
     await this.applyEvent("RESUME");
 
     const prefs = loadPreferences();
-    this.activeSessionPreferences = this.createActiveSessionPreferences(prefs);
+    this.activeSessionPreferences = createActiveSessionPreferences(prefs, this.config);
     const sessionPreferences = this.activeSessionPreferences;
 
     try {
@@ -377,7 +357,7 @@ export class BarSessionController {
       }
 
       const prefs = loadPreferences();
-      this.activeSessionPreferences = this.createActiveSessionPreferences(prefs);
+      this.activeSessionPreferences = createActiveSessionPreferences(prefs, this.config);
       const sessionPreferences = this.activeSessionPreferences;
       await this.startAudioPipeline(apiKey, sessionPreferences);
       if (!this.isStartAttemptCurrent(startAttemptId)) {
@@ -414,7 +394,7 @@ export class BarSessionController {
     apiKey: string,
     sessionPreferences: ActiveSessionPreferences,
   ): Promise<void> {
-    this.client.setConfig(this.resolveSonioxConfigForSession());
+    this.client.setConfig(resolveSonioxConfigForSession(this.config));
     this.bindTranscriptHandlers();
     await this.client.start(apiKey, {
       terms: sessionPreferences.sonioxTerms,
@@ -761,61 +741,13 @@ export class BarSessionController {
     }, REMINDER_INTERVAL_MS);
   }
 
-  private resolveLlmRequestOptions(): LlmRequestOptions {
-    const config = this.config;
-    const provider: LlmProvider = loadLlmProviderPreference(
-      (config?.llm.provider as LlmProvider) ?? XAI_PROVIDER,
-    );
-    const model = loadLlmModelPreference(provider) ?? defaultModelForProvider(provider);
-    if (!model) {
-      throw new Error(`No ${providerLabel(provider)} model selected. Open Settings, refresh models, and choose one.`);
-    }
-    const baseUrl = loadLlmBaseUrlPreference(
-      config?.llm.base_url ?? DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-    );
-
-    return {
-      provider,
-      model,
-      baseUrl,
-    };
-  }
-
-  private resolveSonioxConfigForSession(): AppConfig["soniox"] {
-    if (!this.config) {
-      throw new Error("App config is not loaded");
-    }
-
-    const selectedModel = loadSonioxModelPreference() ?? DEFAULT_SONIOX_MODEL;
-
-    return {
-      ...this.config.soniox,
-      model: selectedModel,
-    };
-  }
-
-  private createActiveSessionPreferences(
-    prefs: ReturnType<typeof loadPreferences>,
-  ): ActiveSessionPreferences {
-    const stopWord = loadCustomStopWordPreference(this.config?.voice.stop_word ?? "");
-    return {
-      enterMode: prefs.enterMode,
-      outputLang: prefs.outputLang,
-      skipLlm: prefs.skipLlm,
-      stopWord,
-      normalizedStopWord: normalizeStopWord(stopWord),
-      sonioxTerms: prefs.sonioxTerms,
-      llmOptions: prefs.skipLlm ? null : this.resolveLlmRequestOptions(),
-    };
-  }
-
   private refreshActiveSessionPreferences(): void {
     if (!this.activeSessionPreferences) {
       return;
     }
 
     try {
-      this.activeSessionPreferences = this.createActiveSessionPreferences(loadPreferences());
+      this.activeSessionPreferences = createActiveSessionPreferences(loadPreferences(), this.config);
     } catch (error) {
       console.error("[session] could not refresh preferences", error);
       this.setErrorMessage(formatErrorMessage(error));
