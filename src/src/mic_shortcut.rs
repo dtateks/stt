@@ -27,6 +27,8 @@ use objc2_app_kit::{
     NSWorkspace, NSWorkspaceDidWakeNotification, NSWorkspaceSessionDidBecomeActiveNotification,
     NSWorkspaceSessionDidResignActiveNotification, NSWorkspaceWillSleepNotification,
 };
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSNotificationCenter, NSNotificationName};
 
 pub const DEFAULT_MIC_TOGGLE_SHORTCUT: &str = "Control+Alt+V";
 const TOGGLE_MIC_EVENT: &str = "toggle-mic";
@@ -281,66 +283,53 @@ fn handle_macos_shortcut_health_event(app: &AppHandle, event: ShortcutHealthEven
 }
 
 #[cfg(target_os = "macos")]
+fn register_workspace_health_observer(
+    notification_center: &NSNotificationCenter,
+    notification_name: &NSNotificationName,
+    app_handle: AppHandle,
+    event: ShortcutHealthEvent,
+) {
+    let observer = RcBlock::new(move |_| {
+        handle_macos_shortcut_health_event(&app_handle, event);
+    });
+    unsafe {
+        let _ = notification_center.addObserverForName_object_queue_usingBlock(
+            Some(notification_name),
+            None,
+            None,
+            &observer,
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn install_workspace_observers(app: &tauri::App) {
     let notification_center = NSWorkspace::sharedWorkspace().notificationCenter();
 
-    let will_sleep_app = app.handle().clone();
-    let will_sleep_observer = RcBlock::new(move |_| {
-        handle_macos_shortcut_health_event(&will_sleep_app, ShortcutHealthEvent::WillSleep);
-    });
-    unsafe {
-        let _ = notification_center.addObserverForName_object_queue_usingBlock(
-            Some(NSWorkspaceWillSleepNotification),
-            None,
-            None,
-            &will_sleep_observer,
-        );
-    }
-
-    let did_wake_app = app.handle().clone();
-    let did_wake_observer = RcBlock::new(move |_| {
-        handle_macos_shortcut_health_event(&did_wake_app, ShortcutHealthEvent::DidWake);
-    });
-    unsafe {
-        let _ = notification_center.addObserverForName_object_queue_usingBlock(
-            Some(NSWorkspaceDidWakeNotification),
-            None,
-            None,
-            &did_wake_observer,
-        );
-    }
-
-    let session_active_app = app.handle().clone();
-    let session_active_observer = RcBlock::new(move |_| {
-        handle_macos_shortcut_health_event(
-            &session_active_app,
-            ShortcutHealthEvent::SessionDidBecomeActive,
-        );
-    });
-    unsafe {
-        let _ = notification_center.addObserverForName_object_queue_usingBlock(
-            Some(NSWorkspaceSessionDidBecomeActiveNotification),
-            None,
-            None,
-            &session_active_observer,
-        );
-    }
-
-    let session_resign_app = app.handle().clone();
-    let session_resign_observer = RcBlock::new(move |_| {
-        handle_macos_shortcut_health_event(
-            &session_resign_app,
-            ShortcutHealthEvent::SessionDidResignActive,
-        );
-    });
-    unsafe {
-        let _ = notification_center.addObserverForName_object_queue_usingBlock(
-            Some(NSWorkspaceSessionDidResignActiveNotification),
-            None,
-            None,
-            &session_resign_observer,
-        );
-    }
+    register_workspace_health_observer(
+        &notification_center,
+        unsafe { NSWorkspaceWillSleepNotification },
+        app.handle().clone(),
+        ShortcutHealthEvent::WillSleep,
+    );
+    register_workspace_health_observer(
+        &notification_center,
+        unsafe { NSWorkspaceDidWakeNotification },
+        app.handle().clone(),
+        ShortcutHealthEvent::DidWake,
+    );
+    register_workspace_health_observer(
+        &notification_center,
+        unsafe { NSWorkspaceSessionDidBecomeActiveNotification },
+        app.handle().clone(),
+        ShortcutHealthEvent::SessionDidBecomeActive,
+    );
+    register_workspace_health_observer(
+        &notification_center,
+        unsafe { NSWorkspaceSessionDidResignActiveNotification },
+        app.handle().clone(),
+        ShortcutHealthEvent::SessionDidResignActive,
+    );
 }
 
 fn spawn_watchdog(app_handle: AppHandle) {
