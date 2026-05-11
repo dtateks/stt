@@ -23,7 +23,7 @@ pub mod text_inserter;
 mod windows_app_shell;
 
 pub use bar_window::{
-    run_bar_close_request_sequence, run_bar_order_front_without_focus_steal, run_bar_show_sequence,
+    run_bar_close_request_sequence, run_bar_show_sequence,
     run_macos_bar_runtime_configuration_sequence,
 };
 pub(crate) use bar_window::BAR_WINDOW_LABEL;
@@ -55,17 +55,6 @@ where
 }
 
 pub fn run_macos_reopen_window_sequence<ReopenMainWindow>(
-    has_visible_windows: bool,
-    mut reopen_main_window: ReopenMainWindow,
-) where
-    ReopenMainWindow: FnMut(),
-{
-    if !has_visible_windows {
-        reopen_main_window();
-    }
-}
-
-pub fn run_windows_reopen_window_sequence<ReopenMainWindow>(
     has_visible_windows: bool,
     mut reopen_main_window: ReopenMainWindow,
 ) where
@@ -339,9 +328,8 @@ pub fn run() {
 #[cfg(all(test, target_os = "macos"))]
 mod autostart_tests {
     use super::{
-        is_running_from_macos_app_bundle_path, run_bar_order_front_without_focus_steal,
-        run_launch_at_login_setup_flow, should_show_main_window_on_current_launch,
-        AUTOSTART_LAUNCH_FLAG,
+        is_running_from_macos_app_bundle_path, run_launch_at_login_setup_flow,
+        should_show_main_window_on_current_launch, AUTOSTART_LAUNCH_FLAG,
     };
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
@@ -456,18 +444,5 @@ mod autostart_tests {
             "voice_to_text",
             AUTOSTART_LAUNCH_FLAG,
         ]));
-    }
-
-    #[test]
-    fn bar_front_sequence_orders_front_without_extra_focus_step() {
-        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
-
-        let result = run_bar_order_front_without_focus_steal(|| {
-            executed_steps.borrow_mut().push("front");
-            Ok(())
-        });
-
-        assert!(result.is_ok());
-        assert_eq!(executed_steps.into_inner(), vec!["front"]);
     }
 }

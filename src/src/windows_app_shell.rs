@@ -1,6 +1,4 @@
-use tauri::{AppHandle, Manager, RunEvent, WebviewWindow};
-
-const MAIN_WINDOW_LABEL: &str = "main";
+use tauri::{AppHandle, RunEvent, WebviewWindow};
 
 pub fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
     crate::build_main_window(app)
@@ -15,11 +13,7 @@ pub fn show_bar(app: &AppHandle, bar_window: &WebviewWindow) -> tauri::Result<()
         || crate::bar_window::configure_bar_webview_transparency(bar_window),
         || crate::bar_window::position_bar_window_bottom_center(app, bar_window),
         || bar_window.show(),
-        || {
-            crate::bar_window::run_bar_order_front_without_focus_steal(|| {
-                order_bar_window_front_without_focus_steal(bar_window)
-            })
-        },
+        || order_bar_window_front_without_focus_steal(bar_window),
     )?;
 
     crate::bar_window::set_bar_ignores_mouse_events(app, false)
@@ -51,14 +45,6 @@ fn order_bar_window_front_without_focus_steal(bar_window: &WebviewWindow) -> tau
 #[cfg(not(target_os = "windows"))]
 fn order_bar_window_front_without_focus_steal(_bar_window: &WebviewWindow) -> tauri::Result<()> {
     Ok(())
-}
-
-fn reopen_main_window(app: &AppHandle) {
-    let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
-        return;
-    };
-
-    let _ = crate::show_main_window_with_runtime_invariants(&main_window);
 }
 
 pub fn handle_runtime_event(app: &AppHandle, event: RunEvent) {

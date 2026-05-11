@@ -1,8 +1,7 @@
 use std::cell::RefCell;
 
 use voice_to_text_lib::{
-    run_bar_order_front_without_focus_steal, run_hide_bar_contract,
-    run_set_bar_mouse_events_contract, run_show_bar_contract, run_windows_reopen_window_sequence,
+    run_hide_bar_contract, run_set_bar_mouse_events_contract, run_show_bar_contract,
 };
 
 #[test]
@@ -59,34 +58,3 @@ fn windows_shell_runtime_contract_forwards_hide_and_mouse_toggle_requests() {
     assert_eq!(ignore_arguments.into_inner(), vec![true]);
 }
 
-#[test]
-fn windows_shell_runtime_reopen_gate_only_reopens_when_all_windows_are_hidden() {
-    let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
-
-    run_windows_reopen_window_sequence(false, || {
-        executed_steps.borrow_mut().push("reopen-main-window");
-    });
-    run_windows_reopen_window_sequence(true, || {
-        executed_steps.borrow_mut().push("should-not-run");
-    });
-
-    assert_eq!(executed_steps.into_inner(), vec!["reopen-main-window"]);
-}
-
-#[test]
-fn windows_shell_runtime_foreground_step_keeps_non_activating_contract() {
-    let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
-
-    let result = run_bar_order_front_without_focus_steal(|| {
-        executed_steps
-            .borrow_mut()
-            .push("order-front-without-focus");
-        Ok::<(), tauri::Error>(())
-    });
-
-    assert!(result.is_ok());
-    assert_eq!(
-        executed_steps.into_inner(),
-        vec!["order-front-without-focus"]
-    );
-}

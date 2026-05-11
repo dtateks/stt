@@ -21,7 +21,6 @@ import type {
   BarState,
   AppConfig,
   LlmRequestOptions,
-  SonioxTemporaryApiKeyResult,
   TranscriptResult,
 } from "./types.ts";
 import { transition, type BarEvent } from "./bar-state-machine.ts";
@@ -40,6 +39,7 @@ import {
   loadReminderBeepEnabledPreference,
   loadSonioxModelPreference,
 } from "./storage.ts";
+import { TemporaryApiKeyCache } from "./temporary-api-key-cache.ts";
 
 const REMINDER_INTERVAL_MS   = 60_000;
 const ERROR_AUTO_RETURN_MS    = 2_000;
@@ -68,8 +68,6 @@ const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
 const DEFAULT_SONIOX_MODEL = "stt-rt-v4";
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
 const STOP_WORD_FINALIZE_TIMEOUT_MS = 1_000;
-const TEMPORARY_API_KEY_REFRESH_LEAD_MS = 60_000;
-const TEMPORARY_API_KEY_MINT_RETRY_COUNT = 1;
 
 export type OverlayMode = "PASSIVE" | "INTERACTIVE";
 
@@ -81,11 +79,6 @@ interface ActiveSessionPreferences {
   normalizedStopWord: string;
   sonioxTerms: string[];
   llmOptions: LlmRequestOptions | null;
-}
-
-interface CachedTemporaryApiKey {
-  apiKey: string;
-  expiresAtMs: number;
 }
 
 export type StateChangeCallback        = (state: BarState) => void;
@@ -104,9 +97,7 @@ export class BarSessionController {
   private pendingActiveSessionPreferencesRefresh = false;
   private isFinalizingAfterStopWord = false;
   private activeSessionPreferences: ActiveSessionPreferences | null = null;
-  private cachedTemporaryApiKey: CachedTemporaryApiKey | null = null;
-  private temporaryApiKeyRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private temporaryApiKeyRefreshPromise: Promise<string> | null = null;
+  private temporaryApiKeyCache: TemporaryApiKeyCache;
   private pausedTranscript: TranscriptResult | null = null;
   private accumulatedTranscript: TranscriptResult = { finalText: "", interimText: "" };
 
@@ -138,6 +129,10 @@ export class BarSessionController {
 
   constructor() {
     this.client = new SonioxClient();
+    this.temporaryApiKeyCache = new TemporaryApiKeyCache({
+      hasSonioxKey: () => window.voiceToText.hasSonioxKey(),
+      createSonioxTemporaryKey: () => window.voiceToText.createSonioxTemporaryKey(),
+    });
   }
 
   // ─── Public API ───────────────────────────────────────────────────────────
@@ -146,7 +141,7 @@ export class BarSessionController {
     this.config = await window.voiceToText.getConfig();
     this.client.setConfig(this.config.soniox);
     window.addEventListener("storage", this.handleStorageChange);
-    void this.prewarmTemporaryApiKey().catch((error: unknown) => {
+    void this.temporaryApiKeyCache.prewarm().catch((error: unknown) => {
       console.error("[session] temporary key prewarm failed", error);
     });
 
@@ -158,7 +153,7 @@ export class BarSessionController {
   destroy(): void {
     window.removeEventListener("storage", this.handleStorageChange);
     this.unlistenToggle?.();
-    this.clearTemporaryApiKeyRefreshTimer();
+    this.temporaryApiKeyCache.dispose();
     void this.stopSession();
   }
 
@@ -926,108 +921,8 @@ export class BarSessionController {
     this.transcriptGeneration += 1;
   }
 
-  private async createTemporaryApiKey(): Promise<string> {
-    const reusableTemporaryApiKey = this.getReusableTemporaryApiKey();
-    if (reusableTemporaryApiKey) {
-      return reusableTemporaryApiKey.apiKey;
-    }
-
-    return this.refreshTemporaryApiKey();
-  }
-
-  private async prewarmTemporaryApiKey(): Promise<void> {
-    await this.refreshTemporaryApiKey();
-  }
-
-  private getReusableTemporaryApiKey(): CachedTemporaryApiKey | null {
-    if (!this.cachedTemporaryApiKey) {
-      return null;
-    }
-
-    if (this.cachedTemporaryApiKey.expiresAtMs - Date.now() <= TEMPORARY_API_KEY_REFRESH_LEAD_MS) {
-      this.cachedTemporaryApiKey = null;
-      return null;
-    }
-
-    return this.cachedTemporaryApiKey;
-  }
-
-  private async refreshTemporaryApiKey(): Promise<string> {
-    if (this.temporaryApiKeyRefreshPromise) {
-      return this.temporaryApiKeyRefreshPromise;
-    }
-
-    const refreshPromise = this.mintTemporaryApiKey(TEMPORARY_API_KEY_MINT_RETRY_COUNT);
-    this.temporaryApiKeyRefreshPromise = refreshPromise;
-
-    try {
-      return await refreshPromise;
-    } finally {
-      if (this.temporaryApiKeyRefreshPromise === refreshPromise) {
-        this.temporaryApiKeyRefreshPromise = null;
-      }
-    }
-  }
-
-  private async mintTemporaryApiKey(remainingRetryCount: number): Promise<string> {
-    const hasSonioxKey = await window.voiceToText.hasSonioxKey();
-    if (!hasSonioxKey) {
-      this.clearCachedTemporaryApiKey();
-      return "";
-    }
-
-    const temporaryKey = await window.voiceToText.createSonioxTemporaryKey();
-    const apiKey = temporaryKey.apiKey.trim();
-    if (!apiKey) {
-      this.clearCachedTemporaryApiKey();
-      return "";
-    }
-
-    const expiresAtMs = resolveTemporaryApiKeyExpiryMs(temporaryKey);
-    if (expiresAtMs === null) {
-      this.clearCachedTemporaryApiKey();
-      return apiKey;
-    }
-
-    if (expiresAtMs - Date.now() <= TEMPORARY_API_KEY_REFRESH_LEAD_MS) {
-      this.clearCachedTemporaryApiKey();
-      if (remainingRetryCount > 0) {
-        return this.mintTemporaryApiKey(remainingRetryCount - 1);
-      }
-      return "";
-    }
-
-    this.cachedTemporaryApiKey = {
-      apiKey,
-      expiresAtMs,
-    };
-    this.scheduleTemporaryApiKeyRefresh(expiresAtMs);
-
-    return apiKey;
-  }
-
-  private scheduleTemporaryApiKeyRefresh(expiresAtMs: number): void {
-    this.clearTemporaryApiKeyRefreshTimer();
-    const refreshDelayMs = Math.max(0, expiresAtMs - Date.now() - TEMPORARY_API_KEY_REFRESH_LEAD_MS);
-    this.temporaryApiKeyRefreshTimer = setTimeout(() => {
-      void this.refreshTemporaryApiKey().catch((error: unknown) => {
-        console.error("[session] temporary key refresh failed", error);
-      });
-    }, refreshDelayMs);
-  }
-
-  private clearTemporaryApiKeyRefreshTimer(): void {
-    if (this.temporaryApiKeyRefreshTimer === null) {
-      return;
-    }
-
-    clearTimeout(this.temporaryApiKeyRefreshTimer);
-    this.temporaryApiKeyRefreshTimer = null;
-  }
-
-  private clearCachedTemporaryApiKey(): void {
-    this.cachedTemporaryApiKey = null;
-    this.clearTemporaryApiKeyRefreshTimer();
+  private createTemporaryApiKey(): Promise<string> {
+    return this.temporaryApiKeyCache.getKey();
   }
 
   private isStartAttemptCurrent(startAttemptId: number): boolean {
@@ -1043,21 +938,6 @@ function combineTranscriptText(finalText: string, interimText: string): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function resolveTemporaryApiKeyExpiryMs(result: SonioxTemporaryApiKeyResult): number | null {
-  if (result.expiresAt) {
-    const expiresAtMs = Date.parse(result.expiresAt);
-    if (Number.isFinite(expiresAtMs)) {
-      return expiresAtMs;
-    }
-  }
-
-  if (typeof result.expiresInSeconds === "number" && result.expiresInSeconds > 0) {
-    return Date.now() + result.expiresInSeconds * 1_000;
-  }
-
-  return null;
 }
 
 /** Shared AudioContext for reminder beeps — avoids creating a new context per beep. */

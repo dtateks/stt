@@ -181,16 +181,6 @@ where
     Ok(())
 }
 
-pub fn run_bar_order_front_without_focus_steal<OrderBarWindowFront>(
-    mut order_bar_window_front: OrderBarWindowFront,
-) -> tauri::Result<()>
-where
-    OrderBarWindowFront: FnMut() -> tauri::Result<()>,
-{
-    order_bar_window_front()?;
-    Ok(())
-}
-
 pub fn run_bar_close_request_sequence<PreventClose, HideBarWindow>(
     prevent_close: PreventClose,
     hide_bar_window: HideBarWindow,
@@ -225,10 +215,8 @@ fn run_bar_order_front_attempt(
             Ok(())
         },
         || {
-            run_bar_order_front_without_focus_steal(|| {
-                panel.order_front_regardless();
-                Ok(())
-            })
+            panel.order_front_regardless();
+            Ok(())
         },
     )
 }
@@ -250,7 +238,7 @@ pub(crate) fn show_bar_window_with_runtime_invariants(
         || configure_bar_webview_transparency(bar_window),
         || position_bar_window_bottom_center(app, bar_window),
         || bar_window.show(),
-        || run_bar_order_front_without_focus_steal(|| bar_window.set_always_on_top(true)),
+        || bar_window.set_always_on_top(true),
     )?;
 
     Ok(())
