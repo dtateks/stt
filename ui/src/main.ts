@@ -17,6 +17,7 @@ import { createShortcutRecorder, type ShortcutRecorder } from "./shortcut-record
 import { createSettingsDialog, type SettingsDialog } from "./settings-dialog.ts";
 import { createUpdateBanner, type UpdateBanner } from "./update-banner.ts";
 import { createPermissionBanner, type PermissionBanner } from "./permission-banner.ts";
+import { createMainWindowAutoFit } from "./main-window-auto-fit.ts";
 import {
   DEFAULT_MIC_TOGGLE_SHORTCUT,
   loadPreferences,
@@ -157,8 +158,6 @@ const SETUP_BUTTON_LABEL = "Save key";
 const SETUP_BUTTON_SAVING_LABEL = "Saving…";
 const MISSING_SONIOX_KEY_SETUP_MESSAGE = "Soniox API key is missing. Add your key to activate dictation.";
 const CREDENTIAL_VERIFICATION_FAILED_MESSAGE = "Saved credentials could not be verified. Soniox API key still appears to be missing.";
-const MAIN_WINDOW_AUTO_FIT_DEBOUNCE_MS = 80;
-
 let defaultStopWord = "thank you";
 let defaultLlmProvider: LlmProvider = XAI_PROVIDER;
 let defaultLlmBaseUrl = DEFAULT_OPENAI_COMPATIBLE_BASE_URL;
@@ -213,7 +212,6 @@ const llmModelPicker: ModelPicker = createModelPicker({
     chooseModelPlaceholder: "Choose a model",
   },
 });
-let pendingMainWindowFitTimer: ReturnType<typeof setTimeout> | null = null;
 const DEFAULT_PLATFORM_RUNTIME_INFO: PlatformRuntimeInfo = {
   os: "macos",
   shortcutDisplay: "macos",
@@ -276,7 +274,10 @@ async function init(): Promise<void> {
   bindPrefs();
   bindActionButtons();
   loadPrefsUI();
-  initializeMainWindowAutoFit();
+  createMainWindowAutoFit({
+    targetEl: settingsPanel,
+    fit: window.voiceToText?.fitMainWindowToContent?.bind(window.voiceToText),
+  });
   setSonioxConnectionState(false);
 
   let bridge: Awaited<ReturnType<typeof waitForVoiceToTextBridge>>;
@@ -335,67 +336,6 @@ async function init(): Promise<void> {
     permissionBanner.show(deniedResults, platformRuntimeInfo);
   } else {
     permissionBanner.hide();
-  }
-}
-
-let mainWindowResizeObserver: ResizeObserver | null = null;
-
-function initializeMainWindowAutoFit(): void {
-  scheduleMainWindowFitToContent();
-
-  if (typeof ResizeObserver === "undefined") {
-    return;
-  }
-
-  mainWindowResizeObserver = new ResizeObserver(() => {
-    if (!settingsPanel.isConnected) {
-      teardownMainWindowAutoFit();
-      return;
-    }
-    scheduleMainWindowFitToContent();
-  });
-
-  mainWindowResizeObserver.observe(settingsPanel);
-}
-
-function teardownMainWindowAutoFit(): void {
-  if (pendingMainWindowFitTimer !== null) {
-    clearTimeout(pendingMainWindowFitTimer);
-    pendingMainWindowFitTimer = null;
-  }
-  if (mainWindowResizeObserver !== null) {
-    mainWindowResizeObserver.disconnect();
-    mainWindowResizeObserver = null;
-  }
-}
-
-function scheduleMainWindowFitToContent(): void {
-  if (pendingMainWindowFitTimer !== null) {
-    clearTimeout(pendingMainWindowFitTimer);
-  }
-
-  pendingMainWindowFitTimer = setTimeout(() => {
-    pendingMainWindowFitTimer = null;
-    // Guard against the panel being detached (e.g. test teardown clearing
-    // document.body). Without this, a late-firing timer would call into a
-    // disposed jsdom environment or a missing bridge.
-    if (!settingsPanel.isConnected) {
-      return;
-    }
-    void fitMainWindowToContent();
-  }, MAIN_WINDOW_AUTO_FIT_DEBOUNCE_MS);
-}
-
-async function fitMainWindowToContent(): Promise<void> {
-  if (typeof window.voiceToText?.fitMainWindowToContent !== "function") {
-    return;
-  }
-
-  const contentHeight = Math.ceil(settingsPanel.scrollHeight);
-  try {
-    await window.voiceToText.fitMainWindowToContent(contentHeight);
-  } catch {
-    // Non-fatal: sizing is best effort and should never block setup.
   }
 }
 
