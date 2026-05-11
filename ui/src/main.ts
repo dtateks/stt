@@ -18,6 +18,7 @@ import { createSettingsDialog, type SettingsDialog } from "./settings-dialog.ts"
 import { createUpdateBanner, type UpdateBanner } from "./update-banner.ts";
 import { createPermissionBanner, type PermissionBanner } from "./permission-banner.ts";
 import { createMainWindowAutoFit } from "./main-window-auto-fit.ts";
+import { createProviderKeyEditor, type ProviderKeyEditor } from "./provider-key-editor.ts";
 import {
   DEFAULT_MIC_TOGGLE_SHORTCUT,
   loadPreferences,
@@ -58,7 +59,6 @@ import {
   XAI_PROVIDER,
   defaultModelForProvider,
   hasProviderKey,
-  providerLabel,
   updateProviderKey,
 } from "./llm-provider.ts";
 
@@ -248,6 +248,17 @@ const permissionBanner: PermissionBanner = createPermissionBanner({
   bannerEl: permissionBannerEl,
   textEl: permissionBannerTextEl,
   checkPermissionsStatus: () => window.voiceToText.checkPermissionsStatus(),
+});
+
+const providerKeyEditor: ProviderKeyEditor = createProviderKeyEditor({
+  inputEl: providerKeyInput,
+  saveBtnEl: providerKeySaveBtn,
+  labelEl: providerKeyLabel,
+  statusField: providerKeyStatusField,
+  currentProvider: () => llmProviderSelect.value as LlmProvider,
+  hasKey: (provider) => hasProviderKey(window.voiceToText, provider),
+  saveKey: (provider, key) => updateProviderKey(window.voiceToText, provider, key),
+  onSaved: () => llmModelPicker.fetch(),
 });
 
 const settingsDialog: SettingsDialog = createSettingsDialog({
@@ -468,7 +479,7 @@ function loadPrefsUI(): void {
 
   syncLlmBaseUrlVisibility();
   syncAiFieldsetDisabledState(correctionEnabled);
-  syncProviderKeyLabel();
+  void providerKeyEditor.refresh();
   updateVocabCount();
   shortcutStatusField.clear();
   stopWordStatusField.clear();
@@ -580,13 +591,12 @@ function bindPrefs(): void {
     const provider = llmProviderSelect.value as LlmProvider;
     saveLlmProviderPreference(provider);
     syncLlmBaseUrlVisibility();
-    syncProviderKeyLabel();
     aiStatusField.setSuccess("Provider saved.");
     // Clear model selection until we fetch real models
     llmModelPicker.showInitialPlaceholder();
     modelStatusField.clear();
-    // Load key state for the new provider
-    void loadProviderKeyState(provider);
+    // Refresh provider-key label + has-key state for the new provider
+    void providerKeyEditor.refresh();
     // Fetch real models from endpoint
     void llmModelPicker.fetch();
   });
@@ -610,10 +620,6 @@ function bindPrefs(): void {
 
   llmModelFetchBtn.addEventListener("click", () => {
     void llmModelPicker.fetch();
-  });
-
-  providerKeySaveBtn.addEventListener("click", () => {
-    void handleProviderKeySave();
   });
 
   sonioxModelSelect.addEventListener("change", () => {
@@ -669,11 +675,6 @@ function syncLlmBaseUrlVisibility(): void {
   llmBaseUrlRow.classList.toggle("is-hidden", !shouldShowBaseUrl);
 }
 
-function syncProviderKeyLabel(): void {
-  const provider = llmProviderSelect.value as LlmProvider;
-  providerKeyLabel.textContent = `${providerLabel(provider)} API key`;
-}
-
 function handleStopWordSave(): void {
   stopWordStatusField.clear();
   const stopWord = stopWordInput.value.trim();
@@ -704,26 +705,6 @@ function handleStopWordReset(): void {
   stopWordStatusField.setSuccess("Stop word reset to default.");
 }
 
-async function handleProviderKeySave(): Promise<void> {
-  providerKeyStatusField.clear();
-  const provider = llmProviderSelect.value as LlmProvider;
-  const key = providerKeyInput.value.trim();
-
-  try {
-    await updateProviderKey(window.voiceToText, provider, key);
-    providerKeyInput.value = "";
-    // Update key state indicator
-    providerKeyInput.placeholder = "••••••••••••••••";
-    providerKeyInput.classList.add("has-key");
-    providerKeyStatusField.setSuccess("API key saved.");
-    // Auto-fetch models now that we have a key
-    await llmModelPicker.fetch();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    providerKeyStatusField.setError(`Could not save API key: ${message}`);
-  }
-}
-
 // ─── Key state indicators ──────────────────────────────────────────────────
 
 async function loadKeyStates(): Promise<void> {
@@ -745,26 +726,7 @@ async function loadKeyStates(): Promise<void> {
     sonioxInput.classList.remove("has-key");
   }
 
-  const provider = llmProviderSelect.value as LlmProvider;
-  await loadProviderKeyState(provider);
-}
-
-async function loadProviderKeyState(provider: LlmProvider): Promise<void> {
-  try {
-    const hasKey = await hasProviderKey(window.voiceToText, provider);
-
-    if (hasKey) {
-      // Show masked placeholder to indicate key is present
-      providerKeyInput.placeholder = "••••••••••••••••";
-      providerKeyInput.classList.add("has-key");
-      providerKeyStatusField.setSuccess("Key loaded.");
-    } else {
-      providerKeyInput.placeholder = "";
-      providerKeyInput.classList.remove("has-key");
-    }
-  } catch {
-    // Key check failed
-  }
+  await providerKeyEditor.refresh();
 }
 
 async function loadRuntimeMicToggleShortcut(): Promise<void> {
