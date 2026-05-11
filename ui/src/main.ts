@@ -15,6 +15,7 @@ import type {
 import type { ShortcutDisplayMode } from "./shortcut-display.ts";
 import { shortcutCanonicalToDisplay } from "./shortcut-display.ts";
 import { createShortcutRecorder, type ShortcutRecorder } from "./shortcut-recorder.ts";
+import { createSettingsDialog, type SettingsDialog } from "./settings-dialog.ts";
 import {
   DEFAULT_MIC_TOGGLE_SHORTCUT,
   loadPreferences,
@@ -58,15 +59,6 @@ import {
   providerLabel,
   updateProviderKey,
 } from "./llm-provider.ts";
-
-// ─── Staged settings state ────────────────────────────────────────────────
-
-interface StagedSettings {
-  terms: string[];
-}
-
-let staged: StagedSettings = { terms: [] };
-let settingsOpenedBy: HTMLElement | null = null;
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────
 
@@ -251,13 +243,29 @@ const shortcutRecorder: ShortcutRecorder = createShortcutRecorder({
   defaultShortcut: DEFAULT_MIC_TOGGLE_SHORTCUT,
 });
 
+const settingsDialog: SettingsDialog = createSettingsDialog({
+  backdropEl: dialogBackdrop,
+  dialogEl,
+  closeBtnEl: dialogCloseBtn,
+  cancelBtnEl: dialogCancelBtn,
+  saveBtnEl: dialogSaveBtn,
+  resetBtnEl: dialogResetBtn,
+  termsTagListEl: termsTagList,
+  termsAddInputEl: termsAddInput,
+  termsAddBtnEl: termsAddBtn,
+  loadStagedTerms: () => [...loadPreferences().sonioxTerms],
+  loadDefaultTerms: () => [...window.voiceToTextDefaults.terms],
+  saveTerms: (terms) => saveSonioxTerms(terms),
+  onSaveError: (message) => applySetupError(message, setupError, sonioxInput),
+  onTermsCommitted: () => updateVocabCount(),
+});
+
 // ─── Initialization ───────────────────────────────────────────────────────
 
 async function init(): Promise<void> {
   bindSetupForm();
   bindPrefs();
   bindActionButtons();
-  bindDialog();
   bindUpdateBanner();
   loadPrefsUI();
   initializeMainWindowAutoFit();
@@ -1010,176 +1018,8 @@ async function handleUpdateInstall(): Promise<void> {
 
 function bindActionButtons(): void {
   openSettingsBtn.addEventListener("click", () => {
-    settingsOpenedBy = openSettingsBtn;
-    openSettingsDialog();
+    settingsDialog.open(openSettingsBtn);
   });
-}
-
-// ─── Settings dialog ──────────────────────────────────────────────────────
-
-function bindDialog(): void {
-  dialogCloseBtn.addEventListener("click", closeSettingsDialog);
-  dialogCancelBtn.addEventListener("click", closeSettingsDialog);
-
-  dialogSaveBtn.addEventListener("click", () => {
-    commitStagedSettings();
-    closeSettingsDialog();
-  });
-
-  dialogResetBtn.addEventListener("click", () => {
-    loadStagedFromDefaults();
-    renderDialogTerms();
-  });
-
-  termsAddBtn.addEventListener("click", addStagedTerm);
-  termsAddInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") addStagedTerm();
-  });
-
-  // Close on backdrop click
-  dialogBackdrop.addEventListener("click", (e) => {
-    if (e.target === dialogBackdrop) closeSettingsDialog();
-  });
-
-  // Escape closes dialog
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && dialogBackdrop.classList.contains("is-open")) {
-      closeSettingsDialog();
-    }
-  });
-
-  // Focus trap
-  dialogEl.addEventListener("keydown", trapFocus);
-}
-
-function openSettingsDialog(): void {
-  const prefs = loadPreferences();
-  staged = {
-    terms: [...prefs.sonioxTerms],
-  };
-
-  renderDialogTerms();
-
-  dialogBackdrop.classList.add("is-open");
-  dialogEl.setAttribute("aria-hidden", "false");
-
-  // Focus first focusable element in dialog
-  const first = firstFocusable(dialogEl);
-  first?.focus();
-}
-
-function closeSettingsDialog(): void {
-  dialogBackdrop.classList.remove("is-open");
-  dialogEl.setAttribute("aria-hidden", "true");
-  settingsOpenedBy?.focus();
-  settingsOpenedBy = null;
-}
-
-function commitStagedSettings(): void {
-  const termsOk = saveSonioxTerms(staged.terms);
-  if (!termsOk) {
-    applySetupError(
-      "Could not save vocabulary settings. Storage may be full or unavailable.",
-      setupError,
-      sonioxInput,
-    );
-    return;
-  }
-  updateVocabCount();
-}
-
-function loadStagedFromDefaults(): void {
-  const defaults = window.voiceToTextDefaults;
-  staged = {
-    terms: [...defaults.terms],
-  };
-}
-
-// ─── Dialog: terms ────────────────────────────────────────────────────────
-
-function renderDialogTerms(): void {
-  termsTagList.innerHTML = "";
-
-  if (staged.terms.length === 0) {
-    const empty = document.createElement("span");
-    empty.className = "tag-empty";
-    empty.textContent = "No terms added";
-    termsTagList.appendChild(empty);
-    return;
-  }
-
-  for (const term of staged.terms) {
-    termsTagList.appendChild(buildTermTag(term));
-  }
-}
-
-function buildTermTag(term: string): HTMLElement {
-  const tag = document.createElement("span");
-  tag.className = "tag";
-
-  const text = document.createElement("span");
-  text.textContent = term;
-
-  const removeBtn = document.createElement("button");
-  removeBtn.className = "tag-remove";
-  removeBtn.setAttribute("aria-label", `Remove term "${term}"`);
-  removeBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
-  removeBtn.addEventListener("click", () => {
-    staged.terms = staged.terms.filter((t) => t !== term);
-    renderDialogTerms();
-  });
-
-  tag.appendChild(text);
-  tag.appendChild(removeBtn);
-  return tag;
-}
-
-function addStagedTerm(): void {
-  const value = termsAddInput.value.trim();
-  if (!value) return;
-  if (staged.terms.includes(value)) {
-    termsAddInput.value = "";
-    return;
-  }
-  staged.terms = [...staged.terms, value];
-  termsAddInput.value = "";
-  renderDialogTerms();
-}
-
-// ─── Focus trap ───────────────────────────────────────────────────────────
-
-function firstFocusable(root: HTMLElement): HTMLElement | null {
-  return root.querySelector<HTMLElement>(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  );
-}
-
-function getFocusableElements(root: HTMLElement): HTMLElement[] {
-  return Array.from(
-    root.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  );
-}
-
-function trapFocus(e: KeyboardEvent): void {
-  if (e.key !== "Tab") return;
-
-  const focusable = getFocusableElements(dialogEl);
-  if (focusable.length === 0) return;
-
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-
-  if (e.shiftKey) {
-    if (document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    }
-  } else if (document.activeElement === last) {
-    e.preventDefault();
-    first.focus();
-  }
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────
