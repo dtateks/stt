@@ -6,6 +6,7 @@ use serde_json::Value;
 use tauri::{AppHandle, LogicalSize, Manager, Size};
 
 use crate::credentials;
+use crate::llm_provider::Provider;
 use crate::llm_service;
 use crate::permissions;
 use crate::platform_runtime_info::PlatformRuntimeInfo;
@@ -118,11 +119,11 @@ pub fn has_xai_key(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub fn has_openai_compatible_key(app: AppHandle, provider: Option<String>) -> Result<bool, String> {
     let credentials = credentials::get_credentials(&app)?;
-    if provider.as_deref() == Some("gemini") {
-        return Ok(!credentials.gemini_key.is_empty());
-    }
-
-    Ok(!credentials.openai_compatible_key.is_empty())
+    let provider_kind = match provider.as_deref() {
+        Some("gemini") => Provider::Gemini,
+        _ => Provider::OpenAiCompatible,
+    };
+    Ok(!provider_kind.pick_credential(&credentials).is_empty())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -153,6 +154,10 @@ pub fn update_openai_compatible_key(
     credentials::save_openai_compatible_key(&app, openai_compatible_key)
 }
 
+fn missing_provider_credential_error(provider: Provider) -> String {
+    format!("{} API key is not configured", provider.display_name())
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn update_soniox_key(app: AppHandle, soniox_key: String) -> Result<(), String> {
     let validated_soniox_key = validate_soniox_key_for_persistence(soniox_key).await?;
@@ -166,22 +171,10 @@ pub async fn list_models(
     base_url: Option<String>,
 ) -> Result<Vec<String>, String> {
     let credentials = credentials::get_credentials(&app)?;
-    let provider_config = llm_service::LlmConfig {
-        provider,
-        model: None,
-        temperature: None,
-        base_url: None,
-    };
-    let resolved_provider = llm_service::resolve_provider(&provider_config)?;
-    let api_key = if resolved_provider == "openai_compatible" {
-        credentials.openai_compatible_key
-    } else if resolved_provider == "gemini" {
-        credentials.gemini_key
-    } else {
-        credentials.xai_key
-    };
+    let provider_kind = Provider::parse(provider.as_deref().unwrap_or(""))?;
+    let api_key = provider_kind.pick_credential(&credentials).to_string();
 
-    llm_service::list_models(api_key, resolved_provider, base_url.as_deref()).await
+    llm_service::list_models(api_key, provider_kind.id(), base_url.as_deref()).await
 }
 
 #[tauri::command]
@@ -242,22 +235,10 @@ pub async fn correct_transcript(
         llm_config.base_url = Some(base_url);
     }
 
-    let provider = llm_service::resolve_provider(&llm_config)?;
-    let api_key = if provider == "openai_compatible" {
-        credentials.openai_compatible_key
-    } else if provider == "gemini" {
-        credentials.gemini_key
-    } else {
-        credentials.xai_key
-    };
+    let provider_kind = Provider::parse(llm_config.provider.as_deref().unwrap_or(""))?;
+    let api_key = provider_kind.pick_credential(&credentials).to_string();
     if api_key.trim().is_empty() {
-        if provider == "openai_compatible" {
-            return Err("OpenAI-compatible API key is not configured".to_string());
-        }
-        if provider == "gemini" {
-            return Err("Gemini API key is not configured".to_string());
-        }
-        return Err("xAI API key is not configured".to_string());
+        return Err(missing_provider_credential_error(provider_kind));
     }
 
     llm_service::correct_transcript(

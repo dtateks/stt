@@ -40,6 +40,13 @@ import {
   loadSonioxModelPreference,
 } from "./storage.ts";
 import { TemporaryApiKeyCache } from "./temporary-api-key-cache.ts";
+import {
+  DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+  XAI_PROVIDER,
+  defaultModelForProvider,
+  providerLabel,
+} from "./llm-provider.ts";
+import type { LlmProvider } from "./types.ts";
 
 const REMINDER_INTERVAL_MS   = 60_000;
 const ERROR_AUTO_RETURN_MS    = 2_000;
@@ -60,13 +67,7 @@ const STREAM_INTERRUPTED_ERROR_MESSAGE = "Connection interrupted. Retrying…";
 const STREAM_RESTART_FAILED_ERROR_MESSAGE = "Could not reconnect to Soniox. Check your key/network, then retry.";
 const INSERT_FAILED_ERROR_MESSAGE = "Could not insert text. Check accessibility permission, then retry.";
 const SESSION_START_FAILED_PREFIX = "Could not start listening";
-const XAI_PROVIDER = "xai";
-const GEMINI_PROVIDER = "gemini";
-const OPENAI_COMPATIBLE_PROVIDER = "openai_compatible";
-const DEFAULT_XAI_MODEL = "grok-4-1-fast-non-reasoning";
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
 const DEFAULT_SONIOX_MODEL = "stt-rt-v4";
-const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
 const STOP_WORD_FINALIZE_TIMEOUT_MS = 1_000;
 
 export type OverlayMode = "PASSIVE" | "INTERACTIVE";
@@ -780,8 +781,8 @@ export class BarSessionController {
 
   private resolveLlmRequestOptions(): LlmRequestOptions {
     const config = this.config;
-    const provider = loadLlmProviderPreference(
-      config?.llm.provider ?? XAI_PROVIDER,
+    const provider: LlmProvider = loadLlmProviderPreference(
+      (config?.llm.provider as LlmProvider) ?? XAI_PROVIDER,
     );
     const model = loadLlmModelPreference(provider) ?? defaultModelForProvider(provider);
     if (!model) {
@@ -1010,24 +1011,3 @@ function extractProviderApiErrorStatusCode(message: string): number | null {
   return Number.isNaN(statusCode) ? null : statusCode;
 }
 
-function providerLabel(provider: string): string {
-  if (provider === OPENAI_COMPATIBLE_PROVIDER) {
-    return "OpenAI-compatible";
-  }
-  if (provider === GEMINI_PROVIDER) {
-    return "Gemini";
-  }
-
-  return "xAI";
-}
-
-function defaultModelForProvider(provider: string): string | null {
-  if (provider === XAI_PROVIDER) {
-    return DEFAULT_XAI_MODEL;
-  }
-  if (provider === GEMINI_PROVIDER) {
-    return DEFAULT_GEMINI_MODEL;
-  }
-
-  return null;
-}

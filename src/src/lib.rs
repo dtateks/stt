@@ -13,6 +13,7 @@ mod platform_runtime_info;
 pub mod applescript;
 pub mod clipboard;
 pub mod credentials;
+pub mod llm_provider;
 pub mod llm_service;
 pub mod permissions;
 pub mod shell_credentials;

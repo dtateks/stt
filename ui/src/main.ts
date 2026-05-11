@@ -51,6 +51,15 @@ import {
 } from "./main-logic.ts";
 import { statusField } from "./status-field.ts";
 import { createModelPicker, type ModelPicker } from "./model-picker.ts";
+import {
+  DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+  OPENAI_COMPATIBLE_PROVIDER,
+  XAI_PROVIDER,
+  defaultModelForProvider,
+  hasProviderKey,
+  providerLabel,
+  updateProviderKey,
+} from "./llm-provider.ts";
 
 // ─── Staged settings state ────────────────────────────────────────────────
 
@@ -161,13 +170,7 @@ const dialogCloseBtn = q<HTMLButtonElement>("#dialog-close-btn");
 // Action buttons
 const openSettingsBtn = q<HTMLButtonElement>("#action-open-settings");
 
-const OPENAI_COMPATIBLE_PROVIDER: LlmProvider = "openai_compatible";
-const XAI_PROVIDER: LlmProvider = "xai";
-const GEMINI_PROVIDER: LlmProvider = "gemini";
-const DEFAULT_XAI_MODEL = "grok-4-1-fast-non-reasoning";
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
 const DEFAULT_SONIOX_MODEL = "stt-rt-v4";
-const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1";
 const SONIOX_KEY_PLACEHOLDER = "sk-soniox-…";
 const SONIOX_KEY_MASK_PLACEHOLDER = "••••••••••••••••";
 const READY_TO_DICTATE_TITLE = "Ready to dictate";
@@ -796,12 +799,7 @@ function syncLlmBaseUrlVisibility(): void {
 
 function syncProviderKeyLabel(): void {
   const provider = llmProviderSelect.value as LlmProvider;
-  const labelText = provider === XAI_PROVIDER 
-    ? "xAI API key" 
-    : provider === GEMINI_PROVIDER 
-      ? "Gemini API key" 
-      : "OpenAI-compatible API key";
-  providerKeyLabel.textContent = labelText;
+  providerKeyLabel.textContent = `${providerLabel(provider)} API key`;
 }
 
 function handleStopWordSave(): void {
@@ -840,13 +838,7 @@ async function handleProviderKeySave(): Promise<void> {
   const key = providerKeyInput.value.trim();
 
   try {
-    if (provider === XAI_PROVIDER) {
-      await window.voiceToText.updateXaiKey(key);
-    } else if (provider === GEMINI_PROVIDER) {
-      await window.voiceToText.updateGeminiKey(key);
-    } else {
-      await window.voiceToText.updateOpenaiCompatibleKey(key);
-    }
+    await updateProviderKey(window.voiceToText, provider, key);
     providerKeyInput.value = "";
     // Update key state indicator
     providerKeyInput.placeholder = "••••••••••••••••";
@@ -858,17 +850,6 @@ async function handleProviderKeySave(): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     providerKeyStatusField.setError(`Could not save API key: ${message}`);
   }
-}
-
-function defaultModelForProvider(provider: LlmProvider): string | null {
-  if (provider === XAI_PROVIDER) {
-    return DEFAULT_XAI_MODEL;
-  }
-  if (provider === GEMINI_PROVIDER) {
-    return DEFAULT_GEMINI_MODEL;
-  }
-
-  return null;
 }
 
 // ─── Key state indicators ──────────────────────────────────────────────────
@@ -898,15 +879,7 @@ async function loadKeyStates(): Promise<void> {
 
 async function loadProviderKeyState(provider: LlmProvider): Promise<void> {
   try {
-    let hasKey = false;
-    
-    if (provider === XAI_PROVIDER) {
-      hasKey = await window.voiceToText.hasXaiKey();
-    } else if (provider === GEMINI_PROVIDER) {
-      hasKey = await window.voiceToText.hasGeminiKey();
-    } else {
-      hasKey = await window.voiceToText.hasOpenaiCompatibleKey();
-    }
+    const hasKey = await hasProviderKey(window.voiceToText, provider);
 
     if (hasKey) {
       // Show masked placeholder to indicate key is present
