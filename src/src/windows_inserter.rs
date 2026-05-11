@@ -11,11 +11,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 
+use crate::clipboard::{ClipboardFormatData, ClipboardSnapshot};
 use super::{
-    ClipboardFormatData, ClipboardSnapshot, TextInsertionPermissionResult,
-    WINDOWS_HELPER_REQUIRED_MESSAGE, WINDOWS_HELPER_REQUIRED_PREFIX,
-    WINDOWS_HELPER_UNAVAILABLE_CODE, WINDOWS_HELPER_UNAVAILABLE_MESSAGE,
-    WINDOWS_HELPER_UNAVAILABLE_PREFIX,
+    TextInsertionPermissionResult, WINDOWS_HELPER_REQUIRED_MESSAGE,
+    WINDOWS_HELPER_REQUIRED_PREFIX, WINDOWS_HELPER_UNAVAILABLE_CODE,
+    WINDOWS_HELPER_UNAVAILABLE_MESSAGE, WINDOWS_HELPER_UNAVAILABLE_PREFIX,
 };
 
 const WINDOWS_INSERT_HELPER_ACTION: &str = "windows-insert";

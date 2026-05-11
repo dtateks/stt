@@ -1,34 +1,21 @@
 use std::thread;
 use std::time::Duration;
 
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use serde::{Deserialize, Serialize};
-
-#[cfg(target_os = "macos")]
-use objc2::rc::Retained;
-#[cfg(target_os = "macos")]
-use objc2::runtime::AnyObject;
-#[cfg(target_os = "macos")]
-use objc2::AnyThread;
-#[cfg(target_os = "macos")]
-use objc2_foundation::{
-    NSAppleScript, NSAppleScriptErrorBriefMessage, NSAppleScriptErrorMessage,
-    NSAppleScriptErrorNumber, NSDictionary, NSNumber, NSString,
-};
-#[cfg(not(target_os = "macos"))]
-use std::process::Command;
 
 use crate::permissions;
 
+#[cfg(target_os = "macos")]
+use crate::applescript;
+use crate::clipboard;
+
 #[cfg(target_os = "windows")]
 #[path = "windows_inserter.rs"]
-mod windows_inserter;
+pub(crate) mod windows_inserter;
 
 const ACCESSIBILITY_PERMISSION_REQUIRED_CODE: &str = "accessibility-permission-required";
-const ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE: &str = "Accessibility permission is required to insert text. Enable Voice to Text in System Settings → Privacy & Security → Accessibility, then try again.";
 const AUTOMATION_PERMISSION_REQUIRED_CODE: &str = "automation-permission-required";
 const AUTOMATION_CHECK_FAILED_CODE: &str = "automation-check-failed";
-const AUTOMATION_PERMISSION_REQUIRED_MESSAGE: &str = "Automation permission is required to control System Events for paste/Enter. Allow Voice to Text when macOS asks, then try again.";
 const WINDOWS_HELPER_UNAVAILABLE_CODE: &str = "windows-helper-unavailable";
 const WINDOWS_HELPER_REQUIRED_CODE: &str = "windows-helper-required";
 const WINDOWS_HELPER_UNAVAILABLE_PREFIX: &str = "windows-helper-unavailable:";
@@ -38,12 +25,8 @@ const WINDOWS_HELPER_REQUIRED_MESSAGE: &str = "Text insertion into elevated Wind
 const CLIPBOARD_RESTORE_FAILED_CODE: &str = "clipboard-restore-failed";
 const SHORT_INSERTION_DELAY_MS: u64 = 200;
 const LONG_INSERTION_DELAY_MS: u64 = 700;
-const DOUBLE_ENTER_REPEAT_DELAY_MS: u64 = 230;
 const POST_INSERTION_DELAY_MS: u64 = 100;
 const LONG_INSERTION_TEXT_THRESHOLD: usize = 200;
-const SYSTEM_EVENTS_RETRY_DELAY_MS: u64 = 75;
-const SYSTEM_EVENTS_RETRY_ATTEMPTS: usize = 2;
-const SYSTEM_EVENTS_RETURN_KEY_SCRIPT: &str = r#"tell application "System Events" to key code 36"#;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InsertTextResult {
@@ -65,18 +48,6 @@ pub struct TextInsertionPermissionResult {
     pub opened_settings: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct ClipboardSnapshot {
-    had_formats: bool,
-    formats: Vec<ClipboardFormatData>,
-}
-
-#[derive(Debug, Clone)]
-struct ClipboardFormatData {
-    format: String,
-    data_base64: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,12 +95,12 @@ where
         };
     }
 
-    let snapshot = snapshot_clipboard();
+    let snapshot = clipboard::snapshot();
 
     before_insertion();
     let operation_result = perform_insertion(&text, enter_mode);
     let restore_result = match snapshot {
-        Some(snapshot_to_restore) => restore_clipboard(&snapshot_to_restore),
+        Some(snapshot_to_restore) => clipboard::restore(&snapshot_to_restore),
         None => Ok(()),
     };
 
@@ -173,7 +144,7 @@ pub fn build_insert_text_result(
 }
 
 pub fn copy_to_clipboard(text: String) -> Result<(), String> {
-    write_plain_text_clipboard(&text)
+    clipboard::write_plain_text(&text)
 }
 
 pub fn ensure_text_insertion_permission() -> TextInsertionPermissionResult {
@@ -182,7 +153,7 @@ pub fn ensure_text_insertion_permission() -> TextInsertionPermissionResult {
         return windows_inserter::ensure_text_insertion_permission();
     }
 
-    build_text_insertion_permission_result(run_osascript(
+    build_text_insertion_permission_result(applescript::run(
         r#"tell application "System Events" to count processes"#,
     ))
 }
@@ -202,7 +173,7 @@ pub fn build_text_insertion_permission_result(
                 return result;
             }
 
-            let code = if is_system_events_automation_denied(&error) {
+            let code = if applescript::is_system_events_automation_denied(&error) {
                 AUTOMATION_PERMISSION_REQUIRED_CODE
             } else {
                 AUTOMATION_CHECK_FAILED_CODE
@@ -212,7 +183,7 @@ pub fn build_text_insertion_permission_result(
                 granted: false,
                 code: Some(code.to_string()),
                 opened_settings: None,
-                message: Some(format_system_events_error_message(&error)),
+                message: Some(applescript::format_system_events_error_message(&error)),
             }
         }
     }
@@ -253,24 +224,14 @@ fn normalize_windows_helper_error_message(error: &str, default_message: &str) ->
     trimmed.to_string()
 }
 
-fn validate_pasteboard_change_count(change_count: isize) -> Result<(), String> {
-    if change_count >= 0 {
-        return Ok(());
-    }
-
-    Err(format!(
-        "Clipboard clear returned invalid change count: {change_count}"
-    ))
-}
-
 fn perform_insertion(text: &str, enter_mode: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         return windows_inserter::perform_insertion(text, enter_mode);
     }
 
-    write_plain_text_clipboard(text)?;
-    run_system_events_osascript(
+    clipboard::write_plain_text(text)?;
+    applescript::run_system_events(
         r#"tell application "System Events" to keystroke "v" using command down"#,
     )?;
 
@@ -282,30 +243,11 @@ fn perform_insertion(text: &str, enter_mode: bool) -> Result<(), String> {
     thread::sleep(Duration::from_millis(insertion_delay_ms));
 
     if enter_mode {
-        run_double_enter_sequence()?;
+        applescript::run_double_enter_sequence()?;
     }
 
     thread::sleep(Duration::from_millis(POST_INSERTION_DELAY_MS));
     Ok(())
-}
-
-fn run_double_enter_sequence() -> Result<(), String> {
-    run_double_enter_sequence_with(run_system_events_osascript, |delay| {
-        thread::sleep(delay);
-    })
-}
-
-fn run_double_enter_sequence_with<RunScript, SleepBeforeRepeat>(
-    mut run_script: RunScript,
-    mut sleep_before_repeat: SleepBeforeRepeat,
-) -> Result<(), String>
-where
-    RunScript: FnMut(&str) -> Result<(), String>,
-    SleepBeforeRepeat: FnMut(Duration),
-{
-    run_script(SYSTEM_EVENTS_RETURN_KEY_SCRIPT)?;
-    sleep_before_repeat(Duration::from_millis(DOUBLE_ENTER_REPEAT_DELAY_MS));
-    run_script(SYSTEM_EVENTS_RETURN_KEY_SCRIPT)
 }
 
 /// Non-prompting automation status check.
@@ -317,7 +259,7 @@ pub fn check_automation_status() -> bool {
         return windows_inserter::is_privileged_helper_available();
     }
 
-    run_osascript(r#"tell application "System Events" to count processes"#).is_ok()
+    applescript::run(r#"tell application "System Events" to count processes"#).is_ok()
 }
 
 pub fn run_windows_insertion_helper_mode(
@@ -426,202 +368,11 @@ where
     ))
 }
 
-#[cfg(target_os = "macos")]
-fn run_osascript(script: &str) -> Result<(), String> {
-    let source = NSString::from_str(script);
-    let script = NSAppleScript::initWithSource(NSAppleScript::alloc(), &source)
-        .ok_or_else(|| "AppleScript execution failed".to_string())?;
-
-    let mut error_info: Option<Retained<NSDictionary<NSString, AnyObject>>> = None;
-    let _ = unsafe { script.executeAndReturnError(Some(&mut error_info)) };
-
-    match error_info {
-        Some(error_info) => Err(format_applescript_error(&error_info)),
-        None => Ok(()),
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn format_applescript_error(error_info: &NSDictionary<NSString, AnyObject>) -> String {
-    let message =
-        extract_applescript_error_string(error_info, unsafe { NSAppleScriptErrorMessage })
-            .or_else(|| {
-                extract_applescript_error_string(error_info, unsafe {
-                    NSAppleScriptErrorBriefMessage
-                })
-            })
-            .unwrap_or_else(|| "AppleScript execution failed".to_string());
-
-    let Some(error_number) = error_info
-        .objectForKey(unsafe { NSAppleScriptErrorNumber })
-        .and_then(|value| value.downcast_ref::<NSNumber>().map(NSNumber::intValue))
-    else {
-        return message;
-    };
-
-    let error_number_suffix = format!("({error_number})");
-    if message.contains(&error_number_suffix) {
-        return message;
-    }
-
-    format!("{message} {error_number_suffix}")
-}
-
-#[cfg(target_os = "macos")]
-fn extract_applescript_error_string(
-    error_info: &NSDictionary<NSString, AnyObject>,
-    key: &NSString,
-) -> Option<String> {
-    error_info.objectForKey(key).and_then(|value| {
-        value
-            .downcast_ref::<NSString>()
-            .map(|string| string.to_string())
-    })
-}
-
-#[cfg(not(target_os = "macos"))]
-fn run_osascript(script: &str) -> Result<(), String> {
-    let output = Command::new("osascript")
-        .args(["-e", script])
-        .output()
-        .map_err(|error| error.to_string())?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if stderr.is_empty() {
-            Err("AppleScript execution failed".to_string())
-        } else {
-            Err(stderr)
-        }
-    }
-}
-
-fn run_system_events_osascript(script: &str) -> Result<(), String> {
-    run_system_events_osascript_with(script, run_osascript, || {
-        thread::sleep(Duration::from_millis(SYSTEM_EVENTS_RETRY_DELAY_MS));
-    })
-}
-
-fn run_system_events_osascript_with<RunScript, SleepBeforeRetry>(
-    script: &str,
-    mut run_script: RunScript,
-    mut sleep_before_retry: SleepBeforeRetry,
-) -> Result<(), String>
-where
-    RunScript: FnMut(&str) -> Result<(), String>,
-    SleepBeforeRetry: FnMut(),
-{
-    for attempt in 0..SYSTEM_EVENTS_RETRY_ATTEMPTS {
-        match run_script(script) {
-            Ok(()) => return Ok(()),
-            Err(error) => {
-                if is_system_events_automation_denied(&error)
-                    || attempt + 1 == SYSTEM_EVENTS_RETRY_ATTEMPTS
-                {
-                    return Err(format_system_events_error_message(&error));
-                }
-
-                sleep_before_retry();
-            }
-        }
-    }
-
-    Err("AppleScript execution failed".to_string())
-}
-
-fn format_system_events_error_message(error: &str) -> String {
-    if is_system_events_automation_denied(error) {
-        return AUTOMATION_PERMISSION_REQUIRED_MESSAGE.to_string();
-    }
-
-    if is_system_events_accessibility_denied(error) {
-        return ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE.to_string();
-    }
-
-    format!("Could not control System Events: {error}")
-}
-
-fn is_system_events_automation_denied(error: &str) -> bool {
-    let normalized_error = error.to_ascii_lowercase();
-    normalized_error.contains("not authorized to send apple events") || error.contains("(-1743)")
-}
-
-fn is_system_events_accessibility_denied(error: &str) -> bool {
-    let normalized_error = error.to_ascii_lowercase();
-
-    normalized_error.contains("assistive access")
-        || normalized_error.contains("not allowed to send keystrokes")
-        || normalized_error.contains("a privilege error has occurred")
-        || (error.contains("(-1719)") && normalized_error.contains("system events"))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_insert_text_result, build_text_insertion_permission_result,
-        format_system_events_error_message, is_system_events_accessibility_denied,
-        is_system_events_automation_denied, run_double_enter_sequence_with,
-        run_system_events_osascript_with, validate_pasteboard_change_count,
-        ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE, AUTOMATION_PERMISSION_REQUIRED_CODE,
-        AUTOMATION_PERMISSION_REQUIRED_MESSAGE, DOUBLE_ENTER_REPEAT_DELAY_MS,
-        SYSTEM_EVENTS_RETURN_KEY_SCRIPT,
-    };
-    #[cfg(target_os = "macos")]
-    use super::{restore_clipboard, ClipboardSnapshot};
-    use std::time::Duration;
-
-    #[test]
-    fn detects_system_events_automation_denial() {
-        assert!(is_system_events_automation_denied(
-            "Not authorized to send Apple events to System Events. (-1743)"
-        ));
-    }
-
-    #[test]
-    fn detects_lowercase_system_events_automation_denial() {
-        assert!(is_system_events_automation_denied(
-            "not authorized to send Apple events to System Events."
-        ));
-    }
-
-    #[test]
-    fn maps_automation_denial_to_actionable_message() {
-        assert_eq!(
-            format_system_events_error_message(
-                "Not authorized to send Apple events to System Events. (-1743)"
-            ),
-            AUTOMATION_PERMISSION_REQUIRED_MESSAGE
-        );
-    }
-
-    #[test]
-    fn detects_system_events_accessibility_denial() {
-        assert!(is_system_events_accessibility_denied(
-            "System Events got an error: osascript is not allowed assistive access. (-1728)"
-        ));
-    }
-
-    #[test]
-    fn maps_accessibility_denial_to_actionable_message() {
-        assert_eq!(
-            format_system_events_error_message(
-                "System Events got an error: osascript is not allowed assistive access. (-1728)"
-            ),
-            ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE
-        );
-    }
-
-    #[test]
-    fn maps_exact_execution_error_shape_to_accessibility_message() {
-        assert_eq!(
-            format_system_events_error_message(
-                "36: 68: execution error: System Events got an error: osascript is not allowed assistive access. (-1728)"
-            ),
-            ACCESSIBILITY_PERMISSION_REQUIRED_MESSAGE
-        );
-    }
+    use super::{build_insert_text_result, build_text_insertion_permission_result};
+    use crate::applescript::AUTOMATION_PERMISSION_REQUIRED_MESSAGE;
+    use crate::text_inserter::AUTOMATION_PERMISSION_REQUIRED_CODE;
 
     #[test]
     fn permission_result_maps_automation_denial_to_expected_code() {
@@ -654,136 +405,6 @@ mod tests {
     }
 
     #[test]
-    fn preserves_unexpected_system_events_errors() {
-        assert_eq!(
-            format_system_events_error_message("Execution error: foo"),
-            "Could not control System Events: Execution error: foo"
-        );
-    }
-
-    #[test]
-    fn retries_unexpected_system_events_error_once_before_succeeding() {
-        let mut attempts = 0;
-        let mut sleeps = 0;
-
-        let result = run_system_events_osascript_with(
-            "paste",
-            |_script| {
-                attempts += 1;
-                if attempts == 1 {
-                    return Err("Execution error: foo".to_string());
-                }
-
-                Ok(())
-            },
-            || {
-                sleeps += 1;
-            },
-        );
-
-        assert!(result.is_ok());
-        assert_eq!(attempts, 2);
-        assert_eq!(sleeps, 1);
-    }
-
-    #[test]
-    fn does_not_retry_automation_denial_errors() {
-        let mut attempts = 0;
-        let mut sleeps = 0;
-
-        let result = run_system_events_osascript_with(
-            "paste",
-            |_script| {
-                attempts += 1;
-                Err("Not authorized to send Apple events to System Events. (-1743)".to_string())
-            },
-            || {
-                sleeps += 1;
-            },
-        );
-
-        assert_eq!(
-            result.err().as_deref(),
-            Some(AUTOMATION_PERMISSION_REQUIRED_MESSAGE)
-        );
-        assert_eq!(attempts, 1);
-        assert_eq!(sleeps, 0);
-    }
-
-    #[test]
-    fn preserves_unexpected_system_events_error_after_retry_exhaustion() {
-        let mut attempts = 0;
-        let mut sleeps = 0;
-
-        let result = run_system_events_osascript_with(
-            "paste",
-            |_script| {
-                attempts += 1;
-                Err("Execution error: foo".to_string())
-            },
-            || {
-                sleeps += 1;
-            },
-        );
-
-        assert_eq!(
-            result.err().as_deref(),
-            Some("Could not control System Events: Execution error: foo")
-        );
-        assert_eq!(attempts, 2);
-        assert_eq!(sleeps, 1);
-    }
-
-    #[test]
-    fn double_enter_sequence_sends_return_twice_with_repeat_delay() {
-        let mut scripts = Vec::new();
-        let mut delays = Vec::new();
-
-        let result = run_double_enter_sequence_with(
-            |script| {
-                scripts.push(script.to_string());
-                Ok(())
-            },
-            |delay| {
-                delays.push(delay);
-            },
-        );
-
-        assert!(result.is_ok());
-        assert_eq!(
-            scripts.as_slice(),
-            [
-                SYSTEM_EVENTS_RETURN_KEY_SCRIPT,
-                SYSTEM_EVENTS_RETURN_KEY_SCRIPT
-            ]
-        );
-        assert_eq!(
-            delays.as_slice(),
-            [Duration::from_millis(DOUBLE_ENTER_REPEAT_DELAY_MS)]
-        );
-    }
-
-    #[test]
-    fn double_enter_sequence_stops_when_first_return_fails() {
-        let mut attempts = 0;
-        let mut delays = Vec::new();
-
-        let result = run_double_enter_sequence_with(
-            |_script| {
-                attempts += 1;
-                Err("first enter failed".to_string())
-            },
-            |delay| {
-                delays.push(delay);
-            },
-        );
-
-        assert_eq!(result.err().as_deref(), Some("first enter failed"));
-        assert_eq!(attempts, 1);
-        assert!(delays.is_empty());
-    }
-
-    #[test]
     fn reports_restore_failure_when_insertion_succeeds() {
         let result = build_insert_text_result(Ok(()), Err("Clipboard unavailable".to_string()));
 
@@ -813,220 +434,4 @@ mod tests {
             )
         );
     }
-
-    #[test]
-    fn accepts_zero_change_count_when_clearing_clipboard() {
-        assert!(validate_pasteboard_change_count(0).is_ok());
-    }
-
-    #[test]
-    fn rejects_negative_change_count_when_clearing_clipboard() {
-        assert_eq!(
-            validate_pasteboard_change_count(-1).err().as_deref(),
-            Some("Clipboard clear returned invalid change count: -1")
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn restore_keeps_inserted_text_when_original_clipboard_had_no_preservable_formats() {
-        let snapshot = ClipboardSnapshot {
-            had_formats: true,
-            formats: Vec::new(),
-        };
-
-        let result = restore_clipboard(&snapshot);
-
-        assert!(result.is_ok());
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
-    use objc2::msg_send;
-    use objc2::rc::Retained;
-    use objc2::ClassType;
-    use objc2_app_kit::NSPasteboard;
-    use objc2_foundation::{NSArray, NSData, NSString};
-
-    let pasteboard: Retained<NSPasteboard> = unsafe {
-        let cls = NSPasteboard::class();
-        let obj: Option<Retained<NSPasteboard>> = msg_send![cls, generalPasteboard];
-        obj?
-    };
-
-    let types: Retained<NSArray<NSString>> = unsafe {
-        let obj: Option<Retained<NSArray<NSString>>> = msg_send![&*pasteboard, types];
-        let Some(obj) = obj else {
-            return Some(ClipboardSnapshot {
-                had_formats: false,
-                formats: Vec::new(),
-            });
-        };
-        obj
-    };
-
-    let count: usize = unsafe { msg_send![&*types, count] };
-    let had_formats = count > 0;
-    let mut formats = Vec::new();
-
-    for index in 0..count {
-        let type_id: Retained<NSString> = unsafe {
-            let obj: Option<Retained<NSString>> = msg_send![&*types, objectAtIndex: index];
-            let Some(obj) = obj else {
-                continue;
-            };
-            obj
-        };
-
-        let type_utf8: *const std::ffi::c_char = unsafe { msg_send![&*type_id, UTF8String] };
-        if type_utf8.is_null() {
-            continue;
-        }
-
-        let format = unsafe { std::ffi::CStr::from_ptr(type_utf8) }
-            .to_string_lossy()
-            .to_string();
-
-        let data: Retained<NSData> = unsafe {
-            let obj: Option<Retained<NSData>> = msg_send![&*pasteboard, dataForType: &*type_id];
-            let Some(obj) = obj else {
-                continue;
-            };
-            obj
-        };
-
-        let bytes: *const u8 = unsafe { msg_send![&*data, bytes] };
-        let len: usize = unsafe { msg_send![&*data, length] };
-        if len > 0 && bytes.is_null() {
-            continue;
-        }
-
-        let bytes_slice: &[u8] = if len == 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(bytes, len) }
-        };
-        formats.push(ClipboardFormatData {
-            format,
-            data_base64: BASE64_STANDARD.encode(bytes_slice),
-        });
-    }
-
-    Some(ClipboardSnapshot {
-        had_formats,
-        formats,
-    })
-}
-
-#[cfg(target_os = "windows")]
-fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
-    windows_inserter::snapshot_clipboard()
-}
-
-#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-fn snapshot_clipboard() -> Option<ClipboardSnapshot> {
-    None
-}
-
-#[cfg(target_os = "macos")]
-fn restore_clipboard(snapshot: &ClipboardSnapshot) -> Result<(), String> {
-    use objc2::msg_send;
-    use objc2::rc::Retained;
-    use objc2::ClassType;
-    use objc2_app_kit::NSPasteboard;
-    use objc2_foundation::{NSData, NSString};
-
-    if !snapshot.had_formats {
-        return write_plain_text_clipboard("");
-    }
-
-    if snapshot.formats.is_empty() {
-        return Ok(());
-    }
-
-    let pasteboard: Retained<NSPasteboard> = unsafe {
-        let cls = NSPasteboard::class();
-        let obj: Option<Retained<NSPasteboard>> = msg_send![cls, generalPasteboard];
-        let Some(obj) = obj else {
-            return Err("Clipboard unavailable".to_string());
-        };
-        obj
-    };
-
-    let change_count: isize = unsafe { msg_send![&*pasteboard, clearContents] };
-    validate_pasteboard_change_count(change_count)?;
-    for item in &snapshot.formats {
-        let decoded = BASE64_STANDARD.decode(&item.data_base64).map_err(|error| {
-            format!(
-                "Failed to decode clipboard format `{}` for restore: {error}",
-                item.format
-            )
-        })?;
-
-        let ns_data = NSData::from_vec(decoded);
-        let ns_type = NSString::from_str(&item.format);
-        let did_set_data: bool =
-            unsafe { msg_send![&*pasteboard, setData: &*ns_data, forType: &*ns_type] };
-        if !did_set_data {
-            return Err(format!(
-                "Failed to restore clipboard format `{}`",
-                item.format
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn restore_clipboard(snapshot: &ClipboardSnapshot) -> Result<(), String> {
-    windows_inserter::restore_clipboard(snapshot)
-}
-
-#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-fn restore_clipboard(_snapshot: &ClipboardSnapshot) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn write_plain_text_clipboard(text: &str) -> Result<(), String> {
-    use objc2::msg_send;
-    use objc2::rc::Retained;
-    use objc2::ClassType;
-    use objc2_app_kit::NSPasteboard;
-    use objc2_foundation::NSString;
-
-    let pasteboard: Retained<NSPasteboard> = unsafe {
-        let cls = NSPasteboard::class();
-        let obj: Option<Retained<NSPasteboard>> = msg_send![cls, generalPasteboard];
-        let Some(obj) = obj else {
-            return Err("Clipboard unavailable".to_string());
-        };
-        obj
-    };
-
-    let change_count: isize = unsafe { msg_send![&*pasteboard, clearContents] };
-    validate_pasteboard_change_count(change_count)?;
-
-    let ns_text = NSString::from_str(text);
-    let string_type = NSString::from_str("public.utf8-plain-text");
-    let did_write: bool =
-        unsafe { msg_send![&*pasteboard, setString: &*ns_text, forType: &*string_type] };
-
-    if did_write {
-        Ok(())
-    } else {
-        Err("Failed to write text to clipboard".to_string())
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn write_plain_text_clipboard(text: &str) -> Result<(), String> {
-    windows_inserter::write_plain_text_clipboard(text)
-}
-
-#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-fn write_plain_text_clipboard(_text: &str) -> Result<(), String> {
-    Err("Clipboard is only supported on macOS".to_string())
 }

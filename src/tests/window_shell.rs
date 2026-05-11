@@ -666,10 +666,10 @@ fn runtime_commands_use_panel_mouse_event_toggle_path() {
 
 #[test]
 fn runtime_positioning_uses_global_mouse_fallback_for_background_shortcuts() {
-    let lib_rs = read_project_file("src/lib.rs");
+    let bar_window_rs = read_project_file("src/bar_window.rs");
 
     assert!(
-        lib_rs.contains("monitor_from_global_mouse_location"),
+        bar_window_rs.contains("monitor_from_global_mouse_location"),
         "bar positioning should include global-mouse fallback when cursor lookup fails"
     );
 }

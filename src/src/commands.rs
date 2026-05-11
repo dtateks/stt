@@ -346,17 +346,17 @@ pub fn get_platform_runtime_info() -> PlatformRuntimeInfo {
 
 #[tauri::command]
 pub fn consume_pending_mic_toggle(app: AppHandle) -> Result<bool, String> {
-    crate::consume_pending_mic_toggle_request(&app)
+    crate::mic_shortcut::consume_pending_request(&app)
 }
 
 #[tauri::command]
 pub fn get_mic_toggle_shortcut(app: AppHandle) -> Result<String, String> {
-    crate::get_mic_toggle_shortcut(&app)
+    crate::mic_shortcut::current(&app)
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn update_mic_toggle_shortcut(app: AppHandle, shortcut: String) -> Result<String, String> {
-    crate::update_mic_toggle_shortcut(&app, &shortcut)
+    crate::mic_shortcut::update(&app, &shortcut)
 }
 
 #[cfg(test)]
