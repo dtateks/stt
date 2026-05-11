@@ -12,11 +12,9 @@ import type {
   OutputLang,
   PlatformRuntimeInfo,
 } from "./types.ts";
-import {
-  renderShortcutRecorderState,
-} from "./shortcut-recorder-logic.ts";
 import type { ShortcutDisplayMode } from "./shortcut-display.ts";
 import { shortcutCanonicalToDisplay } from "./shortcut-display.ts";
+import { createShortcutRecorder, type ShortcutRecorder } from "./shortcut-recorder.ts";
 import {
   DEFAULT_MIC_TOGGLE_SHORTCUT,
   loadPreferences,
@@ -69,20 +67,6 @@ interface StagedSettings {
 
 let staged: StagedSettings = { terms: [] };
 let settingsOpenedBy: HTMLElement | null = null;
-
-// ─── Shortcut recorder state ──────────────────────────────────────────────
-
-interface ShortcutRecorderState {
-  isRecording: boolean;
-  keys: Set<string>;
-  modifiers: Set<string>;
-}
-
-let shortcutRecorderState: ShortcutRecorderState = {
-  isRecording: false,
-  keys: new Set(),
-  modifiers: new Set(),
-};
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────
 
@@ -253,6 +237,20 @@ const DEFAULT_PLATFORM_RUNTIME_INFO: PlatformRuntimeInfo = {
 };
 let platformRuntimeInfo: PlatformRuntimeInfo = DEFAULT_PLATFORM_RUNTIME_INFO;
 
+const shortcutRecorder: ShortcutRecorder = createShortcutRecorder({
+  buttonEl: micShortcutRecorder,
+  resetBtnEl: micShortcutResetBtn,
+  statusField: shortcutStatusField,
+  displayMode: () => getShortcutDisplayMode(platformRuntimeInfo),
+  loadSavedShortcut: () => loadMicToggleShortcutPreference(),
+  saveShortcut: (canonical) => saveMicToggleShortcutPreference(canonical),
+  resetSavedShortcut: () => resetMicToggleShortcutPreference(),
+  applyShortcutAtRuntime: (canonical) =>
+    window.voiceToText.updateMicToggleShortcut(canonical),
+  onShortcutApplied: (canonical) => updateReadyCardShortcut(canonical),
+  defaultShortcut: DEFAULT_MIC_TOGGLE_SHORTCUT,
+});
+
 // ─── Initialization ───────────────────────────────────────────────────────
 
 async function init(): Promise<void> {
@@ -260,7 +258,6 @@ async function init(): Promise<void> {
   bindPrefs();
   bindActionButtons();
   bindDialog();
-  bindShortcutRecorder();
   bindUpdateBanner();
   loadPrefsUI();
   initializeMainWindowAutoFit();
@@ -602,9 +599,9 @@ function loadPrefsUI(): void {
   modelStatusField.clear();
   providerKeyStatusField.clear();
 
-  // Load saved shortcut into recorder
-  const savedShortcut = loadMicToggleShortcutPreference();
-  renderShortcutRecorder(savedShortcut);
+  // Re-apply the saved shortcut so the recorder picks up any platform
+  // display-mode change that happened since module load.
+  shortcutRecorder.applyRuntimeShortcut(loadMicToggleShortcutPreference());
 
   // Show placeholder in each model select until the picker fetches real models.
   llmModelPicker.showInitialPlaceholder();
@@ -698,10 +695,6 @@ function bindPrefs(): void {
       event.preventDefault();
       handleStopWordSave();
     }
-  });
-
-  micShortcutResetBtn.addEventListener("click", () => {
-    void handleMicShortcutReset();
   });
 
   llmProviderSelect.addEventListener("change", () => {
@@ -898,8 +891,7 @@ async function loadProviderKeyState(provider: LlmProvider): Promise<void> {
 async function loadRuntimeMicToggleShortcut(): Promise<void> {
   try {
     const runtimeShortcut = await window.voiceToText.getMicToggleShortcut();
-    renderShortcutRecorder(runtimeShortcut);
-    updateReadyCardShortcut(runtimeShortcut);
+    shortcutRecorder.applyRuntimeShortcut(runtimeShortcut);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     shortcutStatusField.setError(`Could not load current shortcut: ${message}`);
@@ -921,196 +913,6 @@ function setSonioxConnectionState(hasKey: boolean): void {
   prefsReadyTitle.textContent = hasKey ? READY_TO_DICTATE_TITLE : READY_TO_CONFIGURE_TITLE;
   statusHero.dataset.state = hasKey ? "ready" : "setup";
   updateReadyCardShortcut(loadMicToggleShortcutPreference());
-}
-
-// ─── Shortcut recorder ────────────────────────────────────────────────────
-
-function bindShortcutRecorder(): void {
-  micShortcutRecorder.addEventListener("click", () => {
-    if (shortcutRecorderState.isRecording) {
-      stopRecordingShortcut();
-    } else {
-      startRecordingShortcut();
-    }
-  });
-
-  document.addEventListener("keydown", (e) => {
-    if (!shortcutRecorderState.isRecording) return;
-    handleShortcutKeyDown(e);
-  }, { capture: true });
-
-  document.addEventListener("keyup", (e) => {
-    if (!shortcutRecorderState.isRecording) return;
-    handleShortcutKeyUp(e);
-  }, { capture: true });
-}
-
-function startRecordingShortcut(): void {
-  shortcutRecorderState = {
-    isRecording: true,
-    keys: new Set(),
-    modifiers: new Set(),
-  };
-  micShortcutRecorder.classList.add("is-recording");
-  micShortcutRecorder.setAttribute("aria-label", "Recording shortcut — press key combination");
-  renderShortcutRecorder("");
-}
-
-function stopRecordingShortcut(): void {
-  shortcutRecorderState.isRecording = false;
-  micShortcutRecorder.classList.remove("is-recording");
-  micShortcutRecorder.setAttribute("aria-label", "Global mic toggle shortcut — click to record");
-
-  // Restore saved shortcut if recording was cancelled
-  const savedShortcut = loadMicToggleShortcutPreference();
-  renderShortcutRecorder(savedShortcut);
-}
-
-function handleShortcutKeyDown(e: KeyboardEvent): void {
-  e.preventDefault();
-  e.stopPropagation();
-
-  const key = normalizeKey(e.key);
-  if (isModifierKey(key)) {
-    shortcutRecorderState.modifiers.add(key);
-  } else if (key !== "Unidentified") {
-    shortcutRecorderState.keys.add(key);
-  }
-
-  renderCurrentShortcut();
-}
-
-function handleShortcutKeyUp(e: KeyboardEvent): void {
-  e.preventDefault();
-  e.stopPropagation();
-
-  const key = normalizeKey(e.key);
-  if (isModifierKey(key)) {
-    shortcutRecorderState.modifiers.delete(key);
-  }
-
-  // If all keys released and we captured something, stop recording
-  if (e.key === "Escape") {
-    stopRecordingShortcut();
-    return;
-  }
-
-  // Auto-commit when a non-modifier key is pressed and released
-  if (!isModifierKey(key) && shortcutRecorderState.keys.size > 0) {
-    const shortcut = buildShortcutString();
-    if (shortcut) {
-      stopRecordingShortcut();
-      renderShortcutRecorder(shortcut);
-      // Auto-save the recorded shortcut
-      void saveRecordedShortcut(shortcut);
-    }
-  }
-}
-
-function normalizeKey(key: string): string {
-  const keyMap: Record<string, string> = {
-    "Control": "Control",
-    "Ctrl": "Control",
-    "Alt": "Alt",
-    "Option": "Alt",
-    "Shift": "Shift",
-    "Meta": "Super",
-    "Command": "Super",
-    "Cmd": "Super",
-    "Super": "Super",
-    "ArrowUp": "Up",
-    "ArrowDown": "Down",
-    "ArrowLeft": "Left",
-    "ArrowRight": "Right",
-  };
-  return keyMap[key] || key;
-}
-
-function isModifierKey(key: string): boolean {
-  return ["Control", "Alt", "Shift", "Super"].includes(key);
-}
-
-function buildShortcutString(): string {
-  const modifiers = Array.from(shortcutRecorderState.modifiers);
-  const keys = Array.from(shortcutRecorderState.keys);
-
-  // Sort modifiers in consistent order
-  const modifierOrder = ["Control", "Alt", "Shift", "Super"];
-  const sortedModifiers = modifiers.sort(
-    (a, b) => modifierOrder.indexOf(a) - modifierOrder.indexOf(b)
-  );
-
-  const parts = [...sortedModifiers, ...keys];
-  return parts.join("+");
-}
-
-function renderCurrentShortcut(): void {
-  const shortcut = buildShortcutString();
-  renderShortcutRecorder(shortcut || "Press keys…");
-}
-
-function renderShortcutRecorder(shortcut: string): void {
-  renderShortcutRecorderState(
-    micShortcutRecorder,
-    shortcut,
-    getShortcutDisplayMode(platformRuntimeInfo),
-  );
-}
-
-async function saveRecordedShortcut(shortcut: string): Promise<void> {
-  setMicShortcutBusy(true);
-  try {
-    const runtimeShortcut = await window.voiceToText.updateMicToggleShortcut(shortcut);
-    renderShortcutRecorder(runtimeShortcut);
-    updateReadyCardShortcut(runtimeShortcut);
-
-    const persisted = saveMicToggleShortcutPreference(runtimeShortcut);
-    if (!persisted) {
-      shortcutStatusField.setError(
-        "Shortcut updated, but local save failed. Storage may be unavailable.");
-      return;
-    }
-
-    shortcutStatusField.setSuccess("Global shortcut saved.");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    shortcutStatusField.setError(`Could not save shortcut: ${message}`);
-  } finally {
-    setMicShortcutBusy(false);
-  }
-}
-
-async function handleMicShortcutReset(): Promise<void> {
-  shortcutStatusField.clear();
-  setMicShortcutBusy(true);
-  try {
-    const runtimeShortcut = await window.voiceToText.updateMicToggleShortcut(
-      DEFAULT_MIC_TOGGLE_SHORTCUT,
-    );
-    renderShortcutRecorder(runtimeShortcut);
-    updateReadyCardShortcut(runtimeShortcut);
-
-    const cleared = resetMicToggleShortcutPreference();
-    if (!cleared) {
-      const fallbackSaved = saveMicToggleShortcutPreference(runtimeShortcut);
-      if (!fallbackSaved) {
-        shortcutStatusField.setError(
-          "Shortcut reset, but local storage is unavailable.");
-        return;
-      }
-    }
-
-    shortcutStatusField.setSuccess("Global shortcut reset to default.");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    shortcutStatusField.setError(`Could not reset shortcut: ${message}`);
-  } finally {
-    setMicShortcutBusy(false);
-  }
-}
-
-function setMicShortcutBusy(isBusy: boolean): void {
-  micShortcutResetBtn.disabled = isBusy;
 }
 
 // ─── AI fieldset disabled sync ────────────────────────────────────────────
