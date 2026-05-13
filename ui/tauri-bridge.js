@@ -199,11 +199,11 @@
    */
   window.voiceToTextDefaults = {
     terms: [
-      "Claude Code", "tmux", "tm-send", "LLM", "API", "GitHub", "pytest",
-      "uv", "pnpm", "Celery", "Redis", "FastAPI", "Docker", "Kubernetes",
-      "git", "npm", "pip", "debug", "refactor", "deploy", "endpoint",
-      "middleware", "async", "await", "webhook", "caching", "SSH",
-      "localhost", "frontend", "backend", "TypeScript", "Python",
+      "gbrain", "claude", "object", "repo", "code", "action", "path",
+      "goal", "bash", "best", "approach", "tmux", "session", "send",
+      "get", "context", "instance", "set", "docs", "hard", "phase",
+      "line", "dev", "rule", "orchestrator", "change", "chrome", "trace",
+      "research", "auth", "instruction", "preview", "html", "markdown",
     ],
   };
 })();

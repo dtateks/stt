@@ -115,8 +115,8 @@ describe("tauri bridge command contract", () => {
   });
 
   it("exposes upstream vocabulary defaults through the bridge", () => {
-    expect(window.voiceToTextDefaults.terms).toContain("Claude Code");
-    expect(window.voiceToTextDefaults.terms).toContain("FastAPI");
+    expect(window.voiceToTextDefaults.terms).toContain("gbrain");
+    expect(window.voiceToTextDefaults.terms).toContain("claude");
     expect("translationTerms" in window.voiceToTextDefaults).toBe(false);
   });
 
