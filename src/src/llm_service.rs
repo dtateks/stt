@@ -132,10 +132,26 @@ pub async fn list_models(
         .unwrap_or_default();
 
     if models.is_empty() {
-        return Err("No models returned from provider".to_string());
+        return Err(empty_models_error_for(provider_kind));
     }
 
     Ok(models)
+}
+
+fn empty_models_error_for(provider: Provider) -> String {
+    match provider {
+        Provider::OpenAiCompatible => {
+            // Empty OpenAI-compatible responses almost always mean the Base
+            // URL points at an endpoint that does not implement the
+            // `GET /v1/models` shape (e.g. a chat-completion URL, a
+            // dashboard URL, or a non-OpenAI server). Surface that as the
+            // probable cause so the user knows where to look first.
+            "No models returned. Check your Base URL and API key.".to_string()
+        }
+        Provider::Xai | Provider::Gemini => {
+            format!("No models returned from {}.", provider.display_name())
+        }
+    }
 }
 
 pub async fn correct_transcript(
