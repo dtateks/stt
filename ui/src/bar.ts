@@ -133,9 +133,11 @@ const PAUSE_ENABLED_STATES = new Set<BarState>(["LISTENING", "PAUSED"]);
 
 function syncPauseButtonAffordance(state: BarState): void {
   const isPaused = state === "PAUSED";
+  const label = isPaused ? "Resume listening" : "Pause listening";
   pauseBtn.disabled = !PAUSE_ENABLED_STATES.has(state);
   pauseBtn.dataset.paused = isPaused ? "true" : "false";
-  pauseBtn.setAttribute("aria-label", isPaused ? "Resume listening" : "Pause listening");
+  pauseBtn.setAttribute("aria-label", label);
+  pauseBtn.setAttribute("title", label);
 }
 
 // ─── Controls ─────────────────────────────────────────────────────────────
