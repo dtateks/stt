@@ -246,6 +246,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn accepts_positive_change_count_when_clearing_clipboard() {
+        // 0 is the load-bearing edge already pinned above; a positive count
+        // is the common case after a real clear and must also be accepted.
+        assert!(validate_pasteboard_change_count(1).is_ok());
+        assert!(validate_pasteboard_change_count(1_000).is_ok());
+        assert!(validate_pasteboard_change_count(isize::MAX).is_ok());
+    }
+
+    #[test]
+    fn rejects_isize_min_change_count_when_clearing_clipboard() {
+        let result = validate_pasteboard_change_count(isize::MIN);
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .as_deref()
+                .map(|message| message.starts_with("Clipboard clear returned invalid change count:"))
+                .unwrap_or(false),
+        );
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn restore_keeps_inserted_text_when_original_clipboard_had_no_preservable_formats() {
