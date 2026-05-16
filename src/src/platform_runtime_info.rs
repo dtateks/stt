@@ -80,3 +80,55 @@ pub fn get_platform_runtime_info() -> PlatformRuntimeInfo {
         requires_privileged_insertion_helper: false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_runtime_info_pins_the_macos_capability_set() {
+        let info = get_platform_runtime_info();
+
+        assert_eq!(info.os, "macos");
+        assert_eq!(info.shortcut_display, "macos");
+        assert_eq!(info.permission_flow, "system-settings-privacy");
+        assert_eq!(info.background_recovery, "dockless-reopen");
+        assert!(info.supports_fullscreen_hud);
+        assert!(!info.requires_privileged_insertion_helper);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_runtime_info_pins_the_windows_capability_set() {
+        let info = get_platform_runtime_info();
+
+        assert_eq!(info.os, "windows");
+        assert_eq!(info.shortcut_display, "windows");
+        assert_eq!(info.permission_flow, "windows-privacy-settings");
+        assert_eq!(info.background_recovery, "system-tray");
+        assert!(info.supports_fullscreen_hud);
+        assert!(info.requires_privileged_insertion_helper);
+    }
+
+    #[test]
+    fn runtime_info_serializes_with_camel_case_field_names() {
+        let info = get_platform_runtime_info();
+        let json = serde_json::to_value(&info).expect("info must serialise");
+        let object = json
+            .as_object()
+            .expect("info must serialise as a JSON object");
+
+        // The UI bridge reads camelCase keys; any drift here breaks the
+        // platform-aware copy in `ui/src/main.ts`.
+        assert!(object.contains_key("os"));
+        assert!(object.contains_key("shortcutDisplay"));
+        assert!(object.contains_key("permissionFlow"));
+        assert!(object.contains_key("backgroundRecovery"));
+        assert!(object.contains_key("supportsFullscreenHud"));
+        assert!(object.contains_key("requiresPrivilegedInsertionHelper"));
+        // And NOT the snake_case form.
+        assert!(!object.contains_key("shortcut_display"));
+        assert!(!object.contains_key("permission_flow"));
+    }
+}
