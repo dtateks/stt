@@ -58,4 +58,42 @@ describe("shortcut recorder logic", () => {
       "Click to record shortcut",
     );
   });
+
+  it("treats the in-progress 'Press keys…' sentinel as a placeholder", () => {
+    renderShortcutRecorderState(recorder, "Control+Alt+Super+K");
+    renderShortcutRecorderState(recorder, "Press keys…");
+
+    // The sentinel must clear dataset and render the placeholder copy, so
+    // the recorder's idle and in-progress states are visually distinct
+    // from a real canonical shortcut.
+    expect(readShortcutRecorderShortcut(recorder)).toBeNull();
+    expect(recorder.querySelector(".shortcut-placeholder")?.textContent).toBe(
+      "Click to record shortcut",
+    );
+  });
+
+  it("readShortcutRecorderShortcut returns null when no shortcut was ever rendered", () => {
+    expect(readShortcutRecorderShortcut(recorder)).toBeNull();
+  });
+
+  it("renders the macOS '+' separator between every adjacent key span", () => {
+    renderShortcutRecorderState(recorder, "Control+Alt+Super+K");
+
+    const separators = recorder.querySelectorAll(".shortcut-separator");
+    // For 4 keys, there are 3 separators between them.
+    expect(separators).toHaveLength(3);
+    for (const sep of separators) {
+      expect(sep.textContent).toBe("+");
+    }
+  });
+
+  it("renders a single-key shortcut without trailing separators", () => {
+    renderShortcutRecorderState(recorder, "F1");
+
+    const renderedKeys = Array.from(recorder.querySelectorAll(".shortcut-key")).map(
+      (el) => el.textContent,
+    );
+    expect(renderedKeys).toEqual(["F1"]);
+    expect(recorder.querySelectorAll(".shortcut-separator")).toHaveLength(0);
+  });
 });
