@@ -434,4 +434,37 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn reports_success_when_both_insertion_and_restore_succeed() {
+        let result = build_insert_text_result(Ok(()), Ok(()));
+
+        assert!(result.success);
+        assert_eq!(result.error, None);
+        assert_eq!(result.code, None);
+        assert_eq!(result.opened_settings, None);
+    }
+
+    #[test]
+    fn reports_insertion_failure_without_clipboard_code_when_restore_succeeded() {
+        // When insertion failed but the prior clipboard was restored cleanly,
+        // surface the insertion error without the clipboard-restore-failed
+        // code so the UI does not falsely blame clipboard restoration.
+        let result =
+            build_insert_text_result(Err("Paste failed: unknown".to_string()), Ok(()));
+
+        assert!(!result.success);
+        assert_eq!(result.code, None);
+        assert_eq!(result.error.as_deref(), Some("Paste failed: unknown"));
+    }
+
+    #[test]
+    fn permission_result_grants_when_the_automation_probe_succeeds() {
+        let result = build_text_insertion_permission_result(Ok(()));
+
+        assert!(result.granted);
+        assert_eq!(result.code, None);
+        assert_eq!(result.message, None);
+        assert_eq!(result.opened_settings, None);
+    }
 }
