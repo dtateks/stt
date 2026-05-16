@@ -61,6 +61,7 @@ function createBridge(): VoiceToTextBridge {
     })),
     getMicToggleShortcut: vi.fn(async () => "Control+Alt+Super+V"),
     updateMicToggleShortcut: vi.fn(async (shortcut: string) => shortcut),
+    consumePendingMicToggle: vi.fn(async () => false),
   };
 }
 
