@@ -274,4 +274,37 @@ describe("storage helpers", () => {
       }
     });
   });
+
+  describe("readJson — corrupt-JSON resilience", () => {
+    it("loadPreferences falls back to defaults when stored JSON is corrupt", () => {
+      // Write malformed JSON directly, bypassing the writer.
+      window.localStorage.setItem("enterMode", "not-json-{{{");
+      window.localStorage.setItem("outputLang", "still-not-json}}}");
+      window.localStorage.setItem("sonioxTerms", "}}{{");
+      window.localStorage.setItem("skipLlm", "abc");
+
+      const prefs = loadPreferences();
+
+      // Each field falls back to its default rather than throwing.
+      expect(prefs.enterMode).toBe(false);
+      expect(prefs.outputLang).toBe("auto");
+      expect(prefs.sonioxTerms).toEqual(["alpha", "beta"]);
+      expect(prefs.skipLlm).toBe(true);
+    });
+
+    it("loadLlmModelPreference falls back to null when the stored map is corrupt", () => {
+      window.localStorage.setItem("llmModelsByProvider", "not-a-real-object{}}}");
+
+      expect(loadLlmModelPreference("xai")).toBeNull();
+    });
+
+    it("loadLlmModelPreference returns null when the stored map exists but has no entry for the provider", () => {
+      // Store a map that ONLY has xai; querying for gemini should be null,
+      // not the xai value, and not a JS error.
+      saveLlmModelPreference("xai", "grok-test");
+
+      expect(loadLlmModelPreference("gemini")).toBeNull();
+      expect(loadLlmModelPreference("xai")).toBe("grok-test");
+    });
+  });
 });
