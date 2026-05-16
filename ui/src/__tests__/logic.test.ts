@@ -53,6 +53,34 @@ describe("normalizeText", () => {
   it("handles punctuation-only string", () => {
     expect(normalizeText("...!!!")).toBe("");
   });
+
+  it("normalizes tabs and newlines to single spaces", () => {
+    expect(normalizeText("thank\tyou")).toBe("thank you");
+    expect(normalizeText("thank\nyou")).toBe("thank you");
+    expect(normalizeText("thank \t \n you")).toBe("thank you");
+  });
+
+  it("strips inline punctuation between words without inserting spaces", () => {
+    // Punctuation is removed first, then whitespace runs collapse — so
+    // dot-joined words become a single concatenated token. This is the
+    // detector's actual contract; tests that called the join "ship it…"
+    // would mask the real behavior.
+    expect(normalizeText("ship.it.thank.you")).toBe("shipitthankyou");
+    expect(normalizeText("ship -- thank you")).toBe("ship thank you");
+  });
+
+  it("strips non-ASCII letters because \\w is ASCII-only without the /u flag", () => {
+    // Pin the actual behavior: normalizeText is ASCII-focused. Vietnamese
+    // accents are removed, which is fine for the stop-word matching
+    // because stop words are Latin-only and the detector trims trailing
+    // accented suffixes anyway.
+    expect(normalizeText("Đơn 3 xong rồi")).toBe("n 3 xong ri");
+    expect(normalizeText("100% done")).toBe("100 done");
+  });
+
+  it("handles whitespace-only string", () => {
+    expect(normalizeText("   \t\n   ")).toBe("");
+  });
 });
 
 // ─── Stop-word: detectStopWord ────────────────────────────────────────────
