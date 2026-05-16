@@ -237,7 +237,10 @@ fn first_non_empty(candidates: [&str; 3]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{verify_persisted_credentials_match_expected, Credentials};
+    use super::{
+        first_non_empty, resolve_credentials_with_precedence,
+        verify_persisted_credentials_match_expected, Credentials,
+    };
 
     #[test]
     fn persisted_credentials_verification_accepts_exact_round_trip() {
@@ -273,5 +276,58 @@ mod tests {
             .expect_err("mismatched credentials should fail verification");
 
         assert!(error.contains("Stored credentials could not be verified after save"));
+    }
+
+    #[test]
+    fn first_non_empty_returns_the_first_non_empty_candidate() {
+        assert_eq!(first_non_empty(["store-xai", "env-xai", "shell-xai"]), "store-xai");
+        assert_eq!(first_non_empty(["", "env-xai", "shell-xai"]), "env-xai");
+        assert_eq!(first_non_empty(["", "", "shell-xai"]), "shell-xai");
+    }
+
+    #[test]
+    fn first_non_empty_returns_empty_string_when_all_candidates_empty() {
+        assert_eq!(first_non_empty(["", "", ""]), "");
+    }
+
+    #[test]
+    fn resolve_credentials_uses_store_then_env_then_shell_precedence() {
+        let store = Credentials {
+            xai_key: "store-xai".to_string(),
+            gemini_key: String::new(),
+            openai_compatible_key: String::new(),
+            soniox_key: String::new(),
+        };
+        let env_credentials = Credentials {
+            xai_key: "env-xai".to_string(),
+            gemini_key: "env-gemini".to_string(),
+            openai_compatible_key: String::new(),
+            soniox_key: String::new(),
+        };
+        let shell_credentials = Credentials {
+            xai_key: "shell-xai".to_string(),
+            gemini_key: "shell-gemini".to_string(),
+            openai_compatible_key: "shell-openai".to_string(),
+            soniox_key: "shell-soniox".to_string(),
+        };
+
+        let resolved = resolve_credentials_with_precedence(&store, &env_credentials, &shell_credentials);
+
+        // xai: store wins over env and shell.
+        assert_eq!(resolved.xai_key, "store-xai");
+        // gemini: store empty → env wins over shell.
+        assert_eq!(resolved.gemini_key, "env-gemini");
+        // openai_compatible: store and env empty → shell wins.
+        assert_eq!(resolved.openai_compatible_key, "shell-openai");
+        // soniox: same — only shell carries it.
+        assert_eq!(resolved.soniox_key, "shell-soniox");
+    }
+
+    #[test]
+    fn resolve_credentials_falls_back_to_empty_when_no_source_carries_the_field() {
+        let empty = Credentials::empty();
+        let resolved = resolve_credentials_with_precedence(&empty, &empty, &empty);
+
+        assert_eq!(resolved, Credentials::empty());
     }
 }
