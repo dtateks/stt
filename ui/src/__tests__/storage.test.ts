@@ -124,6 +124,17 @@ describe("storage helpers", () => {
       expect(window.localStorage.getItem("skipLlm")).toBe("false");
       expect(loadLlmCorrectionEnabledPreference()).toBe(true);
     });
+
+    it("saveLlmCorrectionEnabledPreference(false) flips skipLlm back to true", () => {
+      // skipLlm defaults to true, so a one-way bug that only writes when enabled=true
+      // would still leave the stored flag at its default and silently pass. Drive the
+      // round-trip from enabled=true → enabled=false to force the false branch to write.
+      saveLlmCorrectionEnabledPreference(true);
+      saveLlmCorrectionEnabledPreference(false);
+
+      expect(window.localStorage.getItem("skipLlm")).toBe("true");
+      expect(loadLlmCorrectionEnabledPreference()).toBe(false);
+    });
   });
 
   describe("loadReminderBeepEnabledPreference", () => {
@@ -273,6 +284,23 @@ describe("storage helpers", () => {
 
       try {
         expect(saveCustomStopWordPreference("done")).toBe(false);
+      } finally {
+        window.localStorage.setItem = originalSetItem;
+      }
+    });
+
+    it("saveLlmModelPreference returns false when localStorage throws", () => {
+      // Distinct from the stop-word path because per-provider model save first reads
+      // the existing object, merges, then writes — a separate code path through
+      // readJson + writeJson. Pin that the read-merge-write helper still reports
+      // failure when the write step throws.
+      const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
+      window.localStorage.setItem = () => {
+        throw new Error("quota exceeded");
+      };
+
+      try {
+        expect(saveLlmModelPreference("xai", "grok-test")).toBe(false);
       } finally {
         window.localStorage.setItem = originalSetItem;
       }
