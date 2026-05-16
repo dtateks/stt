@@ -8,7 +8,8 @@
 //!   - decide whether the initial launch should reveal the main window:
 //!     when the OS launches the app via the autostart shim it passes
 //!     `--launch-at-login`, which keeps the main window hidden so the
-//!     menubar app starts dockless without flashing the settings panel
+//!     background accessory app starts dockless without flashing the
+//!     settings panel
 //!
 //! Non-macOS platforms get a no-op `setup_launch_at_login` stub so the
 //! call site in `lib.rs` does not need a `#[cfg]` guard.
