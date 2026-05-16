@@ -185,38 +185,10 @@ export class BarSessionController {
     // Transition to CONNECTING so render layer clears transcript/error slots.
     await this.applyEvent("CLEAR"); // any visible state → CONNECTING
 
-    // Rebuild fresh session preferences from current storage values.
-    const prefs = loadPreferences();
-    this.activeSessionPreferences = createActiveSessionPreferences(prefs, this.config);
-    const sessionPreferences = this.activeSessionPreferences;
-
-    try {
-      const apiKey = await this.createTemporaryApiKey();
-      if (!this.isStartAttemptCurrent(restartAttemptId)) {
-        return;
-      }
-      if (!apiKey) {
-        await this.applyEvent("CONNECTION_ERROR");
-        await this.handleStartupError(STARTUP_MISSING_KEY_ERROR_MESSAGE);
-        return;
-      }
-
-      await this.startAudioPipeline(apiKey, sessionPreferences);
-      if (!this.isStartAttemptCurrent(restartAttemptId)) {
-        await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
-          console.error("[session] stopAudioPipeline failed during stale clear restart", error);
-        });
-        return;
-      }
-      await this.applyEvent("CONNECTED"); // CONNECTING → LISTENING
-      this.syncReminderBeepForCurrentState();
-    } catch (error) {
-      console.error("[session] clear restart failed", error);
-      await this.applyEvent("CONNECTION_ERROR");
-      await this.handleStartupError(
-        `${SESSION_START_FAILED_PREFIX}: ${formatErrorMessage(error)}`
-      );
-    }
+    await this.acquireKeyAndStartListening(restartAttemptId, {
+      staleStopOptions: { releaseResources: false },
+      failureLogContext: "clear restart",
+    });
   }
 
   async handlePauseResume(): Promise<void> {
@@ -249,37 +221,10 @@ export class BarSessionController {
     this.onTranscriptChange?.(preservedTranscript ?? { finalText: "", interimText: "" });
     await this.applyEvent("RESUME");
 
-    const prefs = loadPreferences();
-    this.activeSessionPreferences = createActiveSessionPreferences(prefs, this.config);
-    const sessionPreferences = this.activeSessionPreferences;
-
-    try {
-      const apiKey = await this.createTemporaryApiKey();
-      if (!this.isStartAttemptCurrent(restartAttemptId)) {
-        return;
-      }
-      if (!apiKey) {
-        await this.applyEvent("CONNECTION_ERROR");
-        await this.handleStartupError(STARTUP_MISSING_KEY_ERROR_MESSAGE);
-        return;
-      }
-
-      await this.startAudioPipeline(apiKey, sessionPreferences);
-      if (!this.isStartAttemptCurrent(restartAttemptId)) {
-        await this.stopAudioPipeline({ releaseResources: false }).catch((error: unknown) => {
-          console.error("[session] stopAudioPipeline failed during stale resume restart", error);
-        });
-        return;
-      }
-      await this.applyEvent("CONNECTED");
-      this.syncReminderBeepForCurrentState();
-    } catch (error) {
-      console.error("[session] resume restart failed", error);
-      await this.applyEvent("CONNECTION_ERROR");
-      await this.handleStartupError(
-        `${SESSION_START_FAILED_PREFIX}: ${formatErrorMessage(error)}`
-      );
-    }
+    await this.acquireKeyAndStartListening(restartAttemptId, {
+      staleStopOptions: { releaseResources: false },
+      failureLogContext: "resume restart",
+    });
   }
 
   private composeTranscript(live: TranscriptResult): TranscriptResult {
@@ -347,34 +292,20 @@ export class BarSessionController {
         await this.handleStartupPermissionDenied("CONNECTION_ERROR");
         return;
       }
-
-      const apiKey = await this.createTemporaryApiKey();
-      if (!this.isStartAttemptCurrent(startAttemptId)) return;
-      if (!apiKey) {
-        await this.applyEvent("CONNECTION_ERROR");
-        await this.handleStartupError(STARTUP_MISSING_KEY_ERROR_MESSAGE);
-        return;
-      }
-
-      const prefs = loadPreferences();
-      this.activeSessionPreferences = createActiveSessionPreferences(prefs, this.config);
-      const sessionPreferences = this.activeSessionPreferences;
-      await this.startAudioPipeline(apiKey, sessionPreferences);
-      if (!this.isStartAttemptCurrent(startAttemptId)) {
-        await this.stopAudioPipeline();
-        return;
-      }
-
-      await this.applyEvent("CONNECTED"); // CONNECTING → LISTENING
-      this.syncReminderBeepForCurrentState();
     } catch (error) {
       if (!this.isStartAttemptCurrent(startAttemptId)) return;
       console.error("[session] start failed", error);
       await this.applyEvent("CONNECTION_ERROR");
       await this.handleStartupError(
-        `${SESSION_START_FAILED_PREFIX}: ${formatErrorMessage(error)}`
+        `${SESSION_START_FAILED_PREFIX}: ${formatErrorMessage(error)}`,
       );
+      return;
     }
+
+    await this.acquireKeyAndStartListening(startAttemptId, {
+      staleStopOptions: { releaseResources: true },
+      failureLogContext: "start",
+    });
   }
 
   private async stopAudioPipeline(
@@ -400,6 +331,69 @@ export class BarSessionController {
       terms: sessionPreferences.sonioxTerms,
     });
     await window.voiceToText.setMicState(true);
+  }
+
+  /**
+   * Run CONNECTING → LISTENING: temp key, fresh session preferences, audio
+   * pipeline, then apply CONNECTED. On failure, surface CONNECTION_ERROR with
+   * an actionable message via `handleStartupError`. On stale attempt, stop the
+   * audio pipeline per `staleStopOptions` and exit without further state
+   * transitions.
+   *
+   * Caller responsibilities BEFORE invoking:
+   *   - State is CONNECTING (apply TOGGLE/CLEAR/RESUME first).
+   *   - `attemptId` is fresh from `nextStartAttemptId()`.
+   *
+   * `staleStopOptions` differs by caller:
+   *   - `startSession` releases resources because the new owner (stopSession)
+   *     already tore down — double-release is idempotent.
+   *   - `handleClear`/`handleResume` keep resources because the new owner is
+   *     about to restart its own pipeline; releasing would force a needless
+   *     teardown+rebuild.
+   */
+  private async acquireKeyAndStartListening(
+    attemptId: number,
+    options: {
+      staleStopOptions: { releaseResources: boolean };
+      failureLogContext: string;
+    },
+  ): Promise<void> {
+    try {
+      const apiKey = await this.createTemporaryApiKey();
+      if (!this.isStartAttemptCurrent(attemptId)) return;
+      if (!apiKey) {
+        await this.applyEvent("CONNECTION_ERROR");
+        await this.handleStartupError(STARTUP_MISSING_KEY_ERROR_MESSAGE);
+        return;
+      }
+
+      this.activeSessionPreferences = createActiveSessionPreferences(
+        loadPreferences(),
+        this.config,
+      );
+      const sessionPreferences = this.activeSessionPreferences;
+
+      await this.startAudioPipeline(apiKey, sessionPreferences);
+      if (!this.isStartAttemptCurrent(attemptId)) {
+        await this.stopAudioPipeline(options.staleStopOptions).catch((error: unknown) => {
+          console.error(
+            `[session] stopAudioPipeline failed during stale ${options.failureLogContext}`,
+            error,
+          );
+        });
+        return;
+      }
+
+      await this.applyEvent("CONNECTED"); // CONNECTING → LISTENING
+      this.syncReminderBeepForCurrentState();
+    } catch (error) {
+      if (!this.isStartAttemptCurrent(attemptId)) return;
+      console.error(`[session] ${options.failureLogContext} failed`, error);
+      await this.applyEvent("CONNECTION_ERROR");
+      await this.handleStartupError(
+        `${SESSION_START_FAILED_PREFIX}: ${formatErrorMessage(error)}`,
+      );
+    }
   }
 
   private bindTranscriptHandlers(): void {
