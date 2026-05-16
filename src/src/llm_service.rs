@@ -545,7 +545,10 @@ fn required_model_for(llm_config: &LlmConfig, provider: Provider) -> Result<Stri
 
 #[cfg(test)]
 mod tests {
-    use super::{build_request_body_for, empty_models_error_for, LlmConfig, Provider};
+    use super::{
+        build_request_body_for, empty_models_error_for, system_prompt_for_output_language,
+        LlmConfig, Provider,
+    };
 
     #[test]
     fn build_request_body_requires_explicit_model_for_xai() {
@@ -605,5 +608,55 @@ mod tests {
             !message.contains("Base URL"),
             "Gemini message should not mention Base URL: {message}"
         );
+    }
+
+    #[test]
+    fn english_prompt_demands_english_output_regardless_of_input() {
+        let prompt = system_prompt_for_output_language("english");
+        assert!(prompt.contains("English regardless of the input language"));
+        assert!(prompt.contains("Translate Vietnamese"));
+    }
+
+    #[test]
+    fn vietnamese_prompt_keeps_technical_terms_in_english() {
+        let prompt = system_prompt_for_output_language("vietnamese");
+        assert!(prompt.contains("Vietnamese"));
+        assert!(prompt.contains("technical terms"));
+        // The bare technical-term examples must remain (API, GitHub, etc.)
+        // so the model knows what to leave untranslated.
+        assert!(prompt.contains("GitHub"));
+        assert!(prompt.contains("tmux"));
+    }
+
+    #[test]
+    fn auto_prompt_matches_input_language_without_translating() {
+        let prompt = system_prompt_for_output_language("auto");
+        assert!(prompt.contains("Match the input language exactly"));
+        assert!(prompt.contains("Do NOT translate"));
+    }
+
+    #[test]
+    fn unknown_output_language_falls_back_to_auto_behavior() {
+        let prompt = system_prompt_for_output_language("klingon");
+        assert!(prompt.contains("Match the input language exactly"));
+    }
+
+    #[test]
+    fn every_prompt_carries_the_shared_cleanup_rules_and_stt_fix_table() {
+        for output_lang in ["auto", "english", "vietnamese", "unknown"] {
+            let prompt = system_prompt_for_output_language(output_lang);
+            // Shared cleanup rule: keep all ideas. Pinned because moving it
+            // out of the prompt would silently drop a contract the LLM
+            // depends on.
+            assert!(
+                prompt.contains("Keep ALL ideas"),
+                "missing cleanup rules for output_lang={output_lang}",
+            );
+            // Shared STT mishear fix: "cross code" → Claude Code.
+            assert!(
+                prompt.contains("Claude Code"),
+                "missing STT fix table for output_lang={output_lang}",
+            );
+        }
     }
 }
