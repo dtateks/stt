@@ -647,6 +647,45 @@ mod tests {
         assert!(consume_pending_toggle_request_state(&mut pending_toggle));
         assert!(!consume_pending_toggle_request_state(&mut pending_toggle));
     }
+
+    #[test]
+    fn consume_pending_toggle_request_returns_false_when_not_set() {
+        let mut pending_toggle = false;
+
+        assert!(!consume_pending_toggle_request_state(&mut pending_toggle));
+        assert!(!consume_pending_toggle_request_state(&mut pending_toggle));
+    }
+
+    #[test]
+    fn consume_pending_toggle_request_state_is_reset_after_consumption() {
+        let mut pending_toggle = true;
+        consume_pending_toggle_request_state(&mut pending_toggle);
+
+        // After consumption, the underlying flag must be back to false so a
+        // late observer doesn't see a stale "yes, pending" state.
+        assert!(!pending_toggle);
+    }
+
+    #[test]
+    fn parse_error_message_names_the_shortcut_and_underlying_error() {
+        let message = parse_error_message("Control+Alt+V", "malformed token");
+        assert!(message.contains("Control+Alt+V"));
+        assert!(message.contains("malformed token"));
+    }
+
+    #[test]
+    fn handler_registration_error_message_names_the_shortcut_and_underlying_error() {
+        let message = handler_registration_error_message("Control+Alt+V", "device busy");
+        assert!(message.contains("Control+Alt+V"));
+        assert!(message.contains("device busy"));
+    }
+
+    #[test]
+    fn unregister_error_message_names_the_shortcut_and_underlying_error() {
+        let message = unregister_error_message("Control+Alt+V", "handle missing");
+        assert!(message.contains("Control+Alt+V"));
+        assert!(message.contains("handle missing"));
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
