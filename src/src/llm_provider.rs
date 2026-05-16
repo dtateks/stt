@@ -62,7 +62,7 @@ impl Provider {
     }
 
     /// Pick the credential field that authenticates this provider.
-    pub fn pick_credential<'a>(self, credentials: &'a Credentials) -> &'a str {
+    pub fn pick_credential(self, credentials: &Credentials) -> &str {
         match self {
             Self::Xai => credentials.xai_key.as_str(),
             Self::OpenAiCompatible => credentials.openai_compatible_key.as_str(),

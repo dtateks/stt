@@ -101,9 +101,12 @@ pub fn parse_shell_environment_output(stdout: &[u8]) -> Credentials {
             credentials.xai_key = value.to_string();
         } else if key == "GEMINI_API_KEY" {
             credentials.gemini_key = value.to_string();
-        } else if key == "OPENAI_COMPATIBLE_API_KEY" {
-            credentials.openai_compatible_key = value.to_string();
-        } else if key == "OPENAI_API_KEY" && credentials.openai_compatible_key.is_empty() {
+        } else if key == "OPENAI_COMPATIBLE_API_KEY"
+            || (key == "OPENAI_API_KEY" && credentials.openai_compatible_key.is_empty())
+        {
+            // OPENAI_COMPATIBLE_API_KEY wins outright; OPENAI_API_KEY only
+            // fills in when the compatible key has not been captured yet, so
+            // the iteration order of env vars does not change the result.
             credentials.openai_compatible_key = value.to_string();
         } else if key == "SONIOX_API_KEY" {
             credentials.soniox_key = value.to_string();
