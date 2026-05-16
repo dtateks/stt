@@ -125,4 +125,66 @@ mod tests {
         let error = resolve_realtime_models_from_docs_html(html).unwrap_err();
         assert!(error.contains("Could not parse Soniox realtime models"));
     }
+
+    #[test]
+    fn ignores_changelog_models_outside_the_current_models_section() {
+        let html = r#"
+            <h2>Current models</h2>
+            <code>stt-rt-v4</code>
+            <h2>Changelog</h2>
+            <code>stt-rt-old-v1</code>
+            <code>stt-rt-old-v2</code>
+        "#;
+
+        let models = parse_realtime_models_from_docs_html(html);
+        // The old changelog models must be excluded — only current-section ids survive.
+        assert_eq!(models, vec!["stt-rt-v4"]);
+    }
+
+    #[test]
+    fn falls_back_to_full_document_when_current_models_section_is_missing() {
+        let html = r#"
+            <p>Realtime model ids: stt-rt-v4 stt-rt-v3 plus the async stt-async-v4.</p>
+        "#;
+
+        let models = parse_realtime_models_from_docs_html(html);
+        assert_eq!(models, vec!["stt-rt-v3", "stt-rt-v4"]);
+    }
+
+    #[test]
+    fn deduplicates_models_that_appear_multiple_times() {
+        let html = r#"
+            <h2>Current models</h2>
+            <code>stt-rt-v4</code>
+            <code>stt-rt-v4</code>
+            <code>stt-rt-v4</code>
+            <h2>Changelog</h2>
+        "#;
+
+        let models = parse_realtime_models_from_docs_html(html);
+        assert_eq!(models, vec!["stt-rt-v4"]);
+    }
+
+    #[test]
+    fn ignores_tokens_without_the_stt_rt_prefix() {
+        let html = r#"
+            <h2>Current models</h2>
+            <code>stt-rt-v4</code>
+            <code>stt-async-v4</code>
+            <code>dictation-fast-v1</code>
+            <code>whisper-v3</code>
+            <h2>Changelog</h2>
+        "#;
+
+        let models = parse_realtime_models_from_docs_html(html);
+        assert_eq!(models, vec!["stt-rt-v4"]);
+    }
+
+    #[test]
+    fn returns_an_empty_vec_for_a_document_without_any_stt_rt_tokens() {
+        let html = "<html><body><p>No realtime models documented.</p></body></html>";
+
+        let models = parse_realtime_models_from_docs_html(html);
+        assert!(models.is_empty());
+    }
 }
