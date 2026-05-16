@@ -16,13 +16,17 @@ import {
   resetCustomStopWordPreference,
   resetMicToggleShortcutPreference,
   saveCustomStopWordPreference,
+  saveEnterMode,
   saveLlmBaseUrlPreference,
   saveLlmCorrectionEnabledPreference,
   saveLlmModelPreference,
   saveLlmProviderPreference,
   saveMicToggleShortcutPreference,
+  saveOutputLang,
   saveReminderBeepEnabledPreference,
+  saveSkipLlm,
   saveSonioxModelPreference,
+  saveSonioxTerms,
 } from "../storage.ts";
 
 function installDefaults(terms: string[] = ["alpha", "beta"]): void {
@@ -272,6 +276,45 @@ describe("storage helpers", () => {
       } finally {
         window.localStorage.setItem = originalSetItem;
       }
+    });
+  });
+
+  describe("loadPreferences round-trip via individual save helpers", () => {
+    it("saveEnterMode round-trips through loadPreferences", () => {
+      saveEnterMode(true);
+      expect(loadPreferences().enterMode).toBe(true);
+
+      saveEnterMode(false);
+      expect(loadPreferences().enterMode).toBe(false);
+    });
+
+    it("saveOutputLang round-trips through loadPreferences", () => {
+      saveOutputLang("english");
+      expect(loadPreferences().outputLang).toBe("english");
+
+      saveOutputLang("vietnamese");
+      expect(loadPreferences().outputLang).toBe("vietnamese");
+
+      saveOutputLang("auto");
+      expect(loadPreferences().outputLang).toBe("auto");
+    });
+
+    it("saveSonioxTerms round-trips through loadPreferences", () => {
+      saveSonioxTerms(["claude", "tmux"]);
+      expect(loadPreferences().sonioxTerms).toEqual(["claude", "tmux"]);
+
+      saveSonioxTerms([]);
+      // Empty array is a valid stored override — must NOT fall back to
+      // bundled defaults when the user explicitly clears the list.
+      expect(loadPreferences().sonioxTerms).toEqual([]);
+    });
+
+    it("saveSkipLlm round-trips through loadPreferences", () => {
+      saveSkipLlm(false);
+      expect(loadPreferences().skipLlm).toBe(false);
+
+      saveSkipLlm(true);
+      expect(loadPreferences().skipLlm).toBe(true);
     });
   });
 
