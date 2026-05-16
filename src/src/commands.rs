@@ -342,8 +342,14 @@ pub fn update_mic_toggle_shortcut(app: AppHandle, shortcut: String) -> Result<St
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_soniox_key_for_persistence_with, SONIOX_KEY_REQUIRED_MESSAGE};
+    use super::{
+        missing_provider_credential_error, parse_llm_config_from_app_config,
+        trimmed_soniox_key, validate_soniox_key_for_persistence_with,
+        SONIOX_KEY_REQUIRED_MESSAGE,
+    };
+    use crate::llm_provider::Provider;
     use crate::soniox_auth::SonioxTemporaryKey;
+    use serde_json::json;
 
     #[test]
     fn soniox_save_validation_rejects_empty_trimmed_key() {
@@ -389,5 +395,74 @@ mod tests {
             result,
             Err("Soniox temporary key request failed (401): invalid key".to_string())
         );
+    }
+
+    #[test]
+    fn trimmed_soniox_key_strips_whitespace_on_both_sides() {
+        assert_eq!(trimmed_soniox_key("  sk-soniox  ".to_string()), "sk-soniox");
+        assert_eq!(trimmed_soniox_key("\t sk-soniox \n".to_string()), "sk-soniox");
+        assert_eq!(trimmed_soniox_key("".to_string()), "");
+        assert_eq!(trimmed_soniox_key("   ".to_string()), "");
+    }
+
+    #[test]
+    fn missing_provider_credential_error_names_each_provider() {
+        assert_eq!(
+            missing_provider_credential_error(Provider::Xai),
+            "xAI API key is not configured",
+        );
+        assert_eq!(
+            missing_provider_credential_error(Provider::Gemini),
+            "Gemini API key is not configured",
+        );
+        assert_eq!(
+            missing_provider_credential_error(Provider::OpenAiCompatible),
+            "OpenAI-compatible API key is not configured",
+        );
+    }
+
+    #[test]
+    fn parse_llm_config_extracts_provider_model_temperature_base_url() {
+        let config = json!({
+            "llm": {
+                "provider": "xai",
+                "model": "grok-test",
+                "temperature": 0.2,
+                "base_url": "https://api.x.ai/v1"
+            }
+        });
+
+        let parsed = parse_llm_config_from_app_config(&config);
+
+        assert_eq!(parsed.provider.as_deref(), Some("xai"));
+        assert_eq!(parsed.model.as_deref(), Some("grok-test"));
+        assert_eq!(parsed.temperature, Some(0.2));
+        assert_eq!(parsed.base_url.as_deref(), Some("https://api.x.ai/v1"));
+    }
+
+    #[test]
+    fn parse_llm_config_falls_back_to_default_when_llm_field_is_missing() {
+        let config = json!({
+            "soniox": { "model": "stt-rt-v4" }
+        });
+
+        let parsed = parse_llm_config_from_app_config(&config);
+
+        assert_eq!(parsed.provider, None);
+        assert_eq!(parsed.model, None);
+        assert_eq!(parsed.temperature, None);
+        assert_eq!(parsed.base_url, None);
+    }
+
+    #[test]
+    fn parse_llm_config_falls_back_to_default_when_llm_field_is_not_an_object() {
+        let config = json!({ "llm": "not an object" });
+
+        let parsed = parse_llm_config_from_app_config(&config);
+
+        assert_eq!(parsed.provider, None);
+        assert_eq!(parsed.model, None);
+        assert_eq!(parsed.temperature, None);
+        assert_eq!(parsed.base_url, None);
     }
 }
