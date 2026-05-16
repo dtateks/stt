@@ -314,4 +314,42 @@ describe("tauri bridge command contract", () => {
     await expect(window.voiceToText.getPlatformRuntimeInfo()).resolves.toEqual(runtimeInfo);
     expect(invoke).toHaveBeenCalledWith("get_platform_runtime_info", undefined);
   });
+
+  it("wires the remaining LLM key + bar + clipboard + app-lifecycle commands", async () => {
+    const invoke = vi.fn(async () => undefined);
+    const listen = vi.fn(async () => () => {});
+    installTauriRuntime(invoke, listen);
+
+    await window.voiceToText.hasXaiKey();
+    await window.voiceToText.hasGeminiKey();
+    await window.voiceToText.updateGeminiKey("gemini-new");
+    await window.voiceToText.getConfig();
+    await window.voiceToText.copyToClipboard("hello clipboard");
+    await window.voiceToText.quitApp();
+    await window.voiceToText.showBar();
+    await window.voiceToText.hideBar();
+    await window.voiceToText.setMouseEvents(true);
+    await window.voiceToText.showSettings();
+    await window.voiceToText.getMicToggleShortcut();
+
+    expect(invoke).toHaveBeenCalledWith("has_xai_key", undefined);
+    expect(invoke).toHaveBeenCalledWith("has_openai_compatible_key", {
+      provider: "gemini",
+    });
+    // Gemini key updates flow through the same openai_compatible command with
+    // a provider tag — preserve that wire shape so the Rust side keeps a
+    // single dispatch path.
+    expect(invoke).toHaveBeenCalledWith("update_openai_compatible_key", {
+      openai_compatible_key: "gemini-new",
+      provider: "gemini",
+    });
+    expect(invoke).toHaveBeenCalledWith("get_config", undefined);
+    expect(invoke).toHaveBeenCalledWith("copy_to_clipboard", { text: "hello clipboard" });
+    expect(invoke).toHaveBeenCalledWith("quit_app", undefined);
+    expect(invoke).toHaveBeenCalledWith("show_bar", undefined);
+    expect(invoke).toHaveBeenCalledWith("hide_bar", undefined);
+    expect(invoke).toHaveBeenCalledWith("set_mouse_events", { ignore: true });
+    expect(invoke).toHaveBeenCalledWith("show_settings", undefined);
+    expect(invoke).toHaveBeenCalledWith("get_mic_toggle_shortcut", undefined);
+  });
 });
