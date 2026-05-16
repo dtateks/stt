@@ -67,7 +67,6 @@ function renderHudFixture(): void {
       <canvas id="waveform"></canvas>
       <span id="transcript-final"></span>
       <span id="transcript-interim"></span>
-      <span id="transcript-prompt" hidden></span>
       <span id="hud-state-label"></span>
       <button id="hud-pause-btn" type="button"></button>
       <button id="hud-clear-btn" type="button"></button>

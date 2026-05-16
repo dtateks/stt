@@ -29,7 +29,6 @@ const hud             = document.getElementById("hud")               as HTMLDivE
 const waveformCanvas  = document.getElementById("waveform")          as HTMLCanvasElement;
 const transcriptFinalEl   = document.getElementById("transcript-final")   as HTMLSpanElement;
 const transcriptInterimEl = document.getElementById("transcript-interim") as HTMLSpanElement;
-const transcriptPromptEl  = document.getElementById("transcript-prompt")  as HTMLSpanElement;
 const stateLabelEl    = document.getElementById("hud-state-label")   as HTMLSpanElement;
 const clearBtn        = document.getElementById("hud-clear-btn")     as HTMLButtonElement;
 const closeBtn        = document.getElementById("hud-close-btn")     as HTMLButtonElement;
@@ -61,7 +60,6 @@ function applyState(state: BarState): void {
     stateLabelEl,
     transcriptFinalEl,
     transcriptInterimEl,
-    transcriptPromptEl,
     { showConnectingLabel: shouldShowConnectingLabel },
   );
 }
@@ -89,11 +87,11 @@ function scheduleConnectingLabelPresentation(): void {
 }
 
 function applyTranscript(result: TranscriptResult): void {
-  renderApplyTranscript(result, hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
+  renderApplyTranscript(result, hud, transcriptFinalEl, transcriptInterimEl);
 }
 
 function applyErrorMessage(message: string | null): void {
-  renderApplyErrorMessage(message, hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
+  renderApplyErrorMessage(message, transcriptFinalEl, transcriptInterimEl);
 }
 
 // ─── Overlay mode ──────────────────────────────────────────────────────────

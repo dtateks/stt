@@ -335,23 +335,12 @@ export function buildHeartbeatTracePoints(
 
 // ─── Pure render helpers ──────────────────────────────────────────────────────
 
-export function syncPromptVisibility(
-  _hud: HTMLElement,
-  _transcriptFinalEl: HTMLElement,
-  _transcriptInterimEl: HTMLElement,
-  transcriptPromptEl: HTMLElement,
-): void {
-  // Always hide the "Listening…" prompt — LISTENING state label on the right is sufficient.
-  (transcriptPromptEl as HTMLElement & { hidden: boolean }).hidden = true;
-}
-
 export function applyState(
   state: BarState,
   hud: HTMLElement,
   stateLabelEl: HTMLElement,
   transcriptFinalEl: HTMLElement,
   transcriptInterimEl: HTMLElement,
-  transcriptPromptEl: HTMLElement,
   options: StatePresentationOptions = {},
 ): void {
   hud.dataset.state = state;
@@ -365,8 +354,6 @@ export function applyState(
   if (state === "PAUSED") {
     transcriptInterimEl.textContent = "";
   }
-
-  syncPromptVisibility(hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
 }
 
 export function getPresentedStateLabel(
@@ -385,7 +372,6 @@ export function applyTranscript(
   hud: HTMLElement,
   transcriptFinalEl: HTMLElement,
   transcriptInterimEl: HTMLElement,
-  transcriptPromptEl: HTMLElement,
 ): void {
   const state = hud.dataset.state;
   const isTranscriptVisibleState =
@@ -400,7 +386,6 @@ export function applyTranscript(
 
   transcriptFinalEl.textContent = buildVisibleTranscriptText(state, result);
   transcriptInterimEl.textContent = "";
-  syncPromptVisibility(hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
   scrollTranscriptToEnd(transcriptFinalEl);
 }
 
@@ -434,20 +419,11 @@ export function scrollTranscriptToEnd(textEl: HTMLElement): void {
 
 export function applyErrorMessage(
   message: string | null,
-  hud: HTMLElement,
   transcriptFinalEl: HTMLElement,
   transcriptInterimEl: HTMLElement,
-  transcriptPromptEl: HTMLElement,
 ): void {
-  if (!message) {
-    transcriptFinalEl.textContent = "";
-    transcriptInterimEl.textContent = "";
-    syncPromptVisibility(hud, transcriptFinalEl, transcriptInterimEl, transcriptPromptEl);
-    return;
-  }
-  transcriptFinalEl.textContent = message;
+  transcriptFinalEl.textContent = message ?? "";
   transcriptInterimEl.textContent = "";
-  (transcriptPromptEl as HTMLElement & { hidden: boolean }).hidden = true;
 }
 
 export function applyOverlayMode(

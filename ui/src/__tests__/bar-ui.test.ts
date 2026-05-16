@@ -33,7 +33,6 @@ import {
   buildVisibleTranscriptText,
   createWaveformLayout,
   buildHeartbeatTracePoints,
-  syncPromptVisibility,
   scrollTranscriptToEnd,
   resizeCanvasWithContext,
   waveformShouldRun,
@@ -88,9 +87,6 @@ function getTranscriptFinal(): HTMLSpanElement {
 function getTranscriptInterim(): HTMLSpanElement {
   return document.getElementById("transcript-interim") as HTMLSpanElement;
 }
-function getTranscriptPrompt(): HTMLSpanElement {
-  return document.getElementById("transcript-prompt") as HTMLSpanElement;
-}
 function getStateLabel(): HTMLSpanElement {
   return document.getElementById("hud-state-label") as HTMLSpanElement;
 }
@@ -122,7 +118,7 @@ describe("applyState — data-state reflection", () => {
       applyState(
         state,
         getHud(), getStateLabel(),
-        getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+        getTranscriptFinal(), getTranscriptInterim(),
       );
       expect(getHud().dataset.state).toBe(state);
     }
@@ -144,7 +140,7 @@ describe("applyState — data-state reflection", () => {
       applyState(
         state,
         getHud(), getStateLabel(),
-        getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+        getTranscriptFinal(), getTranscriptInterim(),
       );
       expect(getStateLabel().textContent).toBe(label);
     }
@@ -154,7 +150,7 @@ describe("applyState — data-state reflection", () => {
     applyState(
       "CONNECTING",
       getHud(), getStateLabel(),
-      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
       { showConnectingLabel: false },
     );
 
@@ -166,7 +162,7 @@ describe("applyState — data-state reflection", () => {
     applyState(
       "CONNECTING",
       getHud(), getStateLabel(),
-      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
       { showConnectingLabel: true },
     );
 
@@ -180,7 +176,7 @@ describe("applyState — data-state reflection", () => {
       applyState(
         state,
         getHud(), getStateLabel(),
-        getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+        getTranscriptFinal(), getTranscriptInterim(),
       );
       expect(getStateLabel().textContent).toBe(expectedLabel);
     }
@@ -192,7 +188,7 @@ describe("applyState — data-state reflection", () => {
     applyState(
       "HIDDEN",
       getHud(), getStateLabel(),
-      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("");
     expect(getTranscriptInterim().textContent).toBe("");
@@ -203,7 +199,7 @@ describe("applyState — data-state reflection", () => {
     applyState(
       "CONNECTING",
       getHud(), getStateLabel(),
-      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("");
   });
@@ -214,7 +210,7 @@ describe("applyState — data-state reflection", () => {
     applyState(
       "LISTENING",
       getHud(), getStateLabel(),
-      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("carry over");
   });
@@ -225,53 +221,9 @@ describe("applyState — data-state reflection", () => {
     applyState(
       "RESUMING",
       getHud(), getStateLabel(),
-      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("preserved from pause");
-  });
-});
-
-// ─── syncPromptVisibility ─────────────────────────────────────────────────────
-
-describe("syncPromptVisibility — prompt show/hide logic", () => {
-  beforeEach(buildHudDom);
-  afterEach(() => { document.body.innerHTML = ""; });
-
-  it("always hides prompt regardless of state", () => {
-    const hud = getHud();
-    hud.dataset.state = "LISTENING";
-    getTranscriptFinal().textContent = "";
-    getTranscriptInterim().textContent = "";
-    syncPromptVisibility(hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt());
-    expect(getTranscriptPrompt().hidden).toBe(true);
-  });
-
-  it("hides prompt when LISTENING but final text is present", () => {
-    const hud = getHud();
-    hud.dataset.state = "LISTENING";
-    getTranscriptFinal().textContent = "hello";
-    syncPromptVisibility(hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt());
-    expect(getTranscriptPrompt().hidden).toBe(true);
-  });
-
-  it("hides prompt when LISTENING but interim text is present", () => {
-    const hud = getHud();
-    hud.dataset.state = "LISTENING";
-    getTranscriptInterim().textContent = "interim...";
-    syncPromptVisibility(hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt());
-    expect(getTranscriptPrompt().hidden).toBe(true);
-  });
-
-  it("hides prompt when state is not LISTENING even with empty transcript", () => {
-    const states: BarState[] = ["HIDDEN", "CONNECTING", "PAUSED", "RESUMING", "PROCESSING", "INSERTING", "SUCCESS", "ERROR"];
-    for (const state of states) {
-      const hud = getHud();
-      hud.dataset.state = state;
-      getTranscriptFinal().textContent = "";
-      getTranscriptInterim().textContent = "";
-      syncPromptVisibility(hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt());
-      expect(getTranscriptPrompt().hidden).toBe(true);
-    }
   });
 });
 
@@ -286,7 +238,7 @@ describe("applyTranscript — transcript content updates", () => {
     hud.dataset.state = "LISTENING";
     applyTranscript(
       { finalText: "Hello world", interimText: "typing" },
-      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      hud, getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("Hello world typing…");
     expect(getTranscriptInterim().textContent).toBe("");
@@ -300,7 +252,7 @@ describe("applyTranscript — transcript content updates", () => {
       getTranscriptFinal().textContent = "original";
       applyTranscript(
         { finalText: `frozen-${state}`, interimText: "" },
-        hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+        hud, getTranscriptFinal(), getTranscriptInterim(),
       );
       expect(getTranscriptFinal().textContent).toBe(`frozen-${state}`);
     }
@@ -314,21 +266,10 @@ describe("applyTranscript — transcript content updates", () => {
       getTranscriptFinal().textContent = "original";
       applyTranscript(
         { finalText: "OVERWRITE", interimText: "" },
-        hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+        hud, getTranscriptFinal(), getTranscriptInterim(),
       );
       expect(getTranscriptFinal().textContent).toBe("original");
     }
-  });
-
-  it("hides prompt once final text arrives", () => {
-    const hud = getHud();
-    hud.dataset.state = "LISTENING";
-    getTranscriptPrompt().hidden = false;
-    applyTranscript(
-      { finalText: "some text", interimText: "" },
-      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
-    );
-    expect(getTranscriptPrompt().hidden).toBe(true);
   });
 
   it("renders only interim text in final slot when final is empty", () => {
@@ -336,11 +277,10 @@ describe("applyTranscript — transcript content updates", () => {
     hud.dataset.state = "LISTENING";
     applyTranscript(
       { finalText: "", interimText: "just started" },
-      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      hud, getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("just started…");
     expect(getTranscriptInterim().textContent).toBe("");
-    expect(getTranscriptPrompt().hidden).toBe(true);
   });
 
   it("renders only final text without trailing ellipsis once interim text is final", () => {
@@ -348,7 +288,7 @@ describe("applyTranscript — transcript content updates", () => {
     hud.dataset.state = "LISTENING";
     applyTranscript(
       { finalText: "Finalized text", interimText: "" },
-      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      hud, getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("Finalized text");
     expect(getTranscriptInterim().textContent).toBe("");
@@ -359,7 +299,7 @@ describe("applyTranscript — transcript content updates", () => {
     hud.dataset.state = "PROCESSING";
     applyTranscript(
       { finalText: "Finalized text", interimText: "" },
-      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      hud, getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("Finalized text");
     expect(getTranscriptInterim().textContent).toBe("");
@@ -370,7 +310,7 @@ describe("applyTranscript — transcript content updates", () => {
     hud.dataset.state = "LISTENING";
     applyTranscript(
       { finalText: "", interimText: "" },
-      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      hud, getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("");
     expect(getTranscriptInterim().textContent).toBe("");
@@ -432,7 +372,7 @@ describe("applyErrorMessage — error display semantics", () => {
   it("displays error message in final transcript slot", () => {
     applyErrorMessage(
       "Microphone permission is required.",
-      getHud(), getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("Microphone permission is required.");
   });
@@ -441,18 +381,9 @@ describe("applyErrorMessage — error display semantics", () => {
     getTranscriptInterim().textContent = "old interim";
     applyErrorMessage(
       "An error occurred.",
-      getHud(), getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptInterim().textContent).toBe("");
-  });
-
-  it("hides the prompt when error message is displayed", () => {
-    getTranscriptPrompt().hidden = false;
-    applyErrorMessage(
-      "Error message.",
-      getHud(), getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
-    );
-    expect(getTranscriptPrompt().hidden).toBe(true);
   });
 
   it("does not pin long error text to the right edge", () => {
@@ -463,7 +394,7 @@ describe("applyErrorMessage — error display semantics", () => {
 
     applyErrorMessage(
       "A very long error message that should keep its leading text visible.",
-      getHud(), getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
 
     expect(transcriptContainer.scrollLeft).toBe(50);
@@ -474,7 +405,7 @@ describe("applyErrorMessage — error display semantics", () => {
     getTranscriptInterim().textContent = "something";
     applyErrorMessage(
       null,
-      getHud(), getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getTranscriptFinal().textContent).toBe("");
     expect(getTranscriptInterim().textContent).toBe("");
@@ -941,10 +872,6 @@ describe("bar.html — accessibility contract (production source)", () => {
     expect(sep?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("transcript prompt is aria-hidden (visual-only cue)", () => {
-    expect(getTranscriptPrompt().getAttribute("aria-hidden")).toBe("true");
-  });
-
   it("action buttons are type='button'", () => {
     expect(getPauseBtn().getAttribute("type")).toBe("button");
     expect(getClearBtn().getAttribute("type")).toBe("button");
@@ -991,10 +918,6 @@ describe("bar.html — structural contract (production source)", () => {
     expect(getCanvas()).not.toBeNull();
   });
 
-  it("transcript-prompt starts hidden", () => {
-    expect(getTranscriptPrompt().hidden).toBe(true);
-  });
-
   it("initial data-state is HIDDEN", () => {
     expect(getHud().dataset.state).toBe("HIDDEN");
   });
@@ -1027,7 +950,7 @@ describe("state-driven data attributes — CSS contract", () => {
       applyState(
         state,
         getHud(), getStateLabel(),
-        getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+        getTranscriptFinal(), getTranscriptInterim(),
       );
       const ds = getHud().dataset.state!;
       expect(seen.has(ds)).toBe(false);
@@ -1040,7 +963,7 @@ describe("state-driven data attributes — CSS contract", () => {
     applyState(
       "HIDDEN",
       getHud(), getStateLabel(),
-      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
     expect(getStateLabel().textContent).toBe("");
   });
@@ -1059,22 +982,20 @@ describe("error state — display scenario", () => {
   beforeEach(buildHudDom);
   afterEach(() => { document.body.innerHTML = ""; });
 
-  it("error message is visible, interim is cleared, prompt is hidden", () => {
+  it("error message is visible and interim is cleared", () => {
     const hud = getHud();
     hud.dataset.state = "ERROR";
     getTranscriptInterim().textContent = "old interim";
-    getTranscriptPrompt().hidden = false;
 
     applyErrorMessage(
       "Microphone permission is required. Open Settings to allow access.",
-      hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
 
     expect(getTranscriptFinal().textContent).toBe(
       "Microphone permission is required. Open Settings to allow access."
     );
     expect(getTranscriptInterim().textContent).toBe("");
-    expect(getTranscriptPrompt().hidden).toBe(true);
   });
 
   it("null error clears both transcript slots cleanly", () => {
@@ -1083,7 +1004,7 @@ describe("error state — display scenario", () => {
     getTranscriptFinal().textContent = "Previous error message.";
     getTranscriptInterim().textContent = "stale";
 
-    applyErrorMessage(null, hud, getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt());
+    applyErrorMessage(null, getTranscriptFinal(), getTranscriptInterim());
 
     expect(getTranscriptFinal().textContent).toBe("");
     expect(getTranscriptInterim().textContent).toBe("");
@@ -1098,7 +1019,7 @@ describe("error state — display scenario", () => {
     applyState(
       "LISTENING",
       hud, getStateLabel(),
-      getTranscriptFinal(), getTranscriptInterim(), getTranscriptPrompt(),
+      getTranscriptFinal(), getTranscriptInterim(),
     );
 
     expect(getTranscriptFinal().textContent).toBe("error text");

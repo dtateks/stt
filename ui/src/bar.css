@@ -132,14 +132,6 @@ body {
   display: none;
 }
 
-.transcript-prompt {
-  flex: 0 0 auto;
-  font-size: 13px;
-  color: var(--text-disabled);
-  white-space: nowrap;
-  line-height: var(--line-height-tight);
-}
-
 /* State-specific transcript coloring */
 .hud[data-state="SUCCESS"] .transcript-final {
   color: var(--color-success-300);
