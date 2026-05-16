@@ -124,4 +124,40 @@ mod tests {
         );
         assert_eq!(Provider::Gemini.pick_credential(&credentials), "gemini-key");
     }
+
+    #[test]
+    fn parse_trims_surrounding_whitespace_before_resolving() {
+        assert_eq!(Provider::parse("  xai  "), Ok(Provider::Xai));
+        assert_eq!(Provider::parse("\tgemini\n"), Ok(Provider::Gemini));
+        assert_eq!(
+            Provider::parse("  openai_compatible "),
+            Ok(Provider::OpenAiCompatible),
+        );
+    }
+
+    #[test]
+    fn parse_is_case_sensitive() {
+        // The wire-format ids are lowercase by contract; an uppercase form
+        // should NOT be silently normalised because that would mask a
+        // protocol mismatch with the UI / Rust side.
+        assert!(Provider::parse("XAI").is_err());
+        assert!(Provider::parse("Gemini").is_err());
+        assert!(Provider::parse("OpenAI_Compatible").is_err());
+    }
+
+    #[test]
+    fn display_name_is_human_facing_label_for_each_variant() {
+        assert_eq!(Provider::Xai.display_name(), "xAI");
+        assert_eq!(Provider::OpenAiCompatible.display_name(), "OpenAI-compatible");
+        assert_eq!(Provider::Gemini.display_name(), "Gemini");
+    }
+
+    #[test]
+    fn id_returns_lowercase_wire_format_string_for_each_variant() {
+        // Mirror of the TypeScript catalogue's exported constants — drift
+        // here breaks the bridge contract.
+        assert_eq!(Provider::Xai.id(), "xai");
+        assert_eq!(Provider::OpenAiCompatible.id(), "openai_compatible");
+        assert_eq!(Provider::Gemini.id(), "gemini");
+    }
 }
