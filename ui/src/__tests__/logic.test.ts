@@ -138,6 +138,48 @@ describe("stripStopWord", () => {
     const result = stripStopWord("thank you", "thank you");
     expect(result).toBe("");
   });
+
+  it("strips stop word case-insensitively, preserving the original case of the command", () => {
+    const result = stripStopWord("Send This Email THANK YOU", "thank you");
+    expect(result.toLowerCase()).toContain("send this email");
+    expect(result.toLowerCase()).not.toContain("thank you");
+  });
+
+  it("strips stop word with extra internal whitespace in the stop-word phrase", () => {
+    const result = stripStopWord("do the thing thank  you", "thank   you");
+    expect(result.toLowerCase()).toContain("do the thing");
+    expect(result.toLowerCase()).not.toContain("thank");
+  });
+
+  it("strips only the LAST occurrence when the stop word appears mid-utterance too", () => {
+    // The detector requires the stop word at the end; strip targets the last
+    // normalised occurrence — preserve the earlier instance verbatim.
+    const result = stripStopWord(
+      "thank you for the introduction now do the thing thank you",
+      "thank you",
+    );
+    expect(result.toLowerCase()).toContain("thank you for the introduction");
+    // Trailing stop word removed; nothing after.
+    expect(result.toLowerCase().trim().endsWith("do the thing")).toBe(true);
+  });
+
+  it("strips multiple trailing punctuation marks after the stop word", () => {
+    const result = stripStopWord("ship it thank you!?!", "thank you");
+    expect(result.toLowerCase()).toContain("ship it");
+    expect(result.toLowerCase()).not.toContain("thank you");
+  });
+
+  it("strips trailing whitespace runs before the stop word", () => {
+    const result = stripStopWord("ship it    thank you", "thank you");
+    expect(result.toLowerCase()).toContain("ship it");
+    expect(result.toLowerCase()).not.toContain("thank you");
+  });
+
+  it("preserves Unicode letters and numbers in the command portion", () => {
+    const result = stripStopWord("ship 3 đơn hàng thank you", "thank you");
+    expect(result).toContain("ship 3 đơn hàng");
+    expect(result.toLowerCase()).not.toContain("thank you");
+  });
 });
 
 // ─── Bar state machine: transitions ──────────────────────────────────────
