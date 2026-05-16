@@ -1,7 +1,7 @@
 {
   "name": "voice-to-text",
   "version": "1.0.0",
-  "description": "Voice-to-text menubar app for macOS",
+  "description": "Background dictation app for macOS and Windows",
   "scripts": {
     "ui:dev": "vite --config vite.config.mjs",
     "ui:build": "vite build --config vite.config.mjs",
