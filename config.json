@@ -10,7 +10,7 @@
       { "key": "domain", "value": "desktop dictation" },
       { "key": "topic", "value": "voice commands and short text insertion" }
     ],
-    "context_text": "The user speaks short dictation snippets, app names, and command-like phrases for macOS text insertion.",
+    "context_text": "The user speaks short dictation snippets, app names, and command-like phrases for desktop text insertion.",
     "enable_endpoint_detection": true,
     "max_endpoint_delay_ms": 1800,
     "max_non_final_tokens_duration_ms": 1800,
