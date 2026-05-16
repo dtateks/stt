@@ -147,4 +147,172 @@ describe("SonioxClient", () => {
     expect(sentFrames[0]).not.toContain("translation_terms");
     vi.unstubAllGlobals();
   });
+
+  it("accumulates final tokens while replacing interim tokens across messages", () => {
+    const client = new SonioxClient();
+    const transcriptUpdates: TranscriptResult[] = [];
+    client.onTranscript = (result) => transcriptUpdates.push(result);
+
+    (client as unknown as { active: boolean }).active = true;
+    const dispatch = (raw: string) =>
+      (client as unknown as { handleMessage(raw: string): void }).handleMessage(raw);
+
+    dispatch(
+      JSON.stringify({
+        tokens: [
+          { text: "hello ", is_final: true },
+          { text: "wo", is_final: false },
+        ],
+      }),
+    );
+    dispatch(
+      JSON.stringify({
+        tokens: [
+          { text: "world", is_final: true },
+          { text: " typi", is_final: false },
+        ],
+      }),
+    );
+    dispatch(
+      JSON.stringify({
+        tokens: [{ text: "typing", is_final: false }],
+      }),
+    );
+
+    // Final accumulates, interim is replaced wholesale on each update.
+    expect(transcriptUpdates).toEqual([
+      { finalText: "hello ", interimText: "wo" },
+      { finalText: "hello world", interimText: " typi" },
+      { finalText: "hello world", interimText: "typing" },
+    ]);
+  });
+
+  it("promotes leftover interim into final on the finalization marker", () => {
+    const client = new SonioxClient();
+    const transcriptUpdates: TranscriptResult[] = [];
+    client.onTranscript = (result) => transcriptUpdates.push(result);
+
+    (client as unknown as { active: boolean }).active = true;
+    const dispatch = (raw: string) =>
+      (client as unknown as { handleMessage(raw: string): void }).handleMessage(raw);
+
+    dispatch(
+      JSON.stringify({
+        tokens: [
+          { text: "hello ", is_final: true },
+          { text: "leftover", is_final: false },
+          { text: "<fin>", is_final: true },
+        ],
+      }),
+    );
+
+    expect(transcriptUpdates.at(-1)).toEqual({
+      finalText: "hello leftover",
+      interimText: "",
+    });
+  });
+
+  it("ignores messages with no tokens and no error fields", () => {
+    const client = new SonioxClient();
+    const transcriptUpdates: TranscriptResult[] = [];
+    const errors: Error[] = [];
+    client.onTranscript = (result) => transcriptUpdates.push(result);
+    client.onError = (error) => errors.push(error);
+
+    (client as unknown as { active: boolean }).active = true;
+
+    (client as unknown as { handleMessage(raw: string): void }).handleMessage(
+      JSON.stringify({ unrelated: "field" }),
+    );
+
+    expect(transcriptUpdates).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  it("surfaces error_message without error_code as 'Soniox error: <message>'", () => {
+    const client = new SonioxClient();
+    const onError = vi.fn();
+    client.onError = onError;
+    (client as unknown as { active: boolean }).active = true;
+
+    (client as unknown as { handleMessage(raw: string): void }).handleMessage(
+      JSON.stringify({ error_message: "internal upstream blip" }),
+    );
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Soniox error: internal upstream blip" }),
+    );
+  });
+
+  it("ignores a payload that carries only error_code (no error / error_message)", () => {
+    const client = new SonioxClient();
+    const onError = vi.fn();
+    client.onError = onError;
+    (client as unknown as { active: boolean }).active = true;
+
+    // The error branch keys on `error` or `error_message`; a code-only
+    // payload is not surfaced as an error.
+    (client as unknown as { handleMessage(raw: string): void }).handleMessage(
+      JSON.stringify({ error_code: "rate_limited" }),
+    );
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("rejects pending finalization when a server error arrives mid-finalization", () => {
+    const client = new SonioxClient();
+    const resolve = vi.fn();
+    const reject = vi.fn();
+
+    (client as unknown as { active: boolean }).active = true;
+    (client as unknown as {
+      pendingFinalization: {
+        fallbackTranscript: string;
+        resolve: (text: string) => void;
+        reject: (error: Error) => void;
+      };
+    }).pendingFinalization = {
+      fallbackTranscript: "fallback",
+      resolve,
+      reject,
+    };
+
+    (client as unknown as { handleMessage(raw: string): void }).handleMessage(
+      JSON.stringify({ error_code: "unauthorized", error_message: "bad key" }),
+    );
+
+    expect(reject).toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("returns the fallback transcript when finalization completes with no accumulated text", () => {
+    const client = new SonioxClient();
+    const resolve = vi.fn();
+    const reject = vi.fn();
+
+    (client as unknown as { active: boolean }).active = true;
+    (client as unknown as { finalText: string }).finalText = "";
+    (client as unknown as { interimText: string }).interimText = "";
+    (client as unknown as {
+      pendingFinalization: {
+        fallbackTranscript: string;
+        resolve: (text: string) => void;
+        reject: (error: Error) => void;
+      };
+    }).pendingFinalization = {
+      fallbackTranscript: "fallback content",
+      resolve,
+      reject,
+    };
+
+    (client as unknown as { handleMessage(raw: string): void }).handleMessage(
+      JSON.stringify({
+        tokens: [{ text: "<fin>", is_final: true }],
+      }),
+    );
+
+    expect(resolve).toHaveBeenCalledWith("fallback content");
+    expect(reject).not.toHaveBeenCalled();
+  });
+
 });
