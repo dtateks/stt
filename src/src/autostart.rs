@@ -228,6 +228,126 @@ mod tests {
     }
 
     #[test]
+    fn launch_at_login_propagates_resolve_current_executable_failure() {
+        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+        let result = run_launch_at_login_setup_flow(
+            || Err("could not resolve current_exe".to_string()),
+            || {
+                executed_steps.borrow_mut().push("init");
+                Ok(())
+            },
+            || {
+                executed_steps.borrow_mut().push("is-enabled");
+                Ok(true)
+            },
+            || {
+                executed_steps.borrow_mut().push("enable");
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("could not resolve current_exe".to_string()));
+        assert!(executed_steps.borrow().is_empty(),
+            "plugin must NOT be initialised when current_exe resolution fails");
+    }
+
+    #[test]
+    fn launch_at_login_propagates_plugin_init_failure() {
+        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+        let result = run_launch_at_login_setup_flow(
+            || {
+                Ok(PathBuf::from(
+                    "/Applications/Voice to Text.app/Contents/MacOS/Voice to Text",
+                ))
+            },
+            || {
+                executed_steps.borrow_mut().push("init");
+                Err("autostart plugin failed to init".to_string())
+            },
+            || {
+                executed_steps.borrow_mut().push("is-enabled");
+                Ok(true)
+            },
+            || {
+                executed_steps.borrow_mut().push("enable");
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("autostart plugin failed to init".to_string()));
+        assert_eq!(
+            executed_steps.into_inner(),
+            vec!["init"],
+            "is-enabled / enable must NOT run after init failure",
+        );
+    }
+
+    #[test]
+    fn launch_at_login_propagates_is_enabled_failure() {
+        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+        let result = run_launch_at_login_setup_flow(
+            || {
+                Ok(PathBuf::from(
+                    "/Applications/Voice to Text.app/Contents/MacOS/Voice to Text",
+                ))
+            },
+            || {
+                executed_steps.borrow_mut().push("init");
+                Ok(())
+            },
+            || {
+                executed_steps.borrow_mut().push("is-enabled");
+                Err("could not read autostart status".to_string())
+            },
+            || {
+                executed_steps.borrow_mut().push("enable");
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("could not read autostart status".to_string()));
+        assert_eq!(
+            executed_steps.into_inner(),
+            vec!["init", "is-enabled"],
+            "enable must NOT run after is-enabled failure",
+        );
+    }
+
+    #[test]
+    fn launch_at_login_propagates_enable_failure() {
+        let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
+
+        let result = run_launch_at_login_setup_flow(
+            || {
+                Ok(PathBuf::from(
+                    "/Applications/Voice to Text.app/Contents/MacOS/Voice to Text",
+                ))
+            },
+            || {
+                executed_steps.borrow_mut().push("init");
+                Ok(())
+            },
+            || {
+                executed_steps.borrow_mut().push("is-enabled");
+                Ok(false)
+            },
+            || {
+                executed_steps.borrow_mut().push("enable");
+                Err("autostart enable failed".to_string())
+            },
+        );
+
+        assert_eq!(result, Err("autostart enable failed".to_string()));
+        assert_eq!(
+            executed_steps.into_inner(),
+            vec!["init", "is-enabled", "enable"],
+        );
+    }
+
+    #[test]
     fn launch_at_login_flag_keeps_initial_launch_hidden() {
         assert!(should_show_main_window_on_current_launch([
             "voice_to_text",
