@@ -363,6 +363,44 @@ describe("bar state machine — transition", () => {
     expect(transition("INSERTING", "CLEAR").next).toBe("CONNECTING");
   });
 
+  it("INSERTING + TOGGLE → HIDDEN (user can abort mid-insertion)", () => {
+    const r = transition("INSERTING", "TOGGLE");
+    expect(r.next).toBe("HIDDEN");
+    expect(r.shouldHide).toBe(true);
+  });
+
+  it("INSERTING + CLOSE → HIDDEN", () => {
+    const r = transition("INSERTING", "CLOSE");
+    expect(r.next).toBe("HIDDEN");
+    expect(r.shouldHide).toBe(true);
+  });
+
+  it("SUCCESS + CLEAR → CONNECTING (clear from the post-insert pause)", () => {
+    expect(transition("SUCCESS", "CLEAR").next).toBe("CONNECTING");
+  });
+
+  it("SUCCESS + CLOSE → HIDDEN", () => {
+    const r = transition("SUCCESS", "CLOSE");
+    expect(r.next).toBe("HIDDEN");
+    expect(r.shouldHide).toBe(true);
+  });
+
+  it("PROCESSING + TOGGLE → HIDDEN (user can abort mid-LLM)", () => {
+    const r = transition("PROCESSING", "TOGGLE");
+    expect(r.next).toBe("HIDDEN");
+    expect(r.shouldHide).toBe(true);
+  });
+
+  it("PROCESSING + CLOSE → HIDDEN", () => {
+    const r = transition("PROCESSING", "CLOSE");
+    expect(r.next).toBe("HIDDEN");
+    expect(r.shouldHide).toBe(true);
+  });
+
+  it("PROCESSING + CLEAR → CONNECTING", () => {
+    expect(transition("PROCESSING", "CLEAR").next).toBe("CONNECTING");
+  });
+
   it("SUCCESS + AUTO_RETURN → LISTENING", () => {
     expect(transition("SUCCESS", "AUTO_RETURN").next).toBe("LISTENING");
   });
