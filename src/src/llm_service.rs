@@ -545,7 +545,7 @@ fn required_model_for(llm_config: &LlmConfig, provider: Provider) -> Result<Stri
 
 #[cfg(test)]
 mod tests {
-    use super::{build_request_body_for, LlmConfig, Provider};
+    use super::{build_request_body_for, empty_models_error_for, LlmConfig, Provider};
 
     #[test]
     fn build_request_body_requires_explicit_model_for_xai() {
@@ -578,5 +578,32 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("OpenAI-compatible model is not configured"));
+    }
+
+    #[test]
+    fn empty_models_error_for_openai_compatible_names_base_url_and_key() {
+        let message = empty_models_error_for(Provider::OpenAiCompatible);
+        assert!(message.contains("Base URL"), "got: {message}");
+        assert!(message.contains("API key"), "got: {message}");
+    }
+
+    #[test]
+    fn empty_models_error_for_xai_names_the_provider() {
+        let message = empty_models_error_for(Provider::Xai);
+        assert!(message.contains("xAI"), "got: {message}");
+        assert!(
+            !message.contains("Base URL"),
+            "xAI message should not mention Base URL: {message}"
+        );
+    }
+
+    #[test]
+    fn empty_models_error_for_gemini_names_the_provider() {
+        let message = empty_models_error_for(Provider::Gemini);
+        assert!(message.contains("Gemini"), "got: {message}");
+        assert!(
+            !message.contains("Base URL"),
+            "Gemini message should not mention Base URL: {message}"
+        );
     }
 }
