@@ -54,8 +54,7 @@ fn resolve_realtime_models_from_docs_html(html: &str) -> Result<Vec<String>, Str
     let parsed_models = parse_realtime_models_from_docs_html(html);
     if parsed_models.is_empty() {
         return Err(
-            "Could not parse Soniox realtime models from docs. Try refresh again in Settings."
-                .to_string(),
+            "Could not parse Soniox realtime models from docs. Try refresh again.".to_string(),
         );
     }
 
