@@ -285,6 +285,139 @@ describe("SonioxClient", () => {
     expect(resolve).not.toHaveBeenCalled();
   });
 
+  describe("WebSocket lifecycle handlers", () => {
+    function makeLifecycleHarness() {
+      const errors: Error[] = [];
+
+      class MockWebSocket {
+        static OPEN = 1;
+        binaryType = "";
+        readyState = MockWebSocket.OPEN;
+        onopen: (() => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: (() => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+        constructor(_url: string) {
+          queueMicrotask(() => {
+            this.onopen?.();
+          });
+        }
+        send(_frame: string): void {}
+        close(): void {}
+      }
+
+      vi.stubGlobal("WebSocket", MockWebSocket);
+
+      const client = new SonioxClient();
+      client.onError = (error) => errors.push(error);
+
+      const config: SonioxConfig = {
+        ws_url: "wss://example.test/stt",
+        model: "stt-rt-v4",
+        sample_rate: 16_000,
+        num_channels: 1,
+        audio_format: "pcm_s16le",
+        chunk_size: 4_096,
+      };
+      client.setConfig(config);
+
+      (client as unknown as { openWebSocket(apiKey: string, context: { terms?: string[] }): void }).openWebSocket(
+        "temporary-key",
+        {},
+      );
+
+      return {
+        client,
+        errors,
+        socket: (client as unknown as { ws: InstanceType<typeof MockWebSocket> }).ws,
+      };
+    }
+
+    it("onerror fires onError with the canonical message while active", async () => {
+      const { client, errors, socket } = makeLifecycleHarness();
+      (client as unknown as { active: boolean }).active = true;
+
+      await Promise.resolve();
+      socket.onerror?.();
+
+      expect(errors.map((e) => e.message)).toContain("Soniox WebSocket error");
+      vi.unstubAllGlobals();
+    });
+
+    it("onerror is silent when the client is inactive", async () => {
+      const { errors, socket } = makeLifecycleHarness();
+      // active stays false (default).
+
+      await Promise.resolve();
+      socket.onerror?.();
+
+      expect(errors).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+
+    it("onclose with wasClean=false fires onError naming the close code", async () => {
+      const { client, errors, socket } = makeLifecycleHarness();
+      (client as unknown as { active: boolean }).active = true;
+
+      await Promise.resolve();
+      socket.onclose?.({
+        code: 1006,
+        wasClean: false,
+      } as CloseEvent);
+
+      expect(errors.map((e) => e.message)).toContain(
+        "Soniox connection closed (code 1006)",
+      );
+      vi.unstubAllGlobals();
+    });
+
+    it("onclose with wasClean=true does NOT fire onError (clean shutdown)", async () => {
+      const { client, errors, socket } = makeLifecycleHarness();
+      (client as unknown as { active: boolean }).active = true;
+
+      await Promise.resolve();
+      socket.onclose?.({
+        code: 1000,
+        wasClean: true,
+      } as CloseEvent);
+
+      expect(errors).toEqual([]);
+      vi.unstubAllGlobals();
+    });
+
+    it("onclose rejects a pending finalization with the close-code message", async () => {
+      const { client, socket } = makeLifecycleHarness();
+      (client as unknown as { active: boolean }).active = true;
+
+      const resolve = vi.fn();
+      const reject = vi.fn();
+      (client as unknown as {
+        pendingFinalization: {
+          fallbackTranscript: string;
+          resolve: (text: string) => void;
+          reject: (error: Error) => void;
+        };
+      }).pendingFinalization = {
+        fallbackTranscript: "fallback",
+        resolve,
+        reject,
+      };
+
+      await Promise.resolve();
+      socket.onclose?.({
+        code: 1006,
+        wasClean: false,
+      } as CloseEvent);
+
+      expect(reject).toHaveBeenCalledTimes(1);
+      expect(reject.mock.calls[0]?.[0]?.message).toContain(
+        "Soniox connection closed before finalization completed (code 1006)",
+      );
+      expect(resolve).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+  });
+
   it("returns the fallback transcript when finalization completes with no accumulated text", () => {
     const client = new SonioxClient();
     const resolve = vi.fn();
