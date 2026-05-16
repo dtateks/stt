@@ -104,6 +104,43 @@ fn shell_parser_uses_openai_api_key_as_fallback_for_openai_compatible_key() {
 }
 
 #[test]
+fn shell_parser_prefers_openai_compatible_api_key_when_both_are_set_compatible_first() {
+    let payload = [
+        b"shell noise\0".as_slice(),
+        b"__VOICE_TO_TEXT_ENV_START__\0".as_slice(),
+        b"OPENAI_COMPATIBLE_API_KEY=shell-compatible\0".as_slice(),
+        b"OPENAI_API_KEY=shell-fallback\0".as_slice(),
+        b"__VOICE_TO_TEXT_ENV_END__\0".as_slice(),
+    ]
+    .concat();
+
+    let parsed = parse_shell_environment_output(&payload);
+
+    // OPENAI_COMPATIBLE_API_KEY wins outright; the later OPENAI_API_KEY
+    // entry must not overwrite the captured compatible key.
+    assert_eq!(parsed.openai_compatible_key, "shell-compatible");
+}
+
+#[test]
+fn shell_parser_prefers_openai_compatible_api_key_when_both_are_set_fallback_first() {
+    let payload = [
+        b"shell noise\0".as_slice(),
+        b"__VOICE_TO_TEXT_ENV_START__\0".as_slice(),
+        b"OPENAI_API_KEY=shell-fallback\0".as_slice(),
+        b"OPENAI_COMPATIBLE_API_KEY=shell-compatible\0".as_slice(),
+        b"__VOICE_TO_TEXT_ENV_END__\0".as_slice(),
+    ]
+    .concat();
+
+    let parsed = parse_shell_environment_output(&payload);
+
+    // Order-independent: the compatible-first test above and this one
+    // together pin that OPENAI_COMPATIBLE_API_KEY wins regardless of
+    // iteration order.
+    assert_eq!(parsed.openai_compatible_key, "shell-compatible");
+}
+
+#[test]
 fn llm_response_parser_validates_required_fields() {
     let valid_payload = json!({
       "choices": [
