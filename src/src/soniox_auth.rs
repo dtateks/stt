@@ -77,6 +77,10 @@ pub async fn create_temporary_api_key(
         .await
         .map_err(|error| format!("Could not parse Soniox temporary key response: {error}"))?;
 
+    parse_temporary_api_key_response(&payload)
+}
+
+fn parse_temporary_api_key_response(payload: &Value) -> Result<SonioxTemporaryKey, String> {
     let api_key = payload
         .get("api_key")
         .and_then(Value::as_str)
@@ -122,7 +126,10 @@ pub async fn create_temporary_api_key(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_temporary_api_key, temporary_api_key_request_payload, SONIOX_KEY_REQUIRED_MESSAGE};
+    use super::{
+        create_temporary_api_key, parse_temporary_api_key_response,
+        temporary_api_key_request_payload, SONIOX_KEY_REQUIRED_MESSAGE,
+    };
     use serde_json::json;
 
     #[test]
@@ -142,5 +149,101 @@ mod tests {
             .expect_err("blank Soniox keys should fail before network call");
 
         assert_eq!(error, SONIOX_KEY_REQUIRED_MESSAGE);
+    }
+
+    #[test]
+    fn parse_response_extracts_top_level_api_key_with_expires_in_seconds() {
+        let payload = json!({
+            "api_key": "tk-fresh",
+            "expires_in_seconds": 3600
+        });
+
+        let parsed = parse_temporary_api_key_response(&payload).expect("must parse");
+        assert_eq!(parsed.api_key, "tk-fresh");
+        assert_eq!(parsed.expires_in_seconds, Some(3600));
+        assert_eq!(parsed.expires_at, None);
+    }
+
+    #[test]
+    fn parse_response_falls_back_to_temporary_api_key_alias() {
+        let payload = json!({
+            "temporary_api_key": "tk-aliased",
+            "expires_in_seconds": 1800
+        });
+
+        let parsed = parse_temporary_api_key_response(&payload).expect("must parse");
+        assert_eq!(parsed.api_key, "tk-aliased");
+    }
+
+    #[test]
+    fn parse_response_falls_back_to_data_object_shape() {
+        let payload = json!({
+            "data": {
+                "api_key": "tk-nested",
+                "expires_at": "2026-12-31T23:59:59Z",
+                "expires_in_seconds": 3600
+            }
+        });
+
+        let parsed = parse_temporary_api_key_response(&payload).expect("must parse");
+        assert_eq!(parsed.api_key, "tk-nested");
+        assert_eq!(parsed.expires_at.as_deref(), Some("2026-12-31T23:59:59Z"));
+        assert_eq!(parsed.expires_in_seconds, Some(3600));
+    }
+
+    #[test]
+    fn parse_response_trims_whitespace_around_returned_api_key() {
+        let payload = json!({
+            "api_key": "  tk-padded  ",
+            "expires_in_seconds": 3600
+        });
+
+        let parsed = parse_temporary_api_key_response(&payload).expect("must parse");
+        assert_eq!(parsed.api_key, "tk-padded");
+    }
+
+    #[test]
+    fn parse_response_rejects_payload_missing_api_key() {
+        let payload = json!({
+            "expires_in_seconds": 3600
+        });
+
+        let error = parse_temporary_api_key_response(&payload).unwrap_err();
+        assert!(error.contains("did not include api_key"));
+    }
+
+    #[test]
+    fn parse_response_rejects_payload_with_blank_api_key() {
+        let payload = json!({
+            "api_key": "   "
+        });
+
+        let error = parse_temporary_api_key_response(&payload).unwrap_err();
+        assert!(error.contains("did not include api_key"));
+    }
+
+    #[test]
+    fn parse_response_prefers_top_level_expires_at_over_nested() {
+        let payload = json!({
+            "api_key": "tk",
+            "expires_at": "2026-01-01T00:00:00Z",
+            "data": {
+                "expires_at": "2099-12-31T23:59:59Z"
+            }
+        });
+
+        let parsed = parse_temporary_api_key_response(&payload).expect("must parse");
+        assert_eq!(parsed.expires_at.as_deref(), Some("2026-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn parse_response_returns_none_for_missing_expiry_fields() {
+        let payload = json!({
+            "api_key": "tk"
+        });
+
+        let parsed = parse_temporary_api_key_response(&payload).expect("must parse");
+        assert_eq!(parsed.expires_at, None);
+        assert_eq!(parsed.expires_in_seconds, None);
     }
 }
