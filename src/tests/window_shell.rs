@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde_json::Value;
 use voice_to_text_lib::{
-    run_bar_close_request_sequence, run_bar_show_sequence,
+    run_background_exit_request_sequence, run_bar_close_request_sequence, run_bar_show_sequence,
     run_macos_bar_runtime_configuration_sequence, run_macos_reopen_window_sequence,
     run_main_close_request_sequence, run_main_window_show_sequence,
 };
@@ -616,6 +616,28 @@ fn runtime_invariant_macos_reopen_restores_hidden_main_window_only_when_no_windo
     });
 
     assert_eq!(executed_steps.into_inner(), vec!["reopen-main-window"]);
+}
+
+#[test]
+fn runtime_invariant_background_exit_requests_keep_the_app_alive() {
+    let mut prevented = false;
+
+    run_background_exit_request_sequence(None, || {
+        prevented = true;
+    });
+
+    assert!(prevented);
+}
+
+#[test]
+fn runtime_invariant_explicit_programmatic_exit_is_allowed() {
+    let mut prevented = false;
+
+    run_background_exit_request_sequence(Some(0), || {
+        prevented = true;
+    });
+
+    assert!(!prevented);
 }
 
 #[test]

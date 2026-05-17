@@ -68,6 +68,17 @@ pub fn run_macos_reopen_window_sequence<ReopenMainWindow>(
     }
 }
 
+pub fn run_background_exit_request_sequence<PreventExit>(
+    exit_code: Option<i32>,
+    prevent_exit: PreventExit,
+) where
+    PreventExit: FnOnce(),
+{
+    if exit_code.is_none() {
+        prevent_exit();
+    }
+}
+
 pub fn run_main_close_request_sequence<PreventClose, HideMainWindow>(
     prevent_close: PreventClose,
     hide_main_window: HideMainWindow,
@@ -109,6 +120,12 @@ fn reopen_main_window(app: &AppHandle) {
 }
 
 pub(crate) fn handle_macos_runtime_event(app_handle: &AppHandle, event: RunEvent) {
+    #[cfg(target_os = "macos")]
+    if let RunEvent::ExitRequested { code, api, .. } = event {
+        run_background_exit_request_sequence(code, || api.prevent_exit());
+        return;
+    }
+
     #[cfg(target_os = "macos")]
     if let RunEvent::Reopen {
         has_visible_windows,
