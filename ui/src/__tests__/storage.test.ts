@@ -363,6 +363,20 @@ describe("storage helpers", () => {
       expect(prefs.skipLlm).toBe(true);
     });
 
+    it("loadPreferences falls back to defaults when stored JSON has the wrong shape", () => {
+      window.localStorage.setItem("enterMode", JSON.stringify("yes"));
+      window.localStorage.setItem("outputLang", JSON.stringify("klingon"));
+      window.localStorage.setItem("sonioxTerms", JSON.stringify("alpha"));
+      window.localStorage.setItem("skipLlm", JSON.stringify("no"));
+
+      const prefs = loadPreferences();
+
+      expect(prefs.enterMode).toBe(false);
+      expect(prefs.outputLang).toBe("auto");
+      expect(prefs.sonioxTerms).toEqual(["alpha", "beta"]);
+      expect(prefs.skipLlm).toBe(true);
+    });
+
     it("loadLlmModelPreference falls back to null when the stored map is corrupt", () => {
       window.localStorage.setItem("llmModelsByProvider", "not-a-real-object{}}}");
 

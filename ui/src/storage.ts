@@ -46,14 +46,33 @@ function writeJson(key: string, value: unknown): boolean {
   }
 }
 
+function readBoolean(key: string, fallback: boolean): boolean {
+  const value = readJson<unknown>(key, fallback);
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function readOutputLang(key: string, fallback: OutputLang): OutputLang {
+  const value = readJson<unknown>(key, fallback);
+  return value === "auto" || value === "english" || value === "vietnamese"
+    ? value
+    : fallback;
+}
+
+function readStringArray(key: string, fallback: string[]): string[] {
+  const value = readJson<unknown>(key, fallback);
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? value
+    : fallback;
+}
+
 export function loadPreferences(): UserPreferences {
   const defaults = window.voiceToTextDefaults;
 
   return {
-    enterMode: readJson<boolean>(KEYS.enterMode, false),
-    outputLang: readJson<OutputLang>(KEYS.outputLang, "auto"),
-    sonioxTerms: readJson<string[]>(KEYS.sonioxTerms, defaults.terms),
-    skipLlm: readJson<boolean>(KEYS.skipLlm, true),
+    enterMode: readBoolean(KEYS.enterMode, false),
+    outputLang: readOutputLang(KEYS.outputLang, "auto"),
+    sonioxTerms: readStringArray(KEYS.sonioxTerms, defaults.terms),
+    skipLlm: readBoolean(KEYS.skipLlm, true),
   };
 }
 
@@ -122,7 +141,7 @@ export function resetCustomStopWordPreference(): boolean {
 }
 
 export function loadLlmCorrectionEnabledPreference(): boolean {
-  const skipLlm = readJson<boolean>(KEYS.skipLlm, true);
+  const skipLlm = readBoolean(KEYS.skipLlm, true);
   return !skipLlm;
 }
 
@@ -131,7 +150,7 @@ export function saveLlmCorrectionEnabledPreference(enabled: boolean): boolean {
 }
 
 export function loadReminderBeepEnabledPreference(): boolean {
-  return readJson<boolean>(KEYS.reminderBeepEnabled, DEFAULT_REMINDER_BEEP_ENABLED);
+  return readBoolean(KEYS.reminderBeepEnabled, DEFAULT_REMINDER_BEEP_ENABLED);
 }
 
 export function saveReminderBeepEnabledPreference(enabled: boolean): boolean {
