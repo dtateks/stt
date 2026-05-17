@@ -140,11 +140,11 @@ fn register_toggle_mic_handler(app: &AppHandle, shortcut: &str) -> Result<(), St
                     return;
                 };
 
-                let visible = crate::bar_window::is_bar_currently_visible(app)
-                    .unwrap_or_else(|error| {
-                    eprintln!("[global-shortcut] visibility query failed: {}", error);
-                    false
-                });
+                let visible =
+                    crate::bar_window::is_bar_currently_visible(app).unwrap_or_else(|error| {
+                        eprintln!("[global-shortcut] visibility query failed: {}", error);
+                        false
+                    });
 
                 eprintln!("[global-shortcut] bar visible: {}", visible);
 
@@ -704,7 +704,10 @@ mod macos_tests {
             || executed_steps.borrow_mut().push("emit-toggle"),
         );
 
-        assert_eq!(executed_steps.into_inner(), vec!["mark-pending", "show-bar"]);
+        assert_eq!(
+            executed_steps.into_inner(),
+            vec!["mark-pending", "show-bar"]
+        );
     }
 
     #[test]

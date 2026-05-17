@@ -169,7 +169,8 @@ pub async fn correct_transcript(
 
     let client = shared_http_client()?;
 
-    let request_body = build_request_body_for(transcript, &llm_config, &output_lang, provider_kind)?;
+    let request_body =
+        build_request_body_for(transcript, &llm_config, &output_lang, provider_kind)?;
     let endpoint = completion_endpoint_for(provider_kind, &llm_config)?;
     let request_builder = client.post(endpoint).json(&request_body);
     let request_builder = match provider_kind {
@@ -559,8 +560,8 @@ mod tests {
             base_url: None,
         };
 
-        let error =
-            build_request_body_for("hello".to_string(), &config, "auto", Provider::Xai).unwrap_err();
+        let error = build_request_body_for("hello".to_string(), &config, "auto", Provider::Xai)
+            .unwrap_err();
         assert!(error.contains("xAI model is not configured"));
     }
 

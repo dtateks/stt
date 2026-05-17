@@ -57,4 +57,3 @@ fn windows_shell_runtime_contract_forwards_hide_and_mouse_toggle_requests() {
     assert!(set_mouse_result.is_ok());
     assert_eq!(ignore_arguments.into_inner(), vec![true]);
 }
-

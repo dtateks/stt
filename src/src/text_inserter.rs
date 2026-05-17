@@ -450,8 +450,7 @@ mod tests {
         // When insertion failed but the prior clipboard was restored cleanly,
         // surface the insertion error without the clipboard-restore-failed
         // code so the UI does not falsely blame clipboard restoration.
-        let result =
-            build_insert_text_result(Err("Paste failed: unknown".to_string()), Ok(()));
+        let result = build_insert_text_result(Err("Paste failed: unknown".to_string()), Ok(()));
 
         assert!(!result.success);
         assert_eq!(result.code, None);

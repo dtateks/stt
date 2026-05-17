@@ -26,9 +26,7 @@ use core_graphics::event::CGEvent;
 #[cfg(target_os = "macos")]
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 #[cfg(target_os = "macos")]
-use core_graphics::window::{
-    create_window_list, kCGNullWindowID, kCGWindowListOptionOnScreenOnly,
-};
+use core_graphics::window::{create_window_list, kCGNullWindowID, kCGWindowListOptionOnScreenOnly};
 #[cfg(target_os = "macos")]
 use objc2::msg_send;
 #[cfg(target_os = "macos")]
@@ -194,10 +192,7 @@ where
 }
 
 #[cfg(target_os = "macos")]
-fn run_bar_order_front_attempt(
-    app: &AppHandle,
-    bar_window: &WebviewWindow,
-) -> tauri::Result<()> {
+fn run_bar_order_front_attempt(app: &AppHandle, bar_window: &WebviewWindow) -> tauri::Result<()> {
     let panel = app
         .get_webview_panel(BAR_WINDOW_LABEL)
         .map_err(|_| std::io::Error::other("bar panel not found"))?;

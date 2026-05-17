@@ -303,8 +303,12 @@ pub fn fit_main_window_to_content(app: AppHandle, content_height: f64) -> Result
         return Err("main window not found".to_string());
     };
 
-    let scale_factor = main_window.scale_factor().map_err(|error| error.to_string())?;
-    let inner_size = main_window.inner_size().map_err(|error| error.to_string())?;
+    let scale_factor = main_window
+        .scale_factor()
+        .map_err(|error| error.to_string())?;
+    let inner_size = main_window
+        .inner_size()
+        .map_err(|error| error.to_string())?;
     let logical_width = f64::from(inner_size.width) / scale_factor;
 
     if logical_width <= 0.0 {
@@ -312,11 +316,16 @@ pub fn fit_main_window_to_content(app: AppHandle, content_height: f64) -> Result
     }
 
     let bounded_content_height = content_height.max(0.0);
-    let target_height = (bounded_content_height + MAIN_WINDOW_AUTO_FIT_CHROME_PADDING)
-        .clamp(MAIN_WINDOW_AUTO_FIT_MIN_HEIGHT, MAIN_WINDOW_AUTO_FIT_MAX_HEIGHT);
+    let target_height = (bounded_content_height + MAIN_WINDOW_AUTO_FIT_CHROME_PADDING).clamp(
+        MAIN_WINDOW_AUTO_FIT_MIN_HEIGHT,
+        MAIN_WINDOW_AUTO_FIT_MAX_HEIGHT,
+    );
 
     main_window
-        .set_size(Size::Logical(LogicalSize::new(logical_width, target_height)))
+        .set_size(Size::Logical(LogicalSize::new(
+            logical_width,
+            target_height,
+        )))
         .map_err(|error| error.to_string())
 }
 
@@ -343,9 +352,8 @@ pub fn update_mic_toggle_shortcut(app: AppHandle, shortcut: String) -> Result<St
 #[cfg(test)]
 mod tests {
     use super::{
-        missing_provider_credential_error, parse_llm_config_from_app_config,
-        trimmed_soniox_key, validate_soniox_key_for_persistence_with,
-        SONIOX_KEY_REQUIRED_MESSAGE,
+        missing_provider_credential_error, parse_llm_config_from_app_config, trimmed_soniox_key,
+        validate_soniox_key_for_persistence_with, SONIOX_KEY_REQUIRED_MESSAGE,
     };
     use crate::llm_provider::Provider;
     use crate::soniox_auth::SonioxTemporaryKey;
@@ -400,7 +408,10 @@ mod tests {
     #[test]
     fn trimmed_soniox_key_strips_whitespace_on_both_sides() {
         assert_eq!(trimmed_soniox_key("  sk-soniox  ".to_string()), "sk-soniox");
-        assert_eq!(trimmed_soniox_key("\t sk-soniox \n".to_string()), "sk-soniox");
+        assert_eq!(
+            trimmed_soniox_key("\t sk-soniox \n".to_string()),
+            "sk-soniox"
+        );
         assert_eq!(trimmed_soniox_key("".to_string()), "");
         assert_eq!(trimmed_soniox_key("   ".to_string()), "");
     }

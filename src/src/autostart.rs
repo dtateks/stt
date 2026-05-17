@@ -248,8 +248,10 @@ mod tests {
         );
 
         assert_eq!(result, Err("could not resolve current_exe".to_string()));
-        assert!(executed_steps.borrow().is_empty(),
-            "plugin must NOT be initialised when current_exe resolution fails");
+        assert!(
+            executed_steps.borrow().is_empty(),
+            "plugin must NOT be initialised when current_exe resolution fails"
+        );
     }
 
     #[test]

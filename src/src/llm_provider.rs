@@ -99,11 +99,7 @@ mod tests {
 
     #[test]
     fn id_round_trips_through_parse() {
-        for provider in [
-            Provider::Xai,
-            Provider::OpenAiCompatible,
-            Provider::Gemini,
-        ] {
+        for provider in [Provider::Xai, Provider::OpenAiCompatible, Provider::Gemini] {
             assert_eq!(Provider::parse(provider.id()), Ok(provider));
         }
     }
@@ -148,7 +144,10 @@ mod tests {
     #[test]
     fn display_name_is_human_facing_label_for_each_variant() {
         assert_eq!(Provider::Xai.display_name(), "xAI");
-        assert_eq!(Provider::OpenAiCompatible.display_name(), "OpenAI-compatible");
+        assert_eq!(
+            Provider::OpenAiCompatible.display_name(),
+            "OpenAI-compatible"
+        );
         assert_eq!(Provider::Gemini.display_name(), "Gemini");
     }
 

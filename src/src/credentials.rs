@@ -280,7 +280,10 @@ mod tests {
 
     #[test]
     fn first_non_empty_returns_the_first_non_empty_candidate() {
-        assert_eq!(first_non_empty(["store-xai", "env-xai", "shell-xai"]), "store-xai");
+        assert_eq!(
+            first_non_empty(["store-xai", "env-xai", "shell-xai"]),
+            "store-xai"
+        );
         assert_eq!(first_non_empty(["", "env-xai", "shell-xai"]), "env-xai");
         assert_eq!(first_non_empty(["", "", "shell-xai"]), "shell-xai");
     }
@@ -311,7 +314,8 @@ mod tests {
             soniox_key: "shell-soniox".to_string(),
         };
 
-        let resolved = resolve_credentials_with_precedence(&store, &env_credentials, &shell_credentials);
+        let resolved =
+            resolve_credentials_with_precedence(&store, &env_credentials, &shell_credentials);
 
         // xai: store wins over env and shell.
         assert_eq!(resolved.xai_key, "store-xai");

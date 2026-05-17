@@ -1,22 +1,24 @@
 use tauri::utils::config::WindowConfig;
-use tauri::{AppHandle, Manager, RunEvent, Theme, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    AppHandle, Manager, RunEvent, Theme, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 
+#[cfg(target_os = "macos")]
+pub mod applescript;
 mod autostart;
 pub mod bar_window;
+pub mod clipboard;
 mod commands;
+pub mod credentials;
 mod helper_mode;
+pub mod llm_provider;
+pub mod llm_service;
 #[cfg(target_os = "macos")]
 mod macos_app_shell;
 pub mod mic_shortcut;
+pub mod permissions;
 mod platform_app_shell;
 mod platform_runtime_info;
-#[cfg(target_os = "macos")]
-pub mod applescript;
-pub mod clipboard;
-pub mod credentials;
-pub mod llm_provider;
-pub mod llm_service;
-pub mod permissions;
 pub mod shell_credentials;
 pub mod soniox_auth;
 pub mod soniox_models;
@@ -24,11 +26,11 @@ pub mod text_inserter;
 #[cfg(not(target_os = "macos"))]
 mod windows_app_shell;
 
+pub(crate) use bar_window::BAR_WINDOW_LABEL;
 pub use bar_window::{
     run_bar_close_request_sequence, run_bar_show_sequence,
     run_macos_bar_runtime_configuration_sequence,
 };
-pub(crate) use bar_window::BAR_WINDOW_LABEL;
 pub use helper_mode::maybe_run_from_args;
 pub use platform_app_shell::{
     run_hide_bar_contract, run_runtime_event_contract, run_set_bar_mouse_events_contract,
@@ -38,8 +40,6 @@ pub use platform_app_shell::{
 use autostart::{setup_launch_at_login, should_show_main_window_on_current_launch};
 
 const MAIN_WINDOW_LABEL: &str = "main";
-
-
 
 pub fn run_main_window_show_sequence<UnminimizeMainWindow, ShowMainWindow, FocusMainWindow>(
     mut unminimize_main_window: UnminimizeMainWindow,
@@ -80,8 +80,6 @@ where
     hide_main_window()
 }
 
-
-
 pub(crate) fn show_main_window_with_runtime_invariants(
     main_window: &WebviewWindow,
 ) -> tauri::Result<()> {
@@ -117,9 +115,7 @@ pub(crate) fn handle_macos_runtime_event(app_handle: &AppHandle, event: RunEvent
         ..
     } = event
     {
-        run_macos_reopen_window_sequence(has_visible_windows, || {
-            reopen_main_window(app_handle)
-        });
+        run_macos_reopen_window_sequence(has_visible_windows, || reopen_main_window(app_handle));
     }
 }
 
@@ -156,15 +152,14 @@ pub(crate) fn build_main_window(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if let Some(exit_code) = helper_mode::maybe_run_from_args(std::env::args()) {
         std::process::exit(exit_code);
     }
 
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let app =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             reopen_main_window(app);
         }));
 
@@ -232,4 +227,3 @@ pub fn run() {
         platform_app_shell::handle_runtime_event(app_handle, event);
     });
 }
-

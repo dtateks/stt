@@ -259,13 +259,11 @@ mod tests {
     fn rejects_isize_min_change_count_when_clearing_clipboard() {
         let result = validate_pasteboard_change_count(isize::MIN);
         assert!(result.is_err());
-        assert!(
-            result
-                .err()
-                .as_deref()
-                .map(|message| message.starts_with("Clipboard clear returned invalid change count:"))
-                .unwrap_or(false),
-        );
+        assert!(result
+            .err()
+            .as_deref()
+            .map(|message| message.starts_with("Clipboard clear returned invalid change count:"))
+            .unwrap_or(false),);
     }
 
     #[cfg(target_os = "macos")]
