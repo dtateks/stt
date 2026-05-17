@@ -17,7 +17,14 @@ interface Harness {
   reset: ReturnType<typeof vi.fn<() => boolean>>;
 }
 
-function buildHarness(overrides: Partial<Pick<Harness, "load" | "save" | "reset" | "getDefault">> = {}): Harness {
+interface StopWordEditorCallbacks {
+  getDefault: () => string;
+  load: () => string;
+  save: (word: string) => boolean;
+  reset: () => boolean;
+}
+
+function buildHarness(overrides: Partial<StopWordEditorCallbacks> = {}): Harness {
   const inputEl = document.createElement("input");
   const resetBtnEl = document.createElement("button");
   const statusField = {

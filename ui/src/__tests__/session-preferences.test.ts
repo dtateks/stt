@@ -92,8 +92,9 @@ describe("resolveLlmRequestOptions", () => {
   it("falls back to xai when config.llm.provider is empty/missing", () => {
     const config: AppConfig = {
       ...BASE_CONFIG,
-      llm: { ...BASE_CONFIG.llm, provider: undefined as unknown as string },
+      llm: { ...BASE_CONFIG.llm },
     };
+    delete (config.llm as Partial<AppConfig["llm"]>).provider;
 
     const result = resolveLlmRequestOptions(config);
 
