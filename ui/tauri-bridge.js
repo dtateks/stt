@@ -199,11 +199,17 @@
    */
   window.voiceToTextDefaults = {
     terms: [
-      "gbrain", "claude", "object", "repo", "code", "action", "path",
-      "goal", "bash", "best", "approach", "tmux", "session", "send",
-      "get", "context", "instance", "set", "docs", "hard", "phase",
-      "line", "dev", "rule", "orchestrator", "change", "chrome", "trace",
-      "research", "auth", "instruction", "preview", "html", "markdown",
+      "action", "AGENTS.md", "approach", "auth", "bash", "batch",
+      "best", "cache", "cause", "change", "chrome", "chunk", "Claude",
+      "Claude Code", "CLAUDE.md", "CLI", "code", "Codex", "context",
+      "dev", "diff", "docs", "drift", "edge", "eval", "fetch", "fork",
+      "gbrain", "get", "goal", "graph", "hard", "hook", "html",
+      "instance", "instruction", "line", "markdown", "max", "merge",
+      "mock", "mount", "node", "object", "old", "OpenCode",
+      "orchestrator", "patch", "path", "phase", "preview", "repo",
+      "research", "result", "root", "route", "rule", "send", "session",
+      "set", "shell", "solve", "source", "state", "sync", "this",
+      "tmux", "trace", "truth", "vault",
     ],
   };
 })();
