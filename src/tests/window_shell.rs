@@ -687,9 +687,20 @@ fn runtime_commands_use_panel_mouse_event_toggle_path() {
 }
 
 #[test]
-fn runtime_positioning_uses_global_mouse_fallback_for_background_shortcuts() {
+fn runtime_positioning_prefers_focused_screen_before_mouse_fallbacks() {
     let bar_window_rs = read_project_file("src/bar_window.rs");
 
+    let focused_index = bar_window_rs
+        .find("monitor_from_focused_screen(app)")
+        .expect("bar positioning should query the focused screen");
+    let cursor_index = bar_window_rs
+        .find("monitor_from_cursor(app)")
+        .expect("bar positioning should keep cursor fallback");
+
+    assert!(
+        focused_index < cursor_index,
+        "bar positioning should prefer the keyboard-focus screen before cursor fallbacks"
+    );
     assert!(
         bar_window_rs.contains("monitor_from_global_mouse_location"),
         "bar positioning should include global-mouse fallback when cursor lookup fails"

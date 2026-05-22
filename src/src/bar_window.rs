@@ -16,11 +16,15 @@
 //!   click-through; per-control hit-testing is not available, so the HUD
 //!   stays INTERACTIVE while visible and only flips to PASSIVE on hide/stop.
 //! - Monitor scale-factor must be applied before comparing logical HUD size
-//!   to physical monitor size; positioning falls back to global cursor
-//!   location when `cursor_position()` fails (e.g., fullscreen shortcut).
+//!   to physical monitor size; positioning prefers the focused screen and
+//!   only falls back to cursor/global mouse location when focus lookup fails.
 
-use tauri::{AppHandle, PhysicalPosition, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    AppHandle, PhysicalPosition, PhysicalSize, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 
+#[cfg(target_os = "macos")]
+use core_graphics::display::CGDisplayBounds;
 #[cfg(target_os = "macos")]
 use core_graphics::event::CGEvent;
 #[cfg(target_os = "macos")]
@@ -32,7 +36,9 @@ use objc2::msg_send;
 #[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSColor, NSWindowCollectionBehavior};
+use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSColor, NSScreen, NSWindowCollectionBehavior};
 #[cfg(target_os = "macos")]
 use objc2_foundation::{NSNumber, NSString};
 #[cfg(target_os = "macos")]
@@ -353,41 +359,103 @@ fn monitor_from_global_mouse_location(_app: &AppHandle) -> Option<tauri::Monitor
     None
 }
 
+#[cfg(target_os = "macos")]
+fn monitor_from_focused_screen(app: &AppHandle) -> Option<tauri::Monitor> {
+    let mtm = MainThreadMarker::new()?;
+    let screen = NSScreen::mainScreen(mtm)?;
+    let display_id = screen.CGDirectDisplayID();
+    if display_id == 0 {
+        return None;
+    }
+
+    let bounds = unsafe { CGDisplayBounds(display_id) };
+    let center_x = bounds.origin.x + bounds.size.width / 2.0;
+    let center_y = bounds.origin.y + bounds.size.height / 2.0;
+
+    app.monitor_from_point(center_x, center_y)
+        .ok()
+        .and_then(|monitor| monitor)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn monitor_from_focused_screen(_app: &AppHandle) -> Option<tauri::Monitor> {
+    None
+}
+
+fn monitor_from_cursor(app: &AppHandle) -> Option<tauri::Monitor> {
+    app.cursor_position()
+        .ok()
+        .and_then(|cursor| {
+            app.monitor_from_point(cursor.x, cursor.y)
+                .ok()
+                .and_then(|monitor| monitor)
+        })
+        .or_else(|| monitor_from_global_mouse_location(app))
+}
+
+fn select_bar_monitor<Monitor, FocusedMonitor, CursorMonitor, PrimaryMonitor>(
+    focused_monitor: FocusedMonitor,
+    cursor_monitor: CursorMonitor,
+    primary_monitor: PrimaryMonitor,
+) -> Option<Monitor>
+where
+    FocusedMonitor: FnOnce() -> Option<Monitor>,
+    CursorMonitor: FnOnce() -> Option<Monitor>,
+    PrimaryMonitor: FnOnce() -> Option<Monitor>,
+{
+    focused_monitor()
+        .or_else(cursor_monitor)
+        .or_else(primary_monitor)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct BarMonitorGeometry {
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    scale_factor: f64,
+}
+
+impl From<&tauri::Monitor> for BarMonitorGeometry {
+    fn from(monitor: &tauri::Monitor) -> Self {
+        Self {
+            position: *monitor.position(),
+            size: *monitor.size(),
+            scale_factor: monitor.scale_factor(),
+        }
+    }
+}
+
+fn bar_position_for_monitor(monitor: &BarMonitorGeometry) -> PhysicalPosition<i32> {
+    let scale = monitor.scale_factor;
+    let monitor_position = monitor.position;
+    let monitor_width = i64::from(monitor.size.width);
+    let monitor_height = i64::from(monitor.size.height);
+
+    let bar_width_physical = (BAR_WINDOW_WIDTH * scale) as i64;
+    let bar_height_physical = (BAR_WINDOW_HEIGHT * scale) as i64;
+    let bottom_offset_physical = (f64::from(BAR_BOTTOM_OFFSET_PX) * scale) as i64;
+
+    let centered_x = ((monitor_width - bar_width_physical).max(0)) / 2;
+    let x = i64::from(monitor_position.x) + centered_x;
+    let y = i64::from(monitor_position.y)
+        + (monitor_height - bar_height_physical - bottom_offset_physical).max(0);
+
+    PhysicalPosition::new(x as i32, y as i32)
+}
+
 pub(crate) fn position_bar_window_bottom_center(
     app: &AppHandle,
     bar_window: &WebviewWindow,
 ) -> tauri::Result<()> {
-    let monitor_from_cursor = app.cursor_position().ok().and_then(|cursor| {
-        app.monitor_from_point(cursor.x, cursor.y)
-            .ok()
-            .and_then(|monitor| monitor)
-    });
-
-    let monitor_from_cursor =
-        monitor_from_cursor.or_else(|| monitor_from_global_mouse_location(app));
-
-    let monitor = match monitor_from_cursor {
-        Some(monitor) => Some(monitor),
-        None => app.primary_monitor()?,
-    };
+    let monitor = select_bar_monitor(
+        || monitor_from_focused_screen(app),
+        || monitor_from_cursor(app),
+        || app.primary_monitor().ok().flatten(),
+    );
 
     if let Some(monitor) = monitor {
-        let scale = monitor.scale_factor();
-        let monitor_position = monitor.position();
-        let monitor_width = i64::from(monitor.size().width);
-        let monitor_height = i64::from(monitor.size().height);
-
-        // Window config dimensions are logical; monitor.size() is physical.
-        let bar_width_physical = (BAR_WINDOW_WIDTH * scale) as i64;
-        let bar_height_physical = (BAR_WINDOW_HEIGHT * scale) as i64;
-        let bottom_offset_physical = (f64::from(BAR_BOTTOM_OFFSET_PX) * scale) as i64;
-
-        let centered_x = ((monitor_width - bar_width_physical).max(0)) / 2;
-        let x = i64::from(monitor_position.x) + centered_x;
-        let y = i64::from(monitor_position.y)
-            + (monitor_height - bar_height_physical - bottom_offset_physical).max(0);
-
-        bar_window.set_position(PhysicalPosition::new(x as i32, y as i32))?;
+        let geometry = BarMonitorGeometry::from(&monitor);
+        bar_window.set_position(bar_position_for_monitor(&geometry))?;
     }
 
     Ok(())
@@ -457,5 +525,42 @@ mod tests {
         assert!(bar_is_user_presented(true, Some(true)));
         assert!(!bar_is_user_presented(true, Some(false)));
         assert!(!bar_is_user_presented(true, None));
+    }
+}
+
+#[cfg(test)]
+mod positioning_tests {
+    use super::*;
+
+    #[test]
+    fn bar_monitor_selection_prefers_focused_screen_over_cursor_screen() {
+        let selected =
+            select_bar_monitor(|| Some("focused"), || Some("cursor"), || Some("primary"));
+
+        assert_eq!(selected, Some("focused"));
+    }
+
+    #[test]
+    fn bar_monitor_selection_keeps_cursor_and_primary_fallbacks() {
+        let selected_from_cursor =
+            select_bar_monitor(|| None, || Some("cursor"), || Some("primary"));
+        let selected_from_primary = select_bar_monitor(|| None, || None, || Some("primary"));
+
+        assert_eq!(selected_from_cursor, Some("cursor"));
+        assert_eq!(selected_from_primary, Some("primary"));
+    }
+
+    #[test]
+    fn bar_position_uses_scaled_hud_size_inside_selected_monitor() {
+        let monitor = BarMonitorGeometry {
+            position: PhysicalPosition::new(3024, 0),
+            size: PhysicalSize::new(3456, 2234),
+            scale_factor: 2.0,
+        };
+
+        assert_eq!(
+            bar_position_for_monitor(&monitor),
+            PhysicalPosition::new(4152, 2042)
+        );
     }
 }
