@@ -369,8 +369,12 @@ fn monitor_from_focused_screen(app: &AppHandle) -> Option<tauri::Monitor> {
     }
 
     let bounds = unsafe { CGDisplayBounds(display_id) };
-    let center_x = bounds.origin.x + bounds.size.width / 2.0;
-    let center_y = bounds.origin.y + bounds.size.height / 2.0;
+    let (center_x, center_y) = rect_center(
+        bounds.origin.x,
+        bounds.origin.y,
+        bounds.size.width,
+        bounds.size.height,
+    );
 
     app.monitor_from_point(center_x, center_y)
         .ok()
@@ -406,6 +410,10 @@ where
     focused_monitor()
         .or_else(cursor_monitor)
         .or_else(primary_monitor)
+}
+
+fn rect_center(origin_x: f64, origin_y: f64, width: f64, height: f64) -> (f64, f64) {
+    (origin_x + width / 2.0, origin_y + height / 2.0)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -548,6 +556,11 @@ mod positioning_tests {
 
         assert_eq!(selected_from_cursor, Some("cursor"));
         assert_eq!(selected_from_primary, Some("primary"));
+    }
+
+    #[test]
+    fn focused_display_center_targets_the_display_instead_of_cursor_position() {
+        assert_eq!(rect_center(3024.0, -500.0, 2560.0, 1440.0), (4304.0, 220.0));
     }
 
     #[test]
