@@ -206,7 +206,7 @@
       "gbrain", "get", "goal", "graph", "hard", "hook", "html",
       "instance", "instruction", "line", "markdown", "max", "merge",
       "mock", "mount", "node", "object", "old", "OpenCode",
-      "orchestrator", "patch", "path", "phase", "preview", "repo",
+      "orchestrator", "patch", "path", "phase", "preview", "prompt", "repo",
       "research", "result", "root", "route", "rule", "send", "session",
       "set", "shell", "solve", "source", "state", "sync", "this",
       "tmux", "trace", "truth", "vault",
