@@ -16,29 +16,45 @@
 //!   click-through; per-control hit-testing is not available, so the HUD
 //!   stays INTERACTIVE while visible and only flips to PASSIVE on hide/stop.
 //! - Monitor scale-factor must be applied before comparing logical HUD size
-//!   to physical monitor size; positioning prefers the focused screen and
-//!   only falls back to cursor/global mouse location when focus lookup fails.
+//!   to physical monitor size. Screen selection targets the frontmost app's
+//!   FRONTMOST WINDOW (via the CoreGraphics window list — no Accessibility
+//!   grant needed) — the window the dictated text lands in — then falls back to
+//!   the global mouse cursor and finally the primary monitor. It deliberately
+//!   AVOIDS `NSScreen.mainScreen`: that value
+//!   is process-local (anchored to *our* key window) and, for a background
+//!   LSUIElement/accessory app that never becomes active, it collapses to the
+//!   primary screen or holds a STALE value that drifts after hours of uptime
+//!   and display sleep/wake — the root cause of "HUD shows on the wrong screen
+//!   until quit+reopen". tao reads all monitor geometry live from CoreGraphics
+//!   each call, so the focused-window point is the only signal that needs care.
 
 use tauri::{
     AppHandle, PhysicalPosition, PhysicalSize, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
 #[cfg(target_os = "macos")]
-use core_graphics::display::CGDisplayBounds;
+use core_foundation::base::TCFType;
+#[cfg(target_os = "macos")]
+use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
+#[cfg(target_os = "macos")]
+use core_foundation::string::CFStringRef;
 #[cfg(target_os = "macos")]
 use core_graphics::event::CGEvent;
 #[cfg(target_os = "macos")]
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 #[cfg(target_os = "macos")]
-use core_graphics::window::{create_window_list, kCGNullWindowID, kCGWindowListOptionOnScreenOnly};
+use core_graphics::geometry::CGRect;
+#[cfg(target_os = "macos")]
+use core_graphics::window::{
+    copy_window_info, create_window_list, kCGNullWindowID, kCGWindowBounds, kCGWindowLayer,
+    kCGWindowListOptionOnScreenOnly, kCGWindowOwnerPID,
+};
 #[cfg(target_os = "macos")]
 use objc2::msg_send;
 #[cfg(target_os = "macos")]
 use objc2::runtime::AnyObject;
 #[cfg(target_os = "macos")]
-use objc2::MainThreadMarker;
-#[cfg(target_os = "macos")]
-use objc2_app_kit::{NSColor, NSScreen, NSWindowCollectionBehavior};
+use objc2_app_kit::{NSColor, NSWindowCollectionBehavior, NSWorkspace};
 #[cfg(target_os = "macos")]
 use objc2_foundation::{NSNumber, NSString};
 #[cfg(target_os = "macos")]
@@ -359,30 +375,101 @@ fn monitor_from_global_mouse_location(_app: &AppHandle) -> Option<tauri::Monitor
     None
 }
 
+// CoreGraphics window-list helpers. Unlike the Accessibility API, these need
+// NO TCC/Accessibility grant, so they work on first run and from any process.
 #[cfg(target_os = "macos")]
-fn monitor_from_focused_screen(app: &AppHandle) -> Option<tauri::Monitor> {
-    let mtm = MainThreadMarker::new()?;
-    let screen = NSScreen::mainScreen(mtm)?;
-    let display_id = screen.CGDirectDisplayID();
-    if display_id == 0 {
+const CF_NUMBER_SINT64_TYPE: i64 = 4;
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn CFDictionaryGetValue(
+        dict: *const std::os::raw::c_void,
+        key: *const std::os::raw::c_void,
+    ) -> *const std::os::raw::c_void;
+    fn CFNumberGetValue(
+        number: *const std::os::raw::c_void,
+        the_type: i64,
+        value_out: *mut std::os::raw::c_void,
+    ) -> u8;
+}
+
+/// Read a `CFNumber`-valued CGWindowList entry (e.g. `kCGWindowLayer`,
+/// `kCGWindowOwnerPID`) as `i64`. None when the key is absent or not a number.
+#[cfg(target_os = "macos")]
+unsafe fn window_dict_i64(dict: *const std::os::raw::c_void, key: CFStringRef) -> Option<i64> {
+    let value = CFDictionaryGetValue(dict, key as *const std::os::raw::c_void);
+    if value.is_null() {
+        return None;
+    }
+    let mut out: i64 = 0;
+    let read = CFNumberGetValue(
+        value,
+        CF_NUMBER_SINT64_TYPE,
+        &mut out as *mut i64 as *mut std::os::raw::c_void,
+    );
+    (read != 0).then_some(out)
+}
+
+/// Center of the frontmost application's frontmost on-screen window, in
+/// top-left global display coordinates (the space `monitor_from_point` /
+/// `CGDisplayBounds` use). Queried live from the CoreGraphics window list every
+/// show, so it tracks the user's active window and never goes stale like the
+/// process-local `NSScreen.mainScreen`. The on-screen list is front-to-back, so
+/// the first normal-layer (0) window owned by the frontmost app is the one the
+/// user is working in — i.e. where dictated text lands.
+#[cfg(target_os = "macos")]
+fn frontmost_window_center() -> Option<(f64, f64)> {
+    let workspace = NSWorkspace::sharedWorkspace();
+    let frontmost_pid = i64::from(workspace.frontmostApplication()?.processIdentifier());
+    if frontmost_pid <= 0 {
         return None;
     }
 
-    let bounds = unsafe { CGDisplayBounds(display_id) };
-    let (center_x, center_y) = rect_center(
-        bounds.origin.x,
-        bounds.origin.y,
-        bounds.size.width,
-        bounds.size.height,
-    );
+    let windows = copy_window_info(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)?;
+    for entry in windows.iter() {
+        let dict = *entry;
+        if dict.is_null() {
+            continue;
+        }
 
+        unsafe {
+            if window_dict_i64(dict, kCGWindowLayer) != Some(0)
+                || window_dict_i64(dict, kCGWindowOwnerPID) != Some(frontmost_pid)
+            {
+                continue;
+            }
+
+            let bounds = CFDictionaryGetValue(dict, kCGWindowBounds as *const std::os::raw::c_void);
+            if bounds.is_null() {
+                continue;
+            }
+            let bounds = CFDictionary::wrap_under_get_rule(bounds as CFDictionaryRef);
+            if let Some(rect) = CGRect::from_dict_representation(&bounds) {
+                if rect.size.width > 0.0 && rect.size.height > 0.0 {
+                    return Some(rect_center(
+                        rect.origin.x,
+                        rect.origin.y,
+                        rect.size.width,
+                        rect.size.height,
+                    ));
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn monitor_from_active_window(app: &AppHandle) -> Option<tauri::Monitor> {
+    let (center_x, center_y) = frontmost_window_center()?;
     app.monitor_from_point(center_x, center_y)
         .ok()
         .and_then(|monitor| monitor)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn monitor_from_focused_screen(_app: &AppHandle) -> Option<tauri::Monitor> {
+fn monitor_from_active_window(_app: &AppHandle) -> Option<tauri::Monitor> {
     None
 }
 
@@ -456,14 +543,29 @@ pub(crate) fn position_bar_window_bottom_center(
     bar_window: &WebviewWindow,
 ) -> tauri::Result<()> {
     let monitor = select_bar_monitor(
-        || monitor_from_focused_screen(app),
+        || monitor_from_active_window(app),
         || monitor_from_cursor(app),
         || app.primary_monitor().ok().flatten(),
     );
 
     if let Some(monitor) = monitor {
         let geometry = BarMonitorGeometry::from(&monitor);
-        bar_window.set_position(bar_position_for_monitor(&geometry))?;
+        let target = bar_position_for_monitor(&geometry);
+        #[cfg(target_os = "macos")]
+        eprintln!(
+            "[bar-position] monitor_origin=({},{}) size=({}x{}) scale={} -> target=({},{})",
+            geometry.position.x,
+            geometry.position.y,
+            geometry.size.width,
+            geometry.size.height,
+            geometry.scale_factor,
+            target.x,
+            target.y
+        );
+        bar_window.set_position(target)?;
+    } else {
+        #[cfg(target_os = "macos")]
+        eprintln!("[bar-position] no monitor resolved; HUD position left unchanged");
     }
 
     Ok(())
@@ -536,16 +638,66 @@ mod tests {
     }
 }
 
+/// Manual on-hardware probe (not run in CI). Prints what the live
+/// active-window signal resolves to versus the primary display that a
+/// background-app `NSScreen.mainScreen` collapses to, so the fix can be
+/// confirmed on a real multi-display session without waiting hours.
+///   cargo test --manifest-path src/Cargo.toml screen_signal_probe -- --ignored --nocapture
+#[cfg(all(test, target_os = "macos"))]
+mod hardware_probe {
+    use super::*;
+    use core_graphics::display::{CGDisplay, CGDisplayBounds};
+
+    #[test]
+    #[ignore = "manual hardware probe; run with --ignored --nocapture"]
+    fn screen_signal_probe() {
+        let workspace = NSWorkspace::sharedWorkspace();
+        let pid = workspace
+            .frontmostApplication()
+            .map(|app| app.processIdentifier())
+            .unwrap_or(-1);
+        eprintln!("[probe] frontmost app pid = {pid}");
+
+        let center = frontmost_window_center();
+        eprintln!("[probe] NEW signal frontmost_window_center = {center:?}");
+
+        let main = CGDisplay::main().id;
+        let mb = unsafe { CGDisplayBounds(main) };
+        eprintln!(
+            "[probe] OLD signal (bg-app mainScreen == primary CGMainDisplayID {main}) bounds = ({}, {}, {}, {})",
+            mb.origin.x, mb.origin.y, mb.size.width, mb.size.height
+        );
+
+        if let Ok(ids) = CGDisplay::active_displays() {
+            for id in ids {
+                let b = unsafe { CGDisplayBounds(id) };
+                let holds = center
+                    .map(|(x, y)| {
+                        x >= b.origin.x
+                            && x < b.origin.x + b.size.width
+                            && y >= b.origin.y
+                            && y < b.origin.y + b.size.height
+                    })
+                    .unwrap_or(false);
+                eprintln!(
+                    "[probe] display {id} bounds=({}, {}, {}, {}) holds_active_window={holds}",
+                    b.origin.x, b.origin.y, b.size.width, b.size.height
+                );
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod positioning_tests {
     use super::*;
 
     #[test]
-    fn bar_monitor_selection_prefers_focused_screen_over_cursor_screen() {
+    fn bar_monitor_selection_prefers_active_window_over_cursor_screen() {
         let selected =
-            select_bar_monitor(|| Some("focused"), || Some("cursor"), || Some("primary"));
+            select_bar_monitor(|| Some("active-window"), || Some("cursor"), || Some("primary"));
 
-        assert_eq!(selected, Some("focused"));
+        assert_eq!(selected, Some("active-window"));
     }
 
     #[test]
@@ -559,7 +711,10 @@ mod positioning_tests {
     }
 
     #[test]
-    fn focused_display_center_targets_the_display_instead_of_cursor_position() {
+    fn focused_window_center_from_origin_and_extent() {
+        // The active-window signal hands rect_center the focused window's
+        // top-left global origin and its size; the center picks the display
+        // holding most of the window. Negative origin = display left of primary.
         assert_eq!(rect_center(3024.0, -500.0, 2560.0, 1440.0), (4304.0, 220.0));
     }
 

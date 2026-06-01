@@ -605,6 +605,28 @@ fn runtime_setup_uses_accessory_activation_policy_for_background_app() {
 }
 
 #[test]
+fn bar_positioning_targets_focused_window_not_stale_main_screen() {
+    let bar_rs = read_project_file("src/bar_window.rs");
+
+    // NSScreen.mainScreen is process-local (anchored to OUR key window) and, for
+    // a background Accessory app that is never active, collapses to the menu-bar
+    // screen or holds a value that goes stale after long uptime / sleep-wake.
+    // That was the root cause of "HUD shows on the wrong screen until reopen", so
+    // the positioning path must not regress to it.
+    assert!(
+        !bar_rs.contains("NSScreen::mainScreen"),
+        "bar positioning must not call NSScreen::mainScreen (process-local/stale for background apps)"
+    );
+    // Screen selection must come from the frontmost app's frontmost window
+    // (CoreGraphics window list — system-wide, live, no TCC), which tracks where
+    // dictated text is inserted.
+    assert!(
+        bar_rs.contains("copy_window_info") && bar_rs.contains("frontmostApplication"),
+        "bar positioning should resolve the active screen from the frontmost app's window"
+    );
+}
+
+#[test]
 fn runtime_invariant_macos_reopen_restores_hidden_main_window_only_when_no_windows_are_visible() {
     let executed_steps: RefCell<Vec<&str>> = RefCell::new(Vec::new());
 
@@ -687,19 +709,19 @@ fn runtime_commands_use_panel_mouse_event_toggle_path() {
 }
 
 #[test]
-fn runtime_positioning_prefers_focused_screen_before_mouse_fallbacks() {
+fn runtime_positioning_prefers_active_window_before_mouse_fallbacks() {
     let bar_window_rs = read_project_file("src/bar_window.rs");
 
-    let focused_index = bar_window_rs
-        .find("monitor_from_focused_screen(app)")
-        .expect("bar positioning should query the focused screen");
+    let active_window_index = bar_window_rs
+        .find("monitor_from_active_window(app)")
+        .expect("bar positioning should query the frontmost app's focused window");
     let cursor_index = bar_window_rs
         .find("monitor_from_cursor(app)")
         .expect("bar positioning should keep cursor fallback");
 
     assert!(
-        focused_index < cursor_index,
-        "bar positioning should prefer the keyboard-focus screen before cursor fallbacks"
+        active_window_index < cursor_index,
+        "bar positioning should prefer the focused-window screen before cursor fallbacks"
     );
     assert!(
         bar_window_rs.contains("monitor_from_global_mouse_location"),
