@@ -27,12 +27,14 @@ body {
 
 /* ─── HUD shell ──────────────────────────────────────────────────────────── */
 /*
- * Frosted-glass surface. The actual desktop blur is done NATIVELY by an
- * NSVisualEffectView (HudWindow material) behind the transparent WKWebView —
- * see apply_bar_window_vibrancy in bar_window.rs. CSS `backdrop-filter` is
- * deliberately NOT used: it cannot blur content behind a transparent macOS
- * window (only in-page DOM) and on WKWebView post-Sonoma forces the surface
- * opaque (tauri#12804), which is what flattened this HUD into a solid block.
+ * Translucent dark surface. See-through comes from a low-alpha flat tint over
+ * the natively-transparent NSPanel + WKWebView (transparent:true,
+ * macOSPrivateApi:true, drawsBackground=false) — the OS compositor shows the
+ * desktop through at (1 - alpha), ~62% here. NO native NSVisualEffectView: the
+ * HudWindow material is itself fairly opaque and, stacked on this tint, made
+ * the bar read as a solid block. NO CSS backdrop-filter: it cannot blur content
+ * behind a transparent macOS window (only in-page DOM) and on WKWebView
+ * post-Sonoma forces the surface opaque (tauri#12804) — the original regression.
  */
 .hud {
   position: fixed;
@@ -47,12 +49,12 @@ body {
   isolation: isolate;
 
   /*
-   * Light tint ON TOP of the native vibrancy for legibility and color depth,
-   * plus a layered inset edge for the curved-glass highlight/shadow. MUST stay
-   * translucent: an opaque background blocks the native blur entirely
-   * (window-vibrancy#199), so the desktop reads through at ~72%.
+   * 0.38 = the balanced value from before the regression: clearly see-through
+   * yet legible. Raise toward 0.5 if text needs more contrast over busy
+   * backgrounds; lower toward 0.30 for more transparency. Inset edges give the
+   * curved-glass highlight (top) / shadow (bottom).
    */
-  background: rgba(22, 24, 30, 0.28);
+  background: rgba(22, 24, 30, 0.38);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-2xl);
   box-shadow:
@@ -62,10 +64,8 @@ body {
 }
 
 /*
- * Reduce Transparency: the native NSVisualEffectView already renders solid in
- * this mode, but if native vibrancy is ever unavailable the bare 0.28 tint
- * would be too see-through to read. Raise it to a near-solid surface so the HUD
- * stays legible regardless of the native layer's state.
+ * Reduce Transparency: macOS users who enable this accessibility setting expect
+ * opaque surfaces. Raise the tint to a near-solid, legible background.
  */
 @media (prefers-reduced-transparency: reduce) {
   .hud {
