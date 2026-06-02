@@ -324,6 +324,38 @@ pub(crate) fn configure_bar_webview_transparency(_bar_window: &WebviewWindow) ->
     Ok(())
 }
 
+/// Behind-window frosted-glass blur for the HUD.
+///
+/// CSS `backdrop-filter` cannot blur the desktop behind a transparent
+/// macOS window — it only blurs in-page DOM, and on WKWebView post-Sonoma it
+/// can force the surface opaque (tauri-apps/tauri#12804). True see-through
+/// frosted glass requires a native `NSVisualEffectView`, inserted behind the
+/// transparent WKWebView via `window-vibrancy`.
+///
+/// `HudWindow` is the semantic HUD material. State is forced `Active` (not
+/// `FollowsWindowActiveState`) because this is a background accessory app that
+/// is never the key window — otherwise the glass would render dimmed/inactive
+/// whenever the user is focused elsewhere, i.e. always. Corner radius matches
+/// the panel so the glass aligns with the rounded HUD. The `.hud` CSS tint
+/// MUST stay translucent: an opaque webview background blocks the vibrancy
+/// entirely (tauri-apps/window-vibrancy#199).
+///
+/// Non-fatal: on the rare platform where vibrancy is unavailable the HUD still
+/// works, degrading to the translucent CSS tint alone.
+#[cfg(target_os = "macos")]
+fn apply_bar_window_vibrancy(bar_window: &WebviewWindow) {
+    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+
+    if let Err(error) = apply_vibrancy(
+        bar_window,
+        NSVisualEffectMaterial::HudWindow,
+        Some(NSVisualEffectState::Active),
+        Some(BAR_WINDOW_CORNER_RADIUS),
+    ) {
+        eprintln!("[bar] native vibrancy unavailable; falling back to CSS tint only: {error}");
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) fn set_bar_ignores_mouse_events(app: &AppHandle, ignores: bool) -> tauri::Result<()> {
     let panel = app
@@ -598,6 +630,10 @@ pub(crate) fn build_bar_window(app: &tauri::App) -> tauri::Result<()> {
         let panel = bar_window.to_panel::<HUDPanel>()?;
         configure_bar_panel(&panel);
         configure_bar_webview_transparency(&bar_window)?;
+        // Insert the native behind-window blur once, behind the now-transparent
+        // webview. Unlike webview transparency (re-asserted per show), the
+        // NSVisualEffectView is our own contentView subview and persists.
+        apply_bar_window_vibrancy(&bar_window);
     }
 
     Ok(())
@@ -694,8 +730,11 @@ mod positioning_tests {
 
     #[test]
     fn bar_monitor_selection_prefers_active_window_over_cursor_screen() {
-        let selected =
-            select_bar_monitor(|| Some("active-window"), || Some("cursor"), || Some("primary"));
+        let selected = select_bar_monitor(
+            || Some("active-window"),
+            || Some("cursor"),
+            || Some("primary"),
+        );
 
         assert_eq!(selected, Some("active-window"));
     }

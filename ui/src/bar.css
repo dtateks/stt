@@ -27,9 +27,12 @@ body {
 
 /* ─── HUD shell ──────────────────────────────────────────────────────────── */
 /*
- * Glassmorphism surface: heavily translucent so the desktop bleeds through
- * while remaining legible. Depends on the native NSPanel + WKWebView being
- * cleared to transparent (see configure_bar_panel / configure_bar_webview_transparency).
+ * Frosted-glass surface. The actual desktop blur is done NATIVELY by an
+ * NSVisualEffectView (HudWindow material) behind the transparent WKWebView —
+ * see apply_bar_window_vibrancy in bar_window.rs. CSS `backdrop-filter` is
+ * deliberately NOT used: it cannot blur content behind a transparent macOS
+ * window (only in-page DOM) and on WKWebView post-Sonoma forces the surface
+ * opaque (tauri#12804), which is what flattened this HUD into a solid block.
  */
 .hud {
   position: fixed;
@@ -44,19 +47,30 @@ body {
   isolation: isolate;
 
   /*
-   * Glassmorphism: heavier tint so the surface reads as frosted glass,
-   * stronger blur + saturation for depth, and a layered inset edge for
-   * the curved-glass highlight on top / shadow on bottom.
+   * Light tint ON TOP of the native vibrancy for legibility and color depth,
+   * plus a layered inset edge for the curved-glass highlight/shadow. MUST stay
+   * translucent: an opaque background blocks the native blur entirely
+   * (window-vibrancy#199), so the desktop reads through at ~72%.
    */
-  background: rgba(22, 24, 30, 0.62);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  backdrop-filter: blur(40px) saturate(180%);
+  background: rgba(22, 24, 30, 0.28);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-2xl);
   box-shadow:
     0 12px 44px rgba(0, 0, 0, 0.6),
     inset 0 1px 0 rgba(255, 255, 255, 0.09),
     inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+
+/*
+ * Reduce Transparency: the native NSVisualEffectView already renders solid in
+ * this mode, but if native vibrancy is ever unavailable the bare 0.28 tint
+ * would be too see-through to read. Raise it to a near-solid surface so the HUD
+ * stays legible regardless of the native layer's state.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  .hud {
+    background: rgba(22, 24, 30, 0.92);
+  }
 }
 
 /* State-driven border accent — subtle, not a glow show */
